@@ -41,6 +41,7 @@
 6. **Privacy:** Gemini free tier and Mistral may train on data (user is in India, outside EEA). Private toggle → local Ollama only.
 7. **Design direction (M0.5):** "dreamy sky" inspired by a Dribbble mindfulness landing page (Moola by Kris Anfalova) — original assets only. Day sky (light) / Dusk (dark), periwinkle accent (#8B8FE8 family, #5a5fc9 for text on light), white pill top nav, signature Dial (quotas, budgets, autonomy), huge tight headings, Plus Jakarta Sans + Geist + Geist Mono, glass for containers only, code on solid panels, ≤ 2 blur layers, reduced-motion/transparency fallbacks, Comfortable/Compact density, columns motif only on onboarding/login.
 8. **Process:** one milestone per branch + PR; Plan mode first; new session per milestone; stop for review after each. Prompts and reviews come from the planning chat.
+9. **Model catalog + in-provider recommendation (SPEC §6.4):** catalog in M1, recommender + learning in M3.
 
 ## M0 outcome
 
@@ -77,6 +78,7 @@
 - Add Cerebras key + alias; add `local-code` (qwen2.5-coder:3b).
 - Linux installs of claude, codex, gemini, grok, opencode inside WSL; `sudo apt install wslu` for browser logins.
 - Arch-Router model pull deferred to M3.
+- Model catalog (SPEC §6.4): live `/models` pull on startup and every 24 h; `model_catalog` table; `config/model-tags.yaml` (curated tags) plus prices and free-tier limits in `config/providers.yaml`; "untagged" state for new models; recommended-model badges on provider cards with a "Use for…" action that writes a rule override. `model_stats` and the recommender land in M3.
 
 ## M0.5 approved changes
 

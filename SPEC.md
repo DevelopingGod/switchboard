@@ -116,6 +116,36 @@ Subscription CLIs talk directly to their vendors, so LiteLLM never sees that tra
 
 Implement media through LiteLLM's image and video generation APIs where supported (it supports Sora and Veo with cost tracking). For xAI Imagine, use LiteLLM if supported in the installed version; otherwise a thin adapter in the Router API calling xAI's OpenAI-style `/v1/images/generations` and `/v1/videos/generations`, with cost logged to the Router DB.
 
+### 6.4 Model catalog and in-provider recommendation
+
+Routing chooses the **provider and the model**, not just the provider.
+
+**Catalog**
+- On startup and every 24 h, pull each connected provider's live `/models` list (via LiteLLM where possible, else the provider API).
+- Store per model: provider, model id, display name, capability tags (`chat`, `code`, `reasoning`, `vision`, `long-context`, `fast`, `image`, `video`, `audio`), context window, max output, free-tier limits (from `config/providers.yaml`), price per 1M tokens / per image / per second, privacy flag (`no-training` | `may-train` | `local`), status (`available` | `deprecated` | `missing`).
+- Tags come from `config/model-tags.yaml` (curated, human-editable), with provider metadata as fallback. Unknown new models show as "untagged" until tagged.
+
+**Recommendation**
+- Hard filters first: privacy, budget, context size, required capability.
+- Then score = capability match for the task + measured quality (thumbs up/down) + measured latency + success rate + quota headroom + cost, within the privacy constraint.
+
+**Learning**
+- Record per model and task type: latency p50/p95, error/429 rate and user feedback. Recompute scores daily.
+- Never auto-pick a model with fewer than 5 samples over a proven one, unless the user enables "explore".
+
+**Explainability.** The "Why this?" chip shows provider, model, the top 3 reasons, and the runner-up.
+
+**UI**
+- Connections provider cards list recommended models with badges ("Best for code", "Fastest", "Largest context", "Free") and a "Use for…" action that writes a rule override.
+- The Composer's model picker groups models by provider with the same badges.
+- Manual choice always overrides.
+
+**Rules.** A rule target can be a specific model (`model:groq/openai/gpt-oss-120b`), an alias (`model:fast`) or a capability (`best:code`, `best:fast`, `best:long-context`) resolved by the recommender.
+
+**Data** (Router DB)
+- `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)`
+- `model_stats(model_id, task_type, samples, p50_ms, p95_ms, error_rate, thumbs_up, thumbs_down, score, updated_at)`
+
 ## 7. Routing
 
 ### 7.1 Pipeline
@@ -411,6 +441,8 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd)`
 - `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`
 - `media(request_id, type, provider, file_path, cost_usd)`
+- `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)` (see §6.4)
+- `model_stats(model_id, task_type, samples, p50_ms, p95_ms, error_rate, thumbs_up, thumbs_down, score, updated_at)` (see §6.4)
 
 Metrics service pulls LiteLLM spend logs and Paperclip run/cost data on a schedule (and on webhook if available) and writes into `costs`, so all dashboards read one table.
 
@@ -445,9 +477,9 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 |---|---|---|
 | M0 | Infra: WSL2, Docker, Postgres, LiteLLM with Ollama + Groq + Gemini; Paperclip running; `doctor.sh` | `doctor.sh` all green; a curl to LiteLLM `fast` and `local` works |
 | M0.5 | Design system (§8c): tokens, glass component kit, app shell, ⌘K, Simple/Pro mode | `/dev/components` renders in both themes and all states; reduced-transparency fallback works; AA contrast passes; axe clean; Lighthouse >= 90; visual baselines committed |
-| M1 | Connections screen + API + first-run wizard (§8b) | Can add/test API keys from UI; CLI cards show installed/logged-in for Claude Code, Codex, Gemini CLI, Grok Build, OpenCode; wizard completes end to end |
+| M1 | Connections screen + API + first-run wizard (§8b) | Can add/test API keys from UI; CLI cards show installed/logged-in for Claude Code, Codex, Gemini CLI, Grok Build, OpenCode; wizard completes end to end; the model catalog (§6.4) is populated from live provider lists, and provider cards show tagged recommended models |
 | M2 | Chat + Router (rules only, no classifier yet) | Manual pick and slash commands work; fallback on 429 verified; decision chip shown |
-| M3 | Rules UI + Arch-Router classifier | Dry-run tester; ≥ 85% correct on a 50-prompt labelled set in `tests/routing.jsonl` |
+| M3 | Rules UI + Arch-Router classifier | Dry-run tester; ≥ 85% correct on a 50-prompt labelled set in `tests/routing.jsonl`; `best:<capability>` targets resolve via the recommender, the "Why this?" chip shows model + top reasons, and feedback updates `model_stats` |
 | M4 | Jobs via Paperclip | "Fix tests in repo X" creates a Paperclip issue for the right agent; live status, approve/reject, diff view |
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |
