@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Switchboard health check. GREEN/RED = current milestone (M0) components; YELLOW = later
+# Switchboard health check. GREEN/RED = components of shipped milestones (M0, M1a); YELLOW = later
 # milestones or advisory. Exits non-zero if anything is RED.
 set -uo pipefail
 
@@ -16,6 +16,8 @@ section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 [[ -f "$ENV_FILE" ]] || { red "deploy/.env" "missing — run scripts/setup-wsl.sh"; exit 1; }
 set -a; . "$ENV_FILE"; set +a
 LITELLM="http://127.0.0.1:${LITELLM_PORT:-4000}"
+ROUTER="http://127.0.0.1:${ROUTER_PORT:-8100}"
+HOSTPROBE="http://127.0.0.1:${HOSTPROBE_PORT:-8101}"
 
 # json EXPR — evaluate a Python expression against stdin JSON as `d`.
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
@@ -67,12 +69,16 @@ PAPERCLIP_URL=${PAPERCLIP_URL:-http://127.0.0.1:3100}
 owns_postgres()  { "${COMPOSE[@]}" port postgres 5432 | grep -q ":${POSTGRES_PORT:-5432}\$"; }
 owns_litellm()   { curl -fsS -m 3 "$LITELLM/health/liveliness"; }
 owns_paperclip() { curl -fsS -m 3 "$PAPERCLIP_URL/api/health"; }
+owns_router()    { curl -fsS -m 3 "$ROUTER/health" | grep -q '"db"'; }
+owns_hostprobe() { curl -sS -m 3 "$HOSTPROBE/health" | grep -q 'unauthorized\|"ok"'; }
 port_check "${POSTGRES_PORT:-5432}" postgres owns_postgres
 port_check "${LITELLM_PORT:-4000}" litellm owns_litellm
 port_check "${PAPERCLIP_URL##*:}" paperclip owns_paperclip
+port_check "${ROUTER_PORT:-8100}" router owns_router
+port_check "${HOSTPROBE_PORT:-8101}" hostprobe owns_hostprobe
 
 section "Services"
-for svc in postgres litellm; do
+for svc in postgres litellm router; do
   state=$("${COMPOSE[@]}" ps --format '{{.Health}}' "$svc" 2>/dev/null)
   if [[ "$state" == healthy ]]; then green "$svc container" healthy
   else red "$svc container" "${state:-not running} — docker compose -f deploy/docker-compose.yml up -d"; fi
@@ -87,9 +93,11 @@ if curl -fsS -m 5 "$LITELLM/health/liveliness" >/dev/null 2>&1; then green "Lite
 else red "LiteLLM proxy" "not answering on $LITELLM"; fi
 
 models=$(curl -fsS -m 5 -H "Authorization: Bearer $LITELLM_MASTER_KEY" "$LITELLM/v1/models" | json '" ".join(sorted(m["id"] for m in d["data"]))')
-for alias in fast smart-free local private; do
+for alias in fast smart-free local private local-code; do
   [[ " $models " == *" $alias "* ]] || red "LiteLLM alias $alias" "not registered"
 done
+[[ -n "${CEREBRAS_API_KEY:-}$(curl -fsS -m 5 "$ROUTER/connections" 2>/dev/null | json '"x" if any(p["provider"]=="cerebras" and p["status"]=="connected" for p in d["providers"]) else ""')" \
+   && " $models " != *" cerebras "* ]] && red "LiteLLM alias cerebras" "Cerebras keyed but alias not registered"
 [[ -n "$models" ]] && green "LiteLLM aliases" "$models"
 
 section "Ollama (Windows, via Docker)"
@@ -103,10 +111,52 @@ if [[ -n "$tags" ]]; then
   else yellow "Arch-Router (M3)" "not pulled yet"; fi
 else red "Ollama reachable" "no answer from $OLLAMA_API_BASE — start Ollama on Windows"; fi
 
-section "Provider keys"
-[[ -n "${GROQ_API_KEY:-}" ]] && green "GROQ_API_KEY" set || red "GROQ_API_KEY" "empty in deploy/.env"
-[[ -n "${GEMINI_API_KEY:-}" ]] && green "GEMINI_API_KEY" set || red "GEMINI_API_KEY" "empty in deploy/.env"
-[[ -n "${CEREBRAS_API_KEY:-}" ]] && green "CEREBRAS_API_KEY (M1)" set || yellow "CEREBRAS_API_KEY (M1)" "not set"
+section "Router API (M1a)"
+if h=$(curl -fsS -m 10 "$ROUTER/health" 2>/dev/null); then
+  [[ $(echo "$h" | json 'd["db"]') == ok ]] && green "Router API" "$ROUTER" || red "Router API" "db: $(echo "$h" | json 'd["db"]')"
+  [[ $(echo "$h" | json 'd["litellm"]') == ok ]] && green "Router -> LiteLLM" ok || red "Router -> LiteLLM" down
+else red "Router API" "no answer on $ROUTER — docker compose -f deploy/docker-compose.yml up -d router"; fi
+
+status=$(curl -fsS -m 10 "$ROUTER/system/status" 2>/dev/null)
+head_rev=$("${COMPOSE[@]}" exec -T router alembic heads 2>/dev/null | awk '{print $1}')
+cur_rev=$(echo "$status" | json 'd["alembic_revision"]')
+if [[ -n "$head_rev" && "$cur_rev" == "$head_rev" ]]; then green "Router DB migrations" "at head ($cur_rev)"
+else red "Router DB migrations" "current '${cur_rev}', head '${head_rev}' — restart the router (it runs alembic upgrade head)"; fi
+
+# Secret keys: the router stores a SHA-256 fingerprint on first start. A changed key makes stored
+# provider keys (SWITCHBOARD_SECRET_KEY) or LiteLLM credentials (LITELLM_SALT_KEY) undecryptable.
+for k in switchboard_secret_key litellm_salt_key; do
+  K=${k^^}; v=$(echo "$status" | json "d['secret_keys']['$k']")
+  case "$v" in
+    ok)         green "$K" "set, matches stored fingerprint" ;;
+    unrecorded) yellow "$K" "set, fingerprint not recorded yet (router not started?)" ;;
+    changed)    red "$K" "CHANGED since first start — restore it from your backup (docs/m1a.md, Backups)" ;;
+    *)          red "$K" "${v:-unknown} — run scripts/setup-wsl.sh" ;;
+  esac
+done
+
+section "Providers (via Router)"
+conns=$(curl -fsS -m 30 "$ROUTER/connections" 2>/dev/null)
+if [[ -z "$conns" ]]; then red "Providers" "router /connections did not answer"
+else
+  while IFS='|' read -r pid kind st n err; do
+    case "$kind:$st" in
+      api_key:connected|local:connected)
+        if (( n > 0 )); then green "$pid" "connected, $n models in catalog"
+        else red "$pid" "connected but 0 available models — POST /catalog/refresh"; fi ;;
+      api_key:no_key)
+        if [[ "$pid" == groq || "$pid" == gemini ]]; then red "$pid" "no key (needed for fast/smart-free) — docs/m1a.md"
+        else yellow "$pid" "no key (optional)"; fi ;;
+      *) red "$pid" "$st: ${err:0:100}" ;;
+    esac
+  done < <(echo "$conns" | python3 -c '
+import json, sys
+for p in json.load(sys.stdin)["providers"]:
+    if p["kind"] != "cli":
+        print("|".join(str(x) for x in (p["provider"], p["kind"], p["status"], p.get("models_available") or 0, (p.get("last_error") or "").replace("|", "/"))))')
+fi
+left=$(echo "$status" | json '" ".join(d["env_keys_still_present"])')
+[[ -n "$left" ]] && yellow "deploy/.env provider keys" "provider keys still in deploy/.env — optional to remove ($left)"
 
 section "Live calls through LiteLLM"
 # call ALIAS EXPECTED_PROVIDER_SUBSTRING
@@ -130,20 +180,38 @@ call() {
 call fast gpt-oss
 call smart-free gemini
 call local qwen3
+call local-code qwen2.5-coder
 
 section "Paperclip"
 if h=$(curl -fsS -m 5 "$PAPERCLIP_URL/api/health" 2>/dev/null); then
   green "Paperclip API" "$PAPERCLIP_URL $(echo "$h" | json 'd.get("status","")')"
 else red "Paperclip API" "no answer — paperclipai service start (see docs/TROUBLESHOOTING.md)"; fi
 
-section "Agent CLIs in WSL (M1)"
-for cli in claude codex gemini grok opencode; do
-  p=$(command -v "$cli" 2>/dev/null || true)
-  if [[ -z "$p" ]]; then yellow "$cli" "not installed"
-  elif [[ "$p" == /mnt/* ]]; then yellow "$cli" "Windows binary only ($p)"
-  else green "$cli" "$($cli --version 2>/dev/null | head -1)"; fi
-done
+section "hostprobe (CLI detection, M1a)"
+if systemctl --user is-active --quiet switchboard-hostprobe.service; then green "hostprobe service" active
+else red "hostprobe service" "not active — systemctl --user restart switchboard-hostprobe (scripts/setup-wsl.sh installs it)"; fi
+if curl -fsS -m 5 -H "X-Probe-Token: ${HOSTPROBE_TOKEN:-}" "$HOSTPROBE/health" 2>/dev/null | grep -q ok; then
+  green "hostprobe health" "$HOSTPROBE (token ok)"
+else red "hostprobe health" "no authorized answer on $HOSTPROBE — check HOSTPROBE_TOKEN in deploy/.env"; fi
+[[ $(curl -fsS -m 10 "$ROUTER/health" 2>/dev/null | json 'd["hostprobe"]') == ok ]] \
+  && green "Router -> hostprobe" ok || red "Router -> hostprobe" "router cannot reach host.docker.internal:${HOSTPROBE_PORT:-8101}"
+
+section "Agent CLIs in WSL (detected by hostprobe)"
+clis=$(curl -fsS -m 30 "$ROUTER/connections/cli" 2>/dev/null)
+while IFS='|' read -r pid st ver; do
+  case "$st" in
+    logged_in)     green "$pid" "v$ver, logged in" ;;
+    logged_out)    yellow "$pid" "v$ver, installed, not logged in" ;;
+    installed)     yellow "$pid" "v$ver, installed, login status unknown" ;;
+    windows_only)  yellow "$pid" "Windows binary only — install the Linux CLI in WSL" ;;
+    not_installed) yellow "$pid" "not installed in WSL" ;;
+    *)             yellow "$pid" "$st" ;;
+  esac
+done < <(echo "$clis" | python3 -c '
+import json, sys
+for k, c in json.load(sys.stdin)["clis"].items():
+    print("|".join([k, c["status"], c.get("version") or "?"]))' 2>/dev/null)
 
 echo
-if (( RED == 0 )); then printf '\033[32mAll M0 checks green.\033[0m\n'
-else printf '\033[31m%d M0 check(s) red.\033[0m\n' "$RED"; exit 1; fi
+if (( RED == 0 )); then printf '\033[32mAll checks green.\033[0m\n'
+else printf '\033[31m%d check(s) red.\033[0m\n' "$RED"; exit 1; fi

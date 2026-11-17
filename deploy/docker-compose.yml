@@ -1,5 +1,5 @@
-# Switchboard infra (M0): Postgres + LiteLLM.
-# Paperclip runs natively in WSL (see scripts/setup-wsl.sh); Ollama runs on Windows.
+# Switchboard infra: Postgres + LiteLLM (M0), Router API (M1a).
+# Paperclip and hostprobe run natively in WSL (see scripts/setup-wsl.sh); Ollama runs on Windows.
 # Everything is bound to 127.0.0.1 (SPEC §13.1).
 
 name: switchboard
@@ -36,8 +36,6 @@ services:
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?set LITELLM_SALT_KEY in deploy/.env}
       STORE_MODEL_IN_DB: "True"
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       # Mount the directory, not the file: editors replace files atomically and a
       # single-file bind mount keeps pointing at the old inode.
@@ -52,6 +50,46 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+
+  router:
+    build: ../services/router
+    image: switchboard-router:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-switchboard}:${POSTGRES_PASSWORD}@postgres:5432/switchboard
+      LITELLM_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY}
+      SWITCHBOARD_SECRET_KEY: ${SWITCHBOARD_SECRET_KEY:?set SWITCHBOARD_SECRET_KEY in deploy/.env (scripts/setup-wsl.sh)}
+      ROUTER_ADMIN_TOKEN: ${ROUTER_ADMIN_TOKEN:?set ROUTER_ADMIN_TOKEN in deploy/.env (scripts/setup-wsl.sh)}
+      HOSTPROBE_URL: http://host.docker.internal:${HOSTPROBE_PORT:-8101}
+      HOSTPROBE_TOKEN: ${HOSTPROBE_TOKEN:-}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      CONFIG_DIR: /srv/config
+      # Imported once into the encrypted store on first start (docs/m1a.md).
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
+    volumes:
+      - ../config:/srv/config:ro
+    ports:
+      - "127.0.0.1:${ROUTER_PORT:-8100}:8100"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
 volumes:
   pgdata:

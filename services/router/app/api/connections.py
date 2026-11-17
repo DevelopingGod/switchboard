@@ -1,0 +1,253 @@
+"""Connections API (SPEC §8 Connections, §13.2): provider status, API keys, model tests, CLI status."""
+
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, SecretStr, model_validator
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import hostprobe_client, model_test, secrets
+from app.catalog.fetchers import FetchError, fetch
+from app.catalog.job import get_connection, record_fetch
+from app.db import get_session
+from app.deps import litellm, require_admin
+from app.litellm_admin import LiteLLMAdmin, LiteLLMError
+from app.models import Connection, ModelCatalog
+from app.reconcile import reconcile
+from app.registry import Provider, load_registry, load_tag_rules
+
+log = logging.getLogger("app.connections")
+router = APIRouter(tags=["connections"])
+
+
+class KeyIn(BaseModel):
+    api_key: SecretStr = Field(min_length=8, max_length=512)
+
+
+class ModelTestIn(BaseModel):
+    alias: str | None = None
+    provider: str | None = None
+    model_id: str | None = None
+
+    @model_validator(mode="after")
+    def one_target(self):
+        if bool(self.alias) == bool(self.provider and self.model_id):
+            raise ValueError("give either alias, or provider + model_id")
+        return self
+
+
+def _provider(provider_id: str, kinds: tuple[str, ...] = ("api_key",)) -> Provider:
+    p = load_registry().get(provider_id)
+    if p is None:
+        raise HTTPException(404, f"unknown provider {provider_id}")
+    if p.kind not in kinds:
+        raise HTTPException(400, f"{provider_id} is a {p.kind} provider")
+    return p
+
+
+def _cli_rows(reachable: bool, data: dict[str, Any] | None, error: str | None) -> dict[str, dict[str, Any]]:
+    clis = (data or {}).get("clis", {})
+    rows = {}
+    for p in load_registry().providers.values():
+        if p.kind != "cli":
+            continue
+        c = clis.get(p.bin or "")
+        if c is None:
+            rows[p.id] = {
+                "status": "unknown",
+                "installed": None,
+                "version": None,
+                "logged_in": None,
+                "windows_only": None,
+                "error": error or "not reported by hostprobe",
+            }
+        else:
+            status = (
+                "logged_in"
+                if c.get("logged_in")
+                else "logged_out"
+                if c.get("installed") and c.get("logged_in") is False
+                else "installed"
+                if c.get("installed")
+                else "windows_only"
+                if c.get("windows_only")
+                else "not_installed"
+            )
+            rows[p.id] = {
+                "status": status,
+                **{
+                    k: c.get(k) for k in ("installed", "version", "logged_in", "windows_only", "login_method")
+                },
+            }
+    return rows
+
+
+@router.get("/connections")
+async def list_connections(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    registry = load_registry()
+    conns = {c.provider: c for c in (await session.execute(select(Connection))).scalars()}
+    last4 = await secrets.key_last4(session)
+    counts = dict(
+        (
+            await session.execute(
+                select(ModelCatalog.provider, func.count())
+                .where(ModelCatalog.status == "available")
+                .group_by(ModelCatalog.provider)
+            )
+        ).all()
+    )
+    reachable, data, error = await hostprobe_client.probe()
+    clis = _cli_rows(reachable, data, error)
+    out = []
+    for p in registry.providers.values():
+        c = conns.get(p.id)
+        row: dict[str, Any] = {
+            "provider": p.id,
+            "name": p.name,
+            "kind": p.kind,
+            "privacy": p.privacy,
+            "free_limits": p.free_limits,
+            "notes": p.notes,
+            "status": c.status if c else "unknown",
+            "last_checked": c.last_checked if c else None,
+            "last_error": c.last_error if c else None,
+        }
+        if p.kind == "api_key":
+            row["key_last4"] = last4.get(p.id)
+        if p.kind != "cli":
+            row["models_available"] = counts.get(p.id, 0)
+        else:
+            row.update(clis[p.id])
+            row["login_hint"] = p.login_hint
+        out.append(row)
+    return {"providers": out, "hostprobe": "up" if reachable else "down"}
+
+
+@router.get("/connections/cli")
+async def cli_status() -> dict[str, Any]:
+    reachable, data, error = await hostprobe_client.probe()
+    return {
+        "hostprobe": "up" if reachable else "down",
+        "error": error,
+        "clis": _cli_rows(reachable, data, error),
+    }
+
+
+@router.post("/connections/cli/refresh", dependencies=[Depends(require_admin)])
+async def cli_refresh() -> dict[str, Any]:
+    return await cli_status()
+
+
+@router.put("/connections/{provider_id}/key", dependencies=[Depends(require_admin)])
+async def put_key(
+    provider_id: str,
+    body: KeyIn,
+    session: AsyncSession = Depends(get_session),
+    admin: LiteLLMAdmin = Depends(litellm),
+) -> dict[str, Any]:
+    p = _provider(provider_id)
+    key = body.api_key.get_secret_value().strip()
+    secrets.remember(key)
+    async with httpx.AsyncClient() as client:
+        try:
+            fetched = await fetch(client, p, key)  # validates the key before anything is stored
+        except FetchError as e:
+            raise HTTPException(400, f"key test failed: {secrets.redact(str(e))}") from None
+    await secrets.store_key(session, p.id, key)
+    await session.commit()
+    counts = await record_fetch(session, p, load_tag_rules(), fetched)
+    try:
+        changes = await reconcile(session, admin)
+    except LiteLLMError as e:
+        conn = await get_connection(session, p)
+        conn.last_error = secrets.redact(str(e))
+        await session.commit()
+        raise HTTPException(502, "key stored, but registering it in LiteLLM failed; retry later") from None
+    return {
+        "provider": p.id,
+        "status": "connected",
+        "key_last4": key[-4:],
+        "catalog": counts,
+        "litellm": changes,
+    }
+
+
+@router.post("/connections/{provider_id}/test", dependencies=[Depends(require_admin)])
+async def test_connection(provider_id: str, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    p = _provider(provider_id, ("api_key", "local"))
+    conn = await get_connection(session, p)
+    key = await secrets.load_key(session, p.id) if p.kind == "api_key" else None
+    if p.kind == "api_key" and key is None:
+        raise HTTPException(400, f"no key stored for {p.id}")
+    async with httpx.AsyncClient() as client:
+        try:
+            fetched = await fetch(client, p, key)
+        except FetchError as e:
+            conn.status, conn.last_error = "error", secrets.redact(str(e))
+            conn.last_checked = datetime.now(UTC)
+            await session.commit()
+            return {"provider": p.id, "ok": False, "error": conn.last_error}
+    counts = await record_fetch(session, p, load_tag_rules(), fetched)
+    return {"provider": p.id, "ok": True, "catalog": counts}
+
+
+@router.delete("/connections/{provider_id}/key", dependencies=[Depends(require_admin)])
+async def delete_key(
+    provider_id: str,
+    session: AsyncSession = Depends(get_session),
+    admin: LiteLLMAdmin = Depends(litellm),
+) -> dict[str, Any]:
+    p = _provider(provider_id)
+    removed = await secrets.delete_key(session, p.id)
+    conn = await get_connection(session, p)
+    conn.status, conn.last_error, conn.last_checked = "no_key", None, datetime.now(UTC)
+    await session.commit()
+    try:
+        changes = await reconcile(session, admin)
+        await admin.delete_credential(p.id)
+    except LiteLLMError:
+        raise HTTPException(
+            502, "key removed, but updating LiteLLM failed; it will retry on restart"
+        ) from None
+    return {"provider": p.id, "removed": removed, "status": "no_key", "litellm": changes}
+
+
+@router.post("/models/test", dependencies=[Depends(require_admin)])
+async def test_model(
+    body: ModelTestIn,
+    session: AsyncSession = Depends(get_session),
+    admin: LiteLLMAdmin = Depends(litellm),
+) -> dict[str, Any]:
+    registry = load_registry()
+    start = model_test.timer()
+    if body.alias:
+        deps = [d for d in registry.aliases if d.alias == body.alias]
+        if not deps:
+            raise HTTPException(404, f"unknown alias {body.alias}")
+        try:
+            served = await admin.chat(body.alias)
+            ok, error = True, None
+        except LiteLLMError as e:
+            served, ok, error = None, False, secrets.redact(str(e))
+        ms = model_test.elapsed_ms(start)
+        first = sorted(deps, key=lambda d: d.order or 0)[0]
+        await model_test.record(session, first.provider, first.model, ok, ms, error)
+        return {"alias": body.alias, "ok": ok, "latency_ms": ms, "served_by": served, "error": error}
+
+    p = _provider(body.provider or "", ("api_key", "local"))
+    key = await secrets.load_key(session, p.id) if p.kind == "api_key" else None
+    if p.kind == "api_key" and key is None:
+        raise HTTPException(400, f"no key stored for {p.id}")
+    async with httpx.AsyncClient() as client:
+        try:
+            await model_test.call_provider(client, p, body.model_id or "", key)
+            ok, error = True, None
+        except model_test.ModelTestError as e:
+            ok, error = False, str(e)
+    ms = model_test.elapsed_ms(start)
+    await model_test.record(session, p.id, body.model_id or "", ok, ms if ok else None, error)
+    return {"provider": p.id, "model_id": body.model_id, "ok": ok, "latency_ms": ms, "error": error}

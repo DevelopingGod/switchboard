@@ -443,6 +443,8 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `media(request_id, type, provider, file_path, cost_usd)`
 - `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)` (see §6.4)
 - `model_stats(model_id, task_type, samples, p50_ms, p95_ms, error_rate, thumbs_up, thumbs_down, score, updated_at)` (see §6.4)
+- `provider_secrets(provider, ciphertext, last4, source, created_at, updated_at)` — the "encrypted secret store" above: Fernet with `SWITCHBOARD_SECRET_KEY`; never returned by the API (M1a)
+- `system_meta(key, value, updated_at)` — install facts, e.g. SHA-256 fingerprints of `SWITCHBOARD_SECRET_KEY` / `LITELLM_SALT_KEY` checked by `doctor.sh` (M1a)
 
 Metrics service pulls LiteLLM spend logs and Paperclip run/cost data on a schedule (and on webhook if available) and writes into `costs`, so all dashboards read one table.
 
@@ -478,6 +480,8 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M0 | Infra: WSL2, Docker, Postgres, LiteLLM with Ollama + Groq + Gemini; Paperclip running; `doctor.sh` | `doctor.sh` all green; a curl to LiteLLM `fast` and `local` works |
 | M0.5 | Design system (§8c): tokens, glass component kit, app shell, ⌘K, Simple/Pro mode | `/dev/components` renders in both themes and all states; reduced-transparency fallback works; AA contrast passes; axe clean; Lighthouse >= 90; visual baselines committed |
 | M1 | Connections screen + API + first-run wizard (§8b) | Can add/test API keys from UI; CLI cards show installed/logged-in for Claude Code, Codex, Gemini CLI, Grok Build, OpenCode; wizard completes end to end; the model catalog (§6.4) is populated from live provider lists, and provider cards show tagged recommended models |
+| M1a | Router backend (§5, §6.4, §9, §13): `services/router` (FastAPI) + hostprobe, connections API, model catalog, LiteLLM reconcile | `doctor.sh` green incl. router; catalog shows live, tagged models for every keyed provider; add/test/remove key via API; CLI detection correct; tests pass |
+| M1b | Connections UI + first-run wizard (§8b) + quick-start chips on top of the M1a API | Can add/test API keys from UI; CLI cards show installed/logged-in; provider cards show tagged recommended models; wizard completes end to end |
 | M2 | Chat + Router (rules only, no classifier yet) | Manual pick and slash commands work; fallback on 429 verified; decision chip shown |
 | M3 | Rules UI + Arch-Router classifier | Dry-run tester; ≥ 85% correct on a 50-prompt labelled set in `tests/routing.jsonl`; `best:<capability>` targets resolve via the recommender, the "Why this?" chip shows model + top reasons, and feedback updates `model_stats` |
 | M4 | Jobs via Paperclip | "Fix tests in repo X" creates a Paperclip issue for the right agent; live status, approve/reject, diff view |

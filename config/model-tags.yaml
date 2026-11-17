@@ -1,0 +1,60 @@
+# Curated capability tags for the model catalog (SPEC §6.4). Human-editable; the router reloads
+# this file on every catalog refresh.
+#
+# Vocabulary: chat, code, reasoning, vision, long-context, fast, small, image, video, audio,
+#             embedding, moderation
+# Rules are applied in order; every matching rule adds its tags. `match` is a shell-style glob on
+# the model id (case-insensitive); `provider` limits a rule to one provider. A model matched by no
+# rule is "untagged" and gets tags derived from provider metadata (modalities, context window).
+# `deprecated` marks models as deprecated even if the provider still lists them.
+
+rules:
+  # --- Families ---
+  - { match: "*gpt-oss-120b*", tags: [chat, code, reasoning, fast] }
+  - { match: "*gpt-oss-20b*", tags: [chat, reasoning, fast, small] }
+  - { match: "*gpt-oss-safeguard*", tags: [moderation] }
+  - { match: "*prompt-guard*", tags: [moderation, small] }
+  - { match: "*whisper*", tags: [audio] }
+  - { match: "*orpheus*", tags: [audio] }
+  - { match: "*tts*", tags: [audio] }
+  - { match: "*transcribe*", tags: [audio] }
+  - { match: "*native-audio*", tags: [audio] }
+  - { match: "*embedding*", tags: [embedding] }
+  - { match: "*embed*", tags: [embedding] }
+  - { match: "*coder*", tags: [chat, code] }
+  - { match: "*codestral*", tags: [chat, code, fast] }
+  - { match: "*devstral*", tags: [chat, code] }
+  - { match: "big-pickle", provider: opencode-zen, tags: [chat, code, reasoning] }
+  - { match: "*deepseek*", tags: [chat, code, reasoning] }
+  - { match: "*glm*", tags: [chat, code] }
+  - { match: "*qwen3*", tags: [chat, reasoning] }
+  - { match: "*llama*", tags: [chat] }
+  - { match: "*mistral-small*", tags: [chat, fast] }
+  - { match: "*mistral-medium*", tags: [chat] }
+  - { match: "*mistral-large*", tags: [chat, reasoning] }
+  - { match: "*magistral*", tags: [chat, reasoning] }
+  - { match: "*pixtral*", tags: [chat, vision] }
+  - { match: "*ministral*", tags: [chat, fast, small] }
+
+  # --- Gemini ---
+  - { match: "gemini-*-flash", provider: gemini, tags: [chat, vision, long-context, fast] }
+  - { match: "gemini-*-flash-lite", provider: gemini, tags: [chat, long-context, fast, small] }
+  - { match: "gemini-*-pro*", provider: gemini, tags: [chat, code, reasoning, vision, long-context] }
+  - { match: "gemini-flash-latest", provider: gemini, tags: [chat, vision, long-context, fast] }
+  - { match: "gemini-*image*", provider: gemini, tags: [image] }
+  - { match: "*nano-banana*", provider: gemini, tags: [image] }
+  - { match: "gemma-*", provider: gemini, tags: [chat, small] }
+  - { match: "lyria-*", provider: gemini, tags: [audio] }
+  - { match: "*veo*", tags: [video] }
+  - { match: "*imagen*", tags: [image] }
+  - { match: "*live*", provider: gemini, tags: [audio] }
+
+  # --- Local (Ollama) ---
+  - { match: "qwen3:4b", provider: ollama, tags: [chat, reasoning, small] }
+  - { match: "llama3.2:3b", provider: ollama, tags: [chat, fast, small] }
+  - { match: "qwen2.5-coder:3b", provider: ollama, tags: [chat, code, small] }
+  - { match: "*arch-router*", provider: ollama, tags: [small] }
+
+deprecated:
+  # model ids (exact) the provider still lists but we should not route to.
+  - gemini-2.5-computer-use-preview-10-2025

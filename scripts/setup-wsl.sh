@@ -63,24 +63,39 @@ if [[ ! -f "$ENV_FILE" ]]; then
   cp "$ROOT/deploy/.env.example" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi
-fill_secret() {  # fill_secret VAR VALUE — only if empty
+fill_secret() {  # fill_secret VAR VALUE — only if empty or missing; never overwrites
   if grep -qE "^$1=$" "$ENV_FILE"; then
     sed -i "s|^$1=$|$1=$2|" "$ENV_FILE"
     say "Generated $1"
+  elif ! grep -qE "^$1=" "$ENV_FILE"; then
+    printf '%s=%s\n' "$1" "$2" >>"$ENV_FILE"
+    say "Generated $1 (appended)"
   fi
 }
 fill_secret POSTGRES_PASSWORD "$(openssl rand -hex 24)"
 fill_secret LITELLM_MASTER_KEY "sk-$(openssl rand -hex 24)"
 fill_secret LITELLM_SALT_KEY "sk-$(openssl rand -hex 24)"
+# M1a: Router API secrets. SWITCHBOARD_SECRET_KEY is a Fernet key (urlsafe base64 of 32 bytes).
+fill_secret SWITCHBOARD_SECRET_KEY "$(openssl rand -base64 32 | tr '+/' '-_')"
+fill_secret ROUTER_ADMIN_TOKEN "$(openssl rand -hex 32)"
+fill_secret HOSTPROBE_TOKEN "$(openssl rand -hex 32)"
 set -a; . "$ENV_FILE"; set +a
-[[ -z "${GROQ_API_KEY:-}" ]] && warn "GROQ_API_KEY is empty in deploy/.env (needed for 'fast')."
-[[ -z "${GEMINI_API_KEY:-}" ]] && warn "GEMINI_API_KEY is empty in deploy/.env (needed for 'smart-free')."
+say "Back up SWITCHBOARD_SECRET_KEY and LITELLM_SALT_KEY (docs/m1a.md, Backups): stored keys can't be decrypted without them."
 
-# --- 5. Postgres + LiteLLM ----------------------------------------------------
-say "Starting Postgres and LiteLLM"
-"${COMPOSE[@]}" up -d --wait
+# --- 5. hostprobe (native systemd user service; CLI detection for the router) --
+UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$UNIT_DIR"
+sed "s|@REPO@|$ROOT|g" "$ROOT/services/hostprobe/switchboard-hostprobe.service" >"$UNIT_DIR/switchboard-hostprobe.service"
+systemctl --user daemon-reload
+systemctl --user enable --now switchboard-hostprobe.service
+systemctl --user restart switchboard-hostprobe.service
+say "hostprobe running on 127.0.0.1:${HOSTPROBE_PORT:-8101}"
 
-# --- 6. Ollama reachability (from Docker, the path LiteLLM uses) ------------
+# --- 6. Postgres + LiteLLM + Router -------------------------------------------
+say "Starting Postgres, LiteLLM and the Router API"
+"${COMPOSE[@]}" up -d --build --wait
+
+# --- 7. Ollama reachability (from Docker, the path LiteLLM uses) ------------
 say "Checking Ollama at $OLLAMA_API_BASE (from inside the litellm container)"
 if "${COMPOSE[@]}" exec -T litellm python -c \
     "import urllib.request,os; urllib.request.urlopen(os.environ['OLLAMA_API_BASE']+'/api/version', timeout=5)" 2>/dev/null; then
@@ -89,7 +104,7 @@ else
   warn "Ollama not reachable. Start Ollama on Windows, then re-run scripts/doctor.sh."
 fi
 
-# --- 7. Paperclip (native, loopback, background service) --------------------
+# --- 8. Paperclip (native, loopback, background service) --------------------
 PC=(npx -y --registry https://registry.npmjs.org "paperclipai@$PAPERCLIP_VERSION")
 if curl -fsS -m 3 "$PAPERCLIP_URL/api/health" >/dev/null 2>&1; then
   say "Paperclip already running at $PAPERCLIP_URL"

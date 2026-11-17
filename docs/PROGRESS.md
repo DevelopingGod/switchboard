@@ -10,6 +10,8 @@
 | M0 Infra | ✅ Merged | m0 / #1 | Opus 5.5, medium | doctor.sh green; fast + local verified |
 | M0.5 Design system | 🔎 In review | m05 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
 | M1 Connections + wizard | ⏳ Next | — | Sonnet 5.5, medium | Carry-over items listed below |
+| M1a Router backend | 🔎 In review | m1a | Opus 5.5 | Split from M1; see M1a outcome |
+| M1b Connections UI + wizard | ⏳ Next | — | Sonnet 5.5 | UI on the M1a API; see carry-over to M1b |
 | M2 Chat + Router | ⏳ | — | Opus 5.5, high | |
 | M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
@@ -92,3 +94,24 @@
 - Paperclip REST endpoints for issues, runs, costs, approvals (M4).
 - Grok Build headless billing; Codex Free access at build time.
 - LiteLLM support for xAI Imagine image/video.
+
+## M1a outcome
+
+- M1 split into **M1a** (backend, this PR) and **M1b** (Connections UI, wizard, quick-start chips). SPEC §11 and the status table each gained two rows; the M1 row is unchanged. Guide: [docs/m1a.md](m1a.md).
+- `services/router`: FastAPI + async SQLAlchemy (psycopg 3) + Alembic in compose on `127.0.0.1:8100`; migrations run on start. Tables: `connections`, `provider_secrets`, `system_meta`, `model_catalog`, `model_stats` (SPEC §6.4), plus `requests`/`costs` stubs (§9).
+- **Single source of truth for models: LiteLLM's DB, written only by the router.** `config/litellm.yaml` has no `model_list` anymore. Aliases live in `config/providers.yaml` and are reconciled into LiteLLM with one credential per provider (`sb-<provider>`); only `managed_by: switchboard` deployments are touched. Reasoning is in docs/m1a.md.
+- Keys: validated against the provider before storing, Fernet-encrypted in the Router DB (the router needs them for the catalog and direct model tests), registered as LiteLLM credentials, never logged or returned (last 4 only). Admin token (`ROUTER_ADMIN_TOKEN`) on every write/refresh endpoint; CORS limited to the portal origin. GROQ/GEMINI keys were imported once from `deploy/.env`.
+- Catalog: live `/models` from Groq (11), Gemini (64), Ollama (7) on this machine; Cerebras, Mistral, OpenRouter and Zen fetchers are built and tested against recorded responses, and skipped until keyed. Curated tags in `config/model-tags.yaml`, metadata fallback, `untagged` state, `missing`/`deprecated` marking. Runs at startup and every 24 h.
+- **hostprobe** (`services/hostprobe`, stdlib, systemd user unit, `127.0.0.1:8101`): allowlisted argv only, token on every request, 5 s command timeout, rate limit, 30 s cache, stat-only credential checks. Detection result today: claude/codex/gemini are Windows-only, and grok/opencode are not installed in WSL.
+- M0 carry-overs done: `fast` 25 s timeout; Cerebras joins `fast` as order 2 (+ `cerebras` alias) once a key is added; `smart-free` → `local` fallback (verified); `local-code` = `qwen2.5-coder:3b`. `smart-free` timeout lowered to 30 s because a hung Gemini call took ~120 s to reach the fallback.
+- `doctor.sh`: new Router, Providers, hostprobe and CLI sections; secret-key fingerprint check (red if `SWITCHBOARD_SECRET_KEY`/`LITELLM_SALT_KEY` changed); yellow reminder while imported keys remain in `.env`. All green on this machine.
+- Tests: 30 router (pytest, throwaway `switchboard_test` DB, respx-mocked providers/LiteLLM) + 15 hostprobe (unittest); ruff clean.
+
+## Carry-over to M1b
+
+- Portal calls the Router API at `127.0.0.1:8100`. The admin token must stay server-side: proxy writes through a Next.js route handler or server action, never ship `ROUTER_ADMIN_TOKEN` to the browser.
+- Install the Linux CLIs in WSL (claude, codex, gemini, grok, opencode) and `sudo apt install wslu`, then re-verify the auth-status commands marked "Not yet" in docs/m1a.md (claude, gemini, grok, opencode). Login/install buttons need new allowlisted, user-confirmed hostprobe endpoints (not in M1a).
+- Add Cerebras / Mistral / OpenRouter / Zen keys through the API to light up `fast` order 2, `general`, `explore` and `code-free`, then check that their live fetchers match the recorded shapes.
+- Gemini `gemini-3.5-flash` hung on direct `generateContent` on 2026-11-17 (provider-side); `smart-free` served via `local`. Re-check, or pin another Flash model, before M2.
+- Recommended-model badges and "Use for…" (SPEC §6.4 UI) read `/catalog`; scores/recommender stay in M3. `model_stats` only has `task_type="test"` rows so far.
+- `GROQ_API_KEY`/`GEMINI_API_KEY` can now be removed from `deploy/.env` (doctor shows yellow until then).
