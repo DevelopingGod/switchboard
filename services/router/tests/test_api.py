@@ -66,7 +66,16 @@ async def test_add_test_remove_key(client, litellm, providers_ok, hostprobe_up, 
     assert len(fast) == 1 and fast[0]["litellm_params"]["litellm_credential_name"] == "sb-groq"
     assert fast[0]["litellm_params"]["timeout"] == 25 and fast[0]["litellm_params"]["order"] == 1
     assert "api_key" not in fast[0]["litellm_params"]
-    assert {d["model_name"] for d in litellm.deployments()} == {"fast", "local", "private", "local-code"}
+    assert {d["model_name"] for d in litellm.deployments()} == {
+        "fast",
+        "local",
+        "private",
+        "local-code",
+        "groq/*",  # M2: any catalog model by name (model:groq/<id>)
+        "ollama/*",
+    }
+    wild = litellm.deployments("groq/*")[0]["litellm_params"]
+    assert wild["model"] == "groq/*" and wild["litellm_credential_name"] == "sb-groq"
     local_code = litellm.deployments("local-code")[0]["litellm_params"]
     assert local_code == {"model": "ollama_chat/qwen2.5-coder:3b", "api_base": "os.environ/OLLAMA_API_BASE"}
 

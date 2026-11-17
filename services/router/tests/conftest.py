@@ -73,7 +73,10 @@ def database():
         conn.execute(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
 
 
-TABLES = "model_stats, model_catalog, connections, provider_secrets, system_meta, costs, requests"
+TABLES = (
+    "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
+    "costs, requests"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +101,15 @@ class FakeLiteLLM:
         self.chat_calls: list[str] = []
         self.broken = False  # simulate LiteLLM errors on writes
         self._n = 0
+        # M2 streaming: every streamed request body, and per-model scripted behaviour:
+        #   "ok" (default) | "429" | "500" | "timeout" | "midstream" | "stop" | "think-tags"
+        self.stream_calls: list[dict] = []
+        self.script: dict[str, str] = {}
+        self.usage_cost: float = 0.0012
+        self.answer = "Hello there!"
+        self.title = "Centering a div in CSS"
+        self.title_status = 200
+        self.on_stream_chunk = None  # hook called between chunks (stop test)
 
     def install(self, mock: respx.MockRouter) -> None:
         base = "http://litellm.test"
@@ -153,9 +165,27 @@ class FakeLiteLLM:
         self.models.pop(json.loads(request.content)["id"])
         return httpx.Response(200, json={"message": "deleted"})
 
+    def resolve(self, name: str) -> str | None:
+        """Served deployment for an alias or a `<provider>/<model>` wildcard name, like LiteLLM."""
+        for m in self.models.values():
+            if m["model_name"] == name:
+                return m["litellm_params"]["model"]
+        for m in self.models.values():
+            pattern = m["model_name"]
+            if pattern.endswith("/*") and name.startswith(pattern[:-1]):
+                return m["litellm_params"]["model"][:-1] + name[len(pattern) - 1 :]
+        return None
+
     def chat(self, request):
-        alias = json.loads(request.content)["model"]
+        body = json.loads(request.content)
+        if body.get("stream"):
+            return self.stream(body)
+        alias = body["model"]
         self.chat_calls.append(alias)
+        if alias.startswith("ollama/llama3.2"):  # local title model
+            if self.title_status != 200:
+                return httpx.Response(self.title_status, json={"error": {"message": "down"}})
+            return httpx.Response(200, json={"choices": [{"message": {"content": self.title}}]})
         if not any(m["model_name"] == alias for m in self.models.values()):
             return httpx.Response(400, json={"error": {"message": f"Invalid model name {alias}"}})
         served = next(m for m in self.models.values() if m["model_name"] == alias)["litellm_params"]["model"]
@@ -164,6 +194,59 @@ class FakeLiteLLM:
             json={"model": alias, "choices": [{"message": {"content": "pong"}}]},
             headers={"x-litellm-model-name": served},
         )
+
+    def stream(self, body: dict):
+        name = body["model"]
+        self.stream_calls.append(body)
+        served = self.resolve(name)
+        if served is None:
+            return httpx.Response(
+                400, json={"error": {"message": f"Invalid model name passed in model={name}"}}
+            )
+        mode = self.script.get(name, "ok")
+        if mode == "429":
+            return httpx.Response(
+                429, json={"error": {"message": "rate limited"}}, headers={"retry-after": "30"}
+            )
+        if mode == "500":
+            return httpx.Response(500, json={"error": {"message": "boom"}})
+        if mode == "timeout":
+            raise httpx.ReadTimeout("timed out")
+
+        def chunk(delta=None, usage=None):
+            obj = {"model": name, "choices": [{"index": 0, "delta": delta}] if delta is not None else []}
+            if usage:
+                obj["usage"] = usage
+            return f"data: {json.dumps(obj)}\n\n".encode()
+
+        fake = self
+        words = [w + " " for w in self.answer.split(" ")]
+        words[-1] = words[-1].rstrip()
+
+        async def gen():
+            yield chunk({"reasoning_content": "Let me think about it."})
+            if mode == "think-tags":
+                yield chunk({"content": "<thi"})
+                yield chunk({"content": "nk>secret plan</think>"})
+            for i, w in enumerate(words):
+                if fake.on_stream_chunk:
+                    await fake.on_stream_chunk(i)
+                yield chunk({"content": w})
+                if mode == "midstream" and i == 0:
+                    yield f"data: {json.dumps({'error': {'message': 'connection reset'}})}\n\n".encode()
+                    return
+            usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": fake.usage_cost}
+            yield chunk(None, usage)
+            yield b"data: [DONE]\n\n"
+
+        return httpx.Response(
+            200,
+            content=gen(),
+            headers={"content-type": "text/event-stream", "x-litellm-model-name": served},
+        )
+
+    def streamed_models(self) -> list[str]:
+        return [b["model"] for b in self.stream_calls]
 
     def deployments(self, alias: str | None = None) -> list[dict]:
         return [m for m in self.models.values() if alias is None or m["model_name"] == alias]

@@ -25,7 +25,15 @@ class Provider:
     bin: str | None = None
     login_hint: str | None = None
     paid: bool = False
+    # Free tier: calls are recorded at $0 (the list price is kept as `list_price_usd`). True for the
+    # whole provider, or a model-id suffix (OpenRouter ":free").
+    free_tier: bool | str = False
     raw: dict[str, Any] = field(default_factory=dict, compare=False)
+
+    def is_free_tier(self, model_id: str) -> bool:
+        if isinstance(self.free_tier, str):
+            return model_id.endswith(self.free_tier)
+        return bool(self.free_tier)
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,15 @@ class Registry:
     def get(self, provider_id: str) -> Provider | None:
         return self.providers.get(provider_id)
 
+    def alias(self, name: str) -> list[AliasDeployment]:
+        return sorted((a for a in self.aliases if a.alias == name), key=lambda a: a.order or 0)
+
+    def provider_for_litellm_model(self, name: str) -> Provider | None:
+        """`groq/openai/gpt-oss-120b` (a served deployment) -> the provider with that LiteLLM prefix."""
+        prefix = name.split("/", 1)[0]
+        matches = [p for p in self.providers.values() if p.litellm_prefix == prefix]
+        return matches[0] if len(matches) == 1 else None
+
 
 def _config_dir(config_dir: Path | None) -> Path:
     return config_dir or get_settings().config_dir
@@ -81,6 +98,7 @@ def load_registry(config_dir: Path | None = None) -> Registry:
             bin=p.get("bin"),
             login_hint=p.get("login_hint"),
             paid=bool(p.get("paid", False)),
+            free_tier=p.get("free_tier", False),
             raw=p,
         )
     aliases = [

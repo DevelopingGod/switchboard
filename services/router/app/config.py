@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     catalog_interval_s: int = 24 * 3600
     # Skip the startup catalog/reconcile/import tasks (tests drive them directly).
     background_jobs: bool = True
+    # Dev only (never in compose): lets a chat request carry `fault` to fail a target with a 429 or a
+    # timeout, to check fallbacks live (docs/m2.md).
+    router_fault_injection: bool = False
 
 
 @lru_cache

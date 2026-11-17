@@ -1,0 +1,122 @@
+# Routing rules (SPEC §7.2 + §8d). Read by the Router API (services/router/app/routing), re-read when
+# the file changes. Admin-editable here until the Rules UI (M3) adds versioning and per-user overrides.
+#
+# Pipeline (SPEC §7.1): manual pick > slash command > hard rules (private) > intent > `default`.
+# Intent comes from keyword heuristics in M2 (app/routing/heuristics.py); M3 swaps in Arch-Router.
+#
+# Targets:
+#   model:<alias>                 an alias from providers.yaml (fast, smart-free, local, ...)
+#   model:<provider>/<model id>   one catalog model, e.g. model:groq/openai/gpt-oss-20b
+#   best:<capability>             best connected catalog model with that tag (code, reasoning, fast,
+#                                 long-context, ...); M2 picks free-first then fastest, M3 scores
+#   agent:<id>                    a Paperclip agent job (M4; skipped in chat until then)
+#   media:<id>                    image/video/audio generation (Studio, M5)
+# A rule's fallbacks are tried in order when a target is not connected, cooling down after a 429 or
+# timeout, over budget, or not allowed by the preset. Each skip is logged with its reason.
+
+defaults:
+  temperature: 0.4
+  autonomy: 1             # SPEC §7.3
+  max_cost_usd: 0.50      # per request (SPEC §13.6); free-tier models count as $0
+  daily_cap_usd: 1.00     # per UTC day, chat + text; free-tier models count as $0
+  max_context_tokens: 8000
+  max_output_tokens: 4096
+  private: false
+
+rules:
+  - id: private
+    when: { private: true }
+    target: model:local
+    fallbacks: []            # never leaves the machine (enforced in code too)
+
+  - id: image
+    when: { intent: image }
+    target: media:image-default
+    max_cost_usd: 0.10
+
+  - id: video
+    when: { intent: video }
+    target: media:grok-imagine-video
+    autonomy: 0              # always confirm cost before generating
+    max_cost_usd: 1.00
+
+  - id: audio
+    when: { intent: audio }
+    target: media:tts-default
+    max_cost_usd: 0.20
+
+  - id: code-heavy
+    when: { intent: code, size: large }
+    target: agent:claude-code
+    # M2: jobs arrive in M4, so the chat models at the end answer in chat for now.
+    fallbacks: [agent:grok-build, agent:codex, agent:opencode, model:code-free, model:fast, model:local-code]
+    autonomy: 2
+    temperature: 0.2
+    job: true
+
+  - id: code-light
+    when: { intent: code, size: small }
+    target: model:code-free
+    fallbacks: [model:fast, model:smart-free, model:local-code]
+    temperature: 0.2
+
+  - id: research
+    when: { intent: research }
+    target: agent:hermes
+    fallbacks: [agent:gemini-cli, model:smart-free, model:fast, model:local]
+    autonomy: 1
+    job: true
+
+  - id: writing-premium
+    when: { intent: writing, quality: high }
+    target: model:grok            # xAI API (paid); skipped until an alias + key exist
+    fallbacks: [model:smart-free, model:general, model:fast]
+    temperature: 0.7
+    max_cost_usd: 0.05
+
+  - id: writing
+    when: { intent: writing }      # posts, emails, blogs
+    target: model:smart-free
+    fallbacks: [model:general, model:fast, model:local]
+    temperature: 0.8
+    autonomy: 0
+
+  - id: bulk
+    when: { command: bulk }        # /bulk: cheap bulk work
+    target: model:code-free
+    fallbacks: [model:fast, model:explore, model:local]
+
+  - id: default
+    when: {}
+    target: model:fast
+    fallbacks: [model:general, model:smart-free, model:explore, model:local]
+
+# Slash commands (SPEC §7.1) -> rule id. The command is removed from the prompt.
+slash:
+  chat: default
+  code: code-light
+  research: research
+  image: image
+  video: video
+  private: private
+  bulk: bulk
+
+# Wizard presets (SPEC §8b). The saved preset (system_meta `onboarding`) picks one; default: balanced.
+# `paid`: never = paid providers/agents are skipped even as fallbacks; manual = only when picked by
+# hand; allowed = may be routed to automatically (still inside the caps above).
+presets:
+  free:
+    paid: never
+    rules:
+      writing-premium: { target: model:smart-free, fallbacks: [model:general, model:fast, model:local] }
+  balanced:
+    paid: manual
+  best:
+    paid: allowed
+    rules:
+      default:
+        target: best:reasoning
+        fallbacks: [model:smart-free, model:fast, model:general, model:explore, model:local]
+      writing:
+        target: best:reasoning
+        fallbacks: [model:smart-free, model:general, model:fast, model:local]

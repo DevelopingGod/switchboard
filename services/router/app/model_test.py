@@ -53,7 +53,14 @@ async def call_provider(client: httpx.AsyncClient, p: Provider, model_id: str, k
 
 
 async def record(
-    session: AsyncSession, provider: str, model_id: str, ok: bool, ms: int | None, error: str | None
+    session: AsyncSession,
+    provider: str,
+    model_id: str,
+    ok: bool,
+    ms: int | None,
+    error: str | None,
+    task_type: str = "test",
+    commit: bool = True,
 ) -> None:
     row = (
         await session.execute(
@@ -64,11 +71,11 @@ async def record(
         return
     stats = (
         await session.execute(
-            select(ModelStats).where(ModelStats.model_id == row.id, ModelStats.task_type == "test")
+            select(ModelStats).where(ModelStats.model_id == row.id, ModelStats.task_type == task_type)
         )
     ).scalar_one_or_none()
     if stats is None:
-        stats = ModelStats(model_id=row.id, task_type="test", samples=0, failures=0, recent_ms=[])
+        stats = ModelStats(model_id=row.id, task_type=task_type, samples=0, failures=0, recent_ms=[])
         session.add(stats)
     stats.samples += 1
     stats.failures += 0 if ok else 1
@@ -79,7 +86,8 @@ async def record(
         stats.recent_ms = recent
         stats.p50_ms = int(statistics.median(recent))
         stats.p95_ms = int(sorted(recent)[max(0, round(0.95 * len(recent)) - 1)])
-    await session.commit()
+    if commit:
+        await session.commit()
 
 
 def timer() -> float:

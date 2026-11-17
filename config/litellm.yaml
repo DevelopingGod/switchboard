@@ -6,6 +6,8 @@
 # LiteLLM credentials. See docs/m1a.md for the reasoning.
 
 router_settings:
+  # The Switchboard router sends `disable_fallbacks: true` and walks its own rule fallbacks so every
+  # skip is explained (config/rules.yaml). These cross-alias fallbacks only apply to other clients.
   # fast: Groq (order 1) -> Cerebras (order 2, if keyed) -> smart-free.
   # smart-free -> local. local/private/local-code never fall back (never leave the machine).
   fallbacks:
@@ -19,6 +21,9 @@ router_settings:
 
 litellm_settings:
   drop_params: true
+  # The final streamed usage chunk carries `cost` (the router logs it; free-tier providers are
+  # recorded as $0 with the list price kept separately, see config/rules.yaml).
+  include_cost_in_streaming_usage: true
   # Global ceiling; per-deployment timeouts (fast: 25 s) are set by the router.
   request_timeout: 120
 
