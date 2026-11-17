@@ -1,0 +1,71 @@
+# Switchboard — Progress & Decisions Log
+
+> Single source of project memory. Update at the end of every milestone (Claude Code: append, never rewrite history).
+> Read this + SPEC.md at the start of any new chat or session.
+
+## Status
+
+| Milestone | Status | Branch / PR | Model used | Notes |
+|---|---|---|---|---|
+| M0 Infra | ✅ Merged | m0 / #1 | Opus 5.5, medium | doctor.sh green; fast + local verified |
+| M0.5 Design system | 🔄 In progress | m05 | Sonnet 5.5, medium | Plan approved with 4 changes (below) |
+| M1 Connections + wizard | ⏳ Next | — | Sonnet 5.5, medium | Carry-over items listed below |
+| M2 Chat + Router | ⏳ | — | Opus 5.5, high | |
+| M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
+| M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
+| M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
+| M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
+| M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
+| M6 Metrics | ⏳ | — | Opus 5.5, medium | |
+| M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
+
+**MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
+
+## Environment (as of M0)
+
+- Windows 11, 32 GB RAM, RTX 3050 4 GB. WSL2 Ubuntu 24.04 (13 GB to WSL). Docker Desktop 29.9.2, WSL integration on.
+- Repo: `~/switchboard` in WSL (never under /mnt/c or /mnt/d). Remote: github.com/DevelopingGod/switchboard (public).
+- Node 24 via nvm (Linux). Windows Node at /mnt/d/NodeJS must not come first on PATH. Use **npm**, not the Windows pnpm.
+- Ollama on Windows, reached from Docker at host.docker.internal:11434. Models: qwen3:4b (local/private), llama3.2:3b (fallback), qwen2.5-coder:3b (future local-code). 7B/14B excluded from routing defaults.
+- Paperclip 2026.1106.0, native in WSL, loopback service on 127.0.0.1:3100, embedded Postgres.
+- LiteLLM v1.108.8 on 127.0.0.1:4000; Postgres 17.6 (DBs: switchboard, litellm).
+- Claude Code: desktop app, Code tab, WSL → Ubuntu environment. WSL sessions lack terminal, file pane, plugins, connectors, @-suggestions.
+
+## Key decisions
+
+1. **Architecture:** own portal (Next.js) + Router API (FastAPI) on top of reused Paperclip (agents/jobs/approvals/budgets) and LiteLLM (API-key models, media, spend). Don't rebuild those.
+2. **Subscriptions only via official CLIs** (Claude Code, Codex, Gemini CLI, Grok Build). Never pass subscription OAuth tokens to other tools/gateways (Anthropic ToS; ban risk). Skip OmniRoute/9Router-style subscription passthrough.
+3. **Paid:** Claude Pro (have). SuperGrok $30 planned at M4 (verify headless/automated use billing first). ChatGPT Plus optional.
+4. **Workflow packs** (OpenSpec, gstack, Spec Kit, Superpowers, BMAD, graphify…) are never pre-installed; installed on demand via `packs/<id>/pack.yaml` manifests (SPEC §8a).
+5. **Media:** no reliable free video API; confirm-before-spend + media caps. Images try free Gemini quota, then Grok Imagine.
+6. **Privacy:** Gemini free tier and Mistral may train on data (user is in India, outside EEA). Private toggle → local Ollama only.
+7. **Design direction (M0.5):** "dreamy sky" inspired by a Dribbble mindfulness landing page (Moola by Kris Anfalova) — original assets only. Day sky (light) / Dusk (dark), periwinkle accent (#8B8FE8 family, #5a5fc9 for text on light), white pill top nav, signature Dial (quotas, budgets, autonomy), huge tight headings, Plus Jakarta Sans + Geist + Geist Mono, glass for containers only, code on solid panels, ≤ 2 blur layers, reduced-motion/transparency fallbacks, Comfortable/Compact density, columns motif only on onboarding/login.
+8. **Process:** one milestone per branch + PR; Plan mode first; new session per milestone; stop for review after each. Prompts and reviews come from the planning chat.
+
+## M0 outcome
+
+- `fast` = groq/openai/gpt-oss-120b. `smart-free` = gemini/gemini-3.5-flash (`gemini-flash-latest` → 3.8 hung; pinned).
+- Added: .gitattributes (LF), gitleaks pre-commit (.githooks, checksum-verified install), doctor checks (Node source, clock drift, ports), docs/TROUBLESHOOTING.md.
+- Fixed: LiteLLM config mount (mount folder, not file); Node-source false red.
+
+## Carry-over to M1
+
+- Per-model timeout ~20–30 s for `fast` (global request_timeout is 120 s → slow fallback).
+- `smart-free` fallback → `local`.
+- Single source of truth for models: LiteLLM YAML vs DB (`STORE_MODEL_IN_DB=True`) — pick one for the Connections screen.
+- Add Cerebras key + alias; add `local-code` (qwen2.5-coder:3b).
+- Linux installs of claude, codex, gemini, grok, opencode inside WSL; `sudo apt install wslu` for browser logins.
+- Arch-Router model pull deferred to M3.
+
+## M0.5 approved changes
+
+1. Full-page screenshots of / and /dev/components in both themes in docs/screens/, embedded in PR.
+2. CSS sky default + optional original sky image (AVIF < 150 KB) behind a "Sky image" toggle.
+3. Lighthouse: performance, accessibility, best-practices ≥ 90 (no SEO).
+4. Original logo mark + "Switchboard" wordmark (SVG) for top bar and favicon.
+
+## Open questions / to verify
+
+- Paperclip REST endpoints for issues, runs, costs, approvals (M4).
+- Grok Build headless billing; Codex Free access at build time.
+- LiteLLM support for xAI Imagine image/video.
