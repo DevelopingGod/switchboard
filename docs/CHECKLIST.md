@@ -10,9 +10,9 @@
 |---|---|---|---|---|---|
 | [x] | Groq | console.groq.com/keys | `fast` (quick chat, titles fallback) | Per-model RPM + daily request caps | No training on API data |
 | [x] | Google AI Studio (Gemini) | aistudio.google.com/apikey | `smart-free` (long context, research, writing) | Cut in 2026; per-model RPM/RPD; image quota inconsistent | **May train** (outside EEA/UK/CH) |
-| [ ] | Cerebras | cloud.cerebras.ai | 2nd `fast` behind Groq | Large daily token allowance | Check console |
-| [ ] | Mistral | console.mistral.ai | `general` + writing (LinkedIn) | Free/experiment plan | **May train** unless opted out (Admin → toggle) |
-| [ ] | OpenRouter | openrouter.ai/keys | `explore` + fallback (`:free` models) | ~50 req/day on `:free`; ~1,000/day after a one-time $10 credit | Varies per model |
+| [ ] | Cerebras | cloud.cerebras.ai | 2nd `fast` behind Groq | **One-time free credits, not a renewing tier.** After adding the key, click **Set balance** on its card and enter the starting amount from the Cerebras console; the card shows what is left and routing stops at $0 | Check console |
+| [ ] | ~~Mistral~~ (paid only) | console.mistral.ai | `general` (manual pick only) | **The free plan cannot activate API keys.** Skip unless you buy a paid plan; hidden from the free presets and the wizard | **May train** unless opted out (Admin → toggle) |
+| [ ] | OpenRouter | openrouter.ai/keys | `explore` + writing fallback (`:free` models only) | ~50 req/day on `:free`; ~1,000/day after a one-time $10 credit. Paid models are used **only if you pick one by hand**; a 402 / credit-limit answer shows as "Credit limit reached" in Why this? | Varies per model |
 | [ ] | OpenCode Zen | opencode.ai/auth | `code-free` (free coding models) | Free models rotate | Some free models may use data |
 | [ ] | xAI (optional, paid) | console.x.ai | Grok text, Imagine image/video | Paid per token / image / second | Check terms |
 
@@ -26,9 +26,9 @@
 | ✔ | CLI | Login | Notes |
 |---|---|---|---|
 | [x] | OpenCode | `opencode auth login` → OpenCode Zen | Verified |
-| [ ] | Claude Code | `claude` → browser login with Pro | Official CLI only. Never pass the Pro login to other tools |
+| [ ] | Claude Code | `claude` → browser login with Pro | Official CLI only. Never pass the Pro login to other tools. Install from the portal (Anthropic's native installer, never npm). If a terminal says "native binary not installed", it is running the Windows npm copy (`/mnt/c/.../npm/claude`): run `~/.local/bin/claude` or put `~/.local/bin` first on PATH |
 | [ ] | Codex | `codex login` → ChatGPT | Free access is limited/promotional |
-| [ ] | Gemini CLI | `gemini` → Google login | |
+| [ ] | Gemini CLI | `gemini` → **Use Gemini API key** (Google sign-in is no longer supported for individuals; key from aistudio.google.com/apikey) | Shares the Gemini API free quota with `smart-free`: CLI use eats into it |
 | [ ] | Grok Build | `grok auth login` | Only after buying SuperGrok (planned at M4) |
 | [ ] | Tell Claude Code to verify login-status commands for each newly installed CLI | | |
 
@@ -73,7 +73,7 @@
 
 **Goal: OpenAI-compatible providers need YAML only, no code.** (Make this a M3 deliverable: a generic OpenAI-compatible fetcher/adapter.)
 
-1. `config/providers.yaml` — new entry: `kind`, `base_url`, `models_endpoint`, `litellm_prefix`, `env_key`, `free_limits`, `privacy`, (CLIs: `bin`, `version_cmd`, `auth_cmd`, `login_hint`, installer).
+1. `config/providers.yaml` — new entry: `kind` (`billing: credits` for one-time credits, `paid: true` for paid-only), `base_url`, `models_endpoint`, `litellm_prefix`, `env_key`, `free_limits`, `privacy`, (CLIs: `bin`, `version_cmd`, `auth_cmd`, `login_hint`, installer).
 2. `config/model-tags.yaml` — tag its models (code, fast, reasoning, vision, long-context…).
 3. Aliases (optional) — add it to a fallback chain in `providers.yaml` `aliases:`.
 4. Only if its API is **not** OpenAI-compatible: add a fetcher in `services/router/app/catalog/fetchers.py` (+ recorded fixture test).

@@ -39,10 +39,11 @@ test("complete the wizard end to end", async ({ page }) => {
   await page.getByLabel("Video").check();
   await next.click();
 
-  const names = ["Groq", "Cerebras", "Mistral (La Plateforme)", "xAI (Grok API)"];
+  const names = ["Groq", "Cerebras", "xAI (Grok API)"];
   for (const n of names) await expect(page.getByRole("article", { name: n })).toBeVisible();
   await expect(page.getByRole("article", { name: "xAI (Grok API)" }).getByText("Paid", { exact: true })).toBeVisible();
-  for (const n of ["Google AI Studio (Gemini)", "OpenCode", "Ollama (local)"]) {
+  // Mistral's free plan cannot activate API keys, so it is never offered as a goal's provider.
+  for (const n of ["Mistral (La Plateforme)", "Google AI Studio (Gemini)", "OpenCode", "Ollama (local)"]) {
     await expect(page.getByRole("article", { name: n })).toHaveCount(0);
   }
   await next.click();

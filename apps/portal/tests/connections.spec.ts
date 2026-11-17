@@ -40,6 +40,52 @@ test("add, test and remove an API key from the UI", async ({ page }) => {
   await expect(c.getByText("Key ending")).toHaveCount(0);
 });
 
+test("Cerebras free credits: enter a starting balance and see what is left", async ({ page }) => {
+  await page.goto("/connections");
+  await ready(page);
+  const c = card(page, "Cerebras");
+  await expect(c.getByText("One-time free credits")).toBeVisible();
+  await expect(c.getByText("Free credits", { exact: true })).toHaveCount(0); // nothing until a key exists
+
+  await c.getByRole("button", { name: "Add key" }).click();
+  await c.getByLabel("Cerebras API key").fill("csk-test-key-4321");
+  await c.getByRole("button", { name: "Check and save" }).click();
+  await expect(c.getByText("Key ending 4321")).toBeVisible();
+  await expect(c.getByText("Enter what your free credits started at")).toBeVisible();
+
+  await c.getByRole("button", { name: "Set balance" }).click();
+  await c.getByLabel("Starting balance (US dollars)").fill("lots");
+  await c.getByRole("button", { name: "Save balance" }).click();
+  await expect(c.getByRole("alert")).toContainText("Enter an amount in dollars");
+
+  await c.getByLabel("Starting balance (US dollars)").fill("$5");
+  await c.getByRole("button", { name: "Save balance" }).click();
+  await expect(c.getByText("$5.00 left of $5.00")).toBeVisible();
+  await expect(c.getByRole("meter", { name: "Free credits" })).toBeVisible();
+  await expect(c.getByRole("button", { name: "Change balance" })).toBeVisible();
+
+  await c.getByRole("button", { name: "Change balance" }).click();
+  await c.getByLabel("Starting balance (US dollars)").fill("0");
+  await c.getByRole("button", { name: "Save balance" }).click();
+  await expect(c.getByText("Credits used up.")).toBeVisible();
+
+  await c.getByRole("button", { name: "Remove key" }).click();
+  await c.getByRole("button", { name: "Yes, remove it" }).click();
+  await expect(c.getByText("Not connected")).toBeVisible();
+});
+
+test("Mistral is labelled paid and Gemini CLI says to use an API key", async ({ page }) => {
+  await page.goto("/connections");
+  await ready(page);
+  const m = card(page, "Mistral (La Plateforme)");
+  await expect(m.getByText("Paid", { exact: true })).toBeVisible();
+  await expect(m.getByText("free plan cannot activate API keys").first()).toBeVisible();
+  const g = card(page, "Gemini CLI");
+  await expect(g.getByText("Google sign-in no longer works for individuals")).toBeVisible();
+  await expect(g.getByText("Shares the Gemini API free quota with smart-free", { exact: false })).toBeVisible();
+  await expect(g.getByText(/Login with Google/)).toHaveCount(0);
+});
+
 test("provider cards show tagged model badges and a per-model Test", async ({ page }) => {
   await page.goto("/connections");
   await ready(page);

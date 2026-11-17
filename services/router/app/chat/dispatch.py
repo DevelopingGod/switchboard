@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -19,7 +20,7 @@ import httpx
 
 from app import secrets
 from app.routing.engine import Candidate, Decision, Skip
-from app.routing.health import ERROR_S, RATE_LIMIT_S, TIMEOUT_S, Cooldowns
+from app.routing.health import CREDIT_S, ERROR_S, RATE_LIMIT_S, TIMEOUT_S, Cooldowns
 
 INJECTED_TIMEOUT_S = 0.05
 
@@ -121,8 +122,23 @@ class ThinkSplitter:
 
 
 # --- upstream -----------------------------------------------------------------------------------
+# A provider out of credit answers 402, or (through LiteLLM) another status with one of these phrases.
+CREDIT_LIMIT = re.compile(
+    r"\b402\b|payment required|insufficient[ _](credits?|funds|balance)|credit limit|more credits"
+    r"|can only afford|out of credits?|exceeded your (current )?quota.*billing",
+    re.I,
+)
+CREDIT_REASON = "Credit limit reached (402): add credits, or use a :free model"
+
+
+def is_credit_limit(status: int, text: str) -> bool:
+    return status == 402 or bool(CREDIT_LIMIT.search(text))
+
+
 def classify(status: int, body: str, retry_after: str | None) -> UpstreamError:
     text = secrets.redact(body)[:160]
+    if status != 429 and is_credit_limit(status, body):
+        return UpstreamError("credit_limit", CREDIT_REASON, CREDIT_S)
     if status == 429:
         wait = RATE_LIMIT_S
         if retry_after and retry_after.isdigit():
@@ -188,6 +204,8 @@ async def _stream_one(
                 if obj.get("error"):
                     err = obj["error"]
                     msg = err.get("message", "stream error") if isinstance(err, dict) else str(err)
+                    if is_credit_limit(0, msg):
+                        raise UpstreamError("credit_limit", CREDIT_REASON, CREDIT_S)
                     code = "rate_limited" if "429" in msg or "RateLimit" in msg else "error"
                     raise UpstreamError(
                         code, secrets.redact(msg)[:120], RATE_LIMIT_S if code == "rate_limited" else ERROR_S

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 RATE_LIMIT_S = 60
 TIMEOUT_S = 30
 ERROR_S = 15
+CREDIT_S = 1800  # out of credit: nothing changes until the user adds some
 
 
 @dataclass

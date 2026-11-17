@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import secrets
+from app import credits, secrets
 from app.litellm_admin import LiteLLMAdmin, credential_name, spec_hash
 from app.registry import AliasDeployment, Provider, Registry, load_registry
 
@@ -79,17 +79,18 @@ async def reconcile(
         if name in ours and ours[name] not in keys:
             await admin.delete_credential(ours[name])
 
-    # 2. Deployments.
+    # 2. Deployments. Credit providers whose balance is used up get none (LiteLLM can't pick them).
+    used_up = set(await credits.exhausted(session, registry))
     desired: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
     for d in registry.aliases:
         p = registry.providers[d.provider]
-        if p.kind == "api_key" and d.provider not in keys:
+        if (p.kind == "api_key" and d.provider not in keys) or d.provider in used_up:
             continue
         params, info = deployment_spec(d, registry)
         info["sb_hash"] = spec_hash(d.alias, params, info)
         desired[d.key] = (d.alias, params, info)
     for p in registry.providers.values():
-        if p.kind == "local" or (p.kind == "api_key" and p.id in keys):
+        if p.kind == "local" or (p.kind == "api_key" and p.id in keys and p.id not in used_up):
             key, name, params, info = wildcard_spec(p)
             info["sb_hash"] = spec_hash(name, params, info)
             desired[key] = (name, params, info)

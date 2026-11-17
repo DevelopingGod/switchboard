@@ -1,5 +1,6 @@
 """hostprobe tests (stdlib unittest; run: python3 -m unittest discover -s services/hostprobe/tests)."""
 
+import hashlib
 import json
 import os
 import stat
@@ -493,6 +494,29 @@ class InstallTableTests(unittest.TestCase):
                 )
             else:
                 self.assertEqual(s.method, "npm", name)
+
+    def test_claude_uses_the_official_native_installer_and_never_skips_scripts(self):
+        """The npm package needs its postinstall to fetch the native binary ("native binary not
+        installed" when it is skipped). Claude Code installs only through Anthropic's own installer."""
+        s = hostprobe.INSTALLS["claude"]
+        self.assertEqual((s.method, s.source), ("script", "https://claude.ai/install.sh"))
+        self.assertEqual(s.interpreter, "bash")
+        for words in (s.source, s.interpreter, *s.args, *(f"{k}={v}" for k, v in s.env)):
+            for banned in ("npm", "ignore-scripts", "@anthropic-ai", "sudo", "unsafe-perm"):
+                self.assertNotIn(banned, words)
+        # the plan is downloaded, hashed and shown like the others
+        body = b"#!/bin/bash\necho claude installer\n"
+        inst = hostprobe.Installer(
+            specs={"claude": s}, fetch=lambda url, hosts: body, path_fn=lambda: ["/usr/bin", "/bin"]
+        )
+        plan = inst.plan("claude")
+        self.assertEqual(plan["method"], "script")
+        self.assertEqual(plan["source"], "https://claude.ai/install.sh")
+        self.assertEqual(plan["sha256"], hashlib.sha256(body).hexdigest())
+        self.assertEqual(plan["size"], len(body))
+        self.assertIn("bash install.sh", plan["commands"][1])
+        self.assertNotIn("npm", " ".join(plan["commands"]))
+        self.assertFalse(plan["sudo"])
 
     def test_fetch_rejects_other_hosts_and_non_scripts(self):
         with self.assertRaises(hostprobe.InstallError):

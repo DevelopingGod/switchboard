@@ -70,14 +70,14 @@ rules:
   - id: writing-premium
     when: { intent: writing, quality: high }
     target: model:grok            # xAI API (paid); skipped until an alias + key exist
-    fallbacks: [model:smart-free, model:general, model:fast]
+    fallbacks: [model:smart-free, model:explore, model:fast]
     temperature: 0.7
     max_cost_usd: 0.05
 
   - id: writing
     when: { intent: writing }      # posts, emails, blogs
     target: model:smart-free
-    fallbacks: [model:general, model:fast, model:local]
+    fallbacks: [model:explore, model:fast, model:local]
     temperature: 0.8
     autonomy: 0
 
@@ -89,7 +89,7 @@ rules:
   - id: default
     when: {}
     target: model:fast
-    fallbacks: [model:general, model:smart-free, model:explore, model:local]
+    fallbacks: [model:smart-free, model:explore, model:local]
 
 # Slash commands (SPEC §7.1) -> rule id. The command is removed from the prompt.
 slash:
@@ -108,7 +108,7 @@ presets:
   free:
     paid: never
     rules:
-      writing-premium: { target: model:smart-free, fallbacks: [model:general, model:fast, model:local] }
+      writing-premium: { target: model:smart-free, fallbacks: [model:explore, model:fast, model:local] }
   balanced:
     paid: manual
   best:
@@ -116,7 +116,7 @@ presets:
     rules:
       default:
         target: best:reasoning
-        fallbacks: [model:smart-free, model:fast, model:general, model:explore, model:local]
+        fallbacks: [model:smart-free, model:fast, model:explore, model:local]
       writing:
         target: best:reasoning
-        fallbacks: [model:smart-free, model:general, model:fast, model:local]
+        fallbacks: [model:smart-free, model:explore, model:fast, model:local]

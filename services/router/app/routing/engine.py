@@ -52,6 +52,7 @@ class Context:
     catalog: list[CatalogEntry]
     cooldowns: Cooldowns
     spent_today: float = 0.0
+    exhausted: dict[str, str] = field(default_factory=dict)  # credits used up: provider -> reason
 
     def entry(self, provider: str, model_id: str) -> CatalogEntry | None:
         return next((c for c in self.catalog if c.provider == provider and c.model_id == model_id), None)
@@ -93,7 +94,7 @@ class Skip:
     target: str
     label: str
     code: str  # not_connected | cooldown | agent | paid | budget_request | budget_daily | private
-    #            | not_configured | rate_limited | timeout | error
+    #            | not_configured | credits | credit_limit | rate_limited | timeout | error
     reason: str
 
     def as_dict(self) -> dict[str, str]:
@@ -214,7 +215,13 @@ class _Resolver:
         p = self.reg.providers[first.provider]
         label = f"{p.name.split(' (')[0]} · {first.model.split('/')[-1]}"
         if not live:
-            self.skip(target, label, "not_connected", f"Not connected: add a key for {p.name} in Connections")
+            used_up = next((d.provider for d in deps if d.provider in self.ctx.exhausted), None)
+            if used_up:
+                self.skip(target, label, "credits", self.ctx.exhausted[used_up])
+            else:
+                self.skip(
+                    target, label, "not_connected", f"Not connected: add a key for {p.name} in Connections"
+                )
             return None
         entry = self.ctx.entry(first.provider, first.model)
         return Candidate(
@@ -239,8 +246,21 @@ class _Resolver:
         if p.kind == "cli":
             self.skip(target, label, "agent", f"{p.name} is a CLI agent; jobs arrive in M4")
             return None
+        if provider in self.ctx.exhausted:
+            self.skip(target, label, "credits", self.ctx.exhausted[provider])
+            return None
         if provider not in self.ctx.connected:
             self.skip(target, label, "not_connected", f"Not connected: add a key for {p.name} in Connections")
+            return None
+        if isinstance(p.free_tier, str) and not p.is_free_tier(model_id) and not self.manual:
+            # OpenRouter: only ":free" models are used automatically; a paid one needs a manual pick.
+            self.skip(
+                target,
+                label,
+                "paid",
+                f"{p.name} paid models are only used when you pick them "
+                f"(automatic routing keeps to {p.free_tier} models)",
+            )
             return None
         entry = self.ctx.entry(provider, model_id)
         return Candidate(
@@ -269,6 +289,11 @@ class _Resolver:
             and e.provider in self.ctx.connected
             and self.reg.providers.get(e.provider) is not None
             and self.reg.providers[e.provider].kind != "cli"
+            # OpenRouter: automatic picks stay on ":free" models
+            and (
+                not isinstance(self.reg.providers[e.provider].free_tier, str)
+                or self.reg.providers[e.provider].is_free_tier(e.model_id)
+            )
         ]
         if self.dec.private:
             pool = [e for e in pool if self.reg.providers[e.provider].kind == "local"]

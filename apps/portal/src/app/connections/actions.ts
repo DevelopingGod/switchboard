@@ -25,6 +25,13 @@ export async function saveKey(provider: string, apiKey: string): Promise<ActionR
   return run(routerSend<{ key_last4: string }>("PUT", `/connections/${provider}/key`, { api_key: apiKey.trim() }, 90_000));
 }
 
+/** Cerebras-style one-time credits: set the starting balance; spend counts from now. */
+export async function saveCredits(provider: string, startingUsd: number): Promise<ActionResult<{ provider: string }>> {
+  if (!ID.test(provider)) return bad("Unknown provider.");
+  if (typeof startingUsd !== "number" || !Number.isFinite(startingUsd) || startingUsd < 0 || startingUsd > 100_000) return bad("Enter an amount in dollars, like 5.00.");
+  return run(routerSend<{ provider: string }>("PUT", `/connections/${provider}/credits`, { starting_usd: startingUsd }, 90_000));
+}
+
 export async function removeKey(provider: string): Promise<ActionResult<{ removed: boolean }>> {
   if (!ID.test(provider)) return bad("Unknown provider.");
   return run(routerSend<{ removed: boolean }>("DELETE", `/connections/${provider}/key`));

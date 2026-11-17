@@ -3,17 +3,17 @@ import { neededProviders } from "@/lib/wizard";
 import { splitHint } from "@/lib/cli-hint";
 
 const map = {
-  chat: [{ provider: "groq", paid: false }, { provider: "cerebras", paid: false }, { provider: "mistral", paid: false }],
-  writing: [{ provider: "gemini", paid: false }, { provider: "mistral", paid: false }],
+  chat: [{ provider: "groq", paid: false }, { provider: "cerebras", paid: false }],
+  writing: [{ provider: "gemini", paid: false }, { provider: "openrouter", paid: false }],
   images: [{ provider: "gemini", paid: false }, { provider: "xai", paid: true }],
   video: [{ provider: "xai", paid: true }],
 };
 
 describe("neededProviders", () => {
   it("only lists providers the chosen goals use, de-duplicated, with the goals that need them", () => {
-    const n = neededProviders(["writing", "chat"], map);
-    expect(n.map((x) => x.provider)).toEqual(["groq", "cerebras", "mistral", "gemini"]);
-    expect(n.find((x) => x.provider === "mistral")?.for).toEqual(["chat", "writing"]);
+    const n = neededProviders(["writing", "images"], map);
+    expect(n.map((x) => x.provider)).toEqual(["gemini", "openrouter", "xai"]);
+    expect(n.find((x) => x.provider === "gemini")?.for).toEqual(["writing", "images"]);
   });
 
   it("flags paid providers and returns nothing when no goal is chosen", () => {

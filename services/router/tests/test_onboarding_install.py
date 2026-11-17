@@ -15,8 +15,8 @@ async def test_goal_mapping_matches_the_agreed_table(client):
     goals = (await client.get("/onboarding")).json()["goals"]
     ids = {g: [p["provider"] for p in ps] for g, ps in goals.items()}
     assert ids == {
-        "chat": ["groq", "cerebras", "mistral"],
-        "writing": ["gemini", "mistral"],
+        "chat": ["groq", "cerebras"],  # Mistral: the free plan cannot activate API keys
+        "writing": ["gemini", "openrouter"],
         "code": ["claude-code", "codex", "grok-build", "opencode", "opencode-zen"],
         "research": ["gemini"],
         "images": ["gemini", "xai"],
