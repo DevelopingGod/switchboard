@@ -70,6 +70,9 @@ services:
       HOSTPROBE_URL: http://host.docker.internal:${HOSTPROBE_PORT:-8101}
       HOSTPROBE_TOKEN: ${HOSTPROBE_TOKEN:-}
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      # Paperclip runs natively in WSL on loopback; the container reaches it via host.docker.internal
+      # (health dot in the portal footer / Status view only).
+      PAPERCLIP_URL: http://host.docker.internal:${PAPERCLIP_PORT:-3100}
       CONFIG_DIR: /srv/config
       # Dev only, off unless you export it for one run: lets a chat request force a 429/timeout on a
       # target to check fallbacks live (docs/m2.md). Never set it in deploy/.env.

@@ -23,6 +23,7 @@ os.environ["ROUTER_ADMIN_TOKEN"] = "admin-token-test-0123456789"
 os.environ["HOSTPROBE_URL"] = "http://hostprobe.test"
 os.environ["HOSTPROBE_TOKEN"] = "probe-token-test-0123456789"
 os.environ["OLLAMA_API_BASE"] = "http://ollama.test"
+os.environ["PAPERCLIP_URL"] = "http://paperclip.test"
 os.environ["BACKGROUND_JOBS"] = "false"
 os.environ.setdefault("CONFIG_DIR", str(Path(__file__).resolve().parents[3] / "config"))
 if not Path(os.environ["CONFIG_DIR"], "providers.yaml").exists():
@@ -100,6 +101,9 @@ class FakeLiteLLM:
         self.models: dict[str, dict] = {}
         self.chat_calls: list[str] = []
         self.broken = False  # simulate LiteLLM errors on writes
+        self.down = False  # liveliness fails and every admin call is refused (LiteLLM stopped)
+        self.model_writes = 0
+        self.wildcard_models = ["model-a", "model-b", "model-c"]  # /model/info expansion of `<p>/*`
         self._n = 0
         # M2 streaming: every streamed request body, and per-model scripted behaviour:
         #   "ok" (default) | "429" | "402" | "402-wrapped" | "500" | "timeout" | "midstream" | "stop"
@@ -114,7 +118,7 @@ class FakeLiteLLM:
 
     def install(self, mock: respx.MockRouter) -> None:
         base = "http://litellm.test"
-        mock.get(f"{base}/health/liveliness").respond(200, json="I'm alive!")
+        mock.get(f"{base}/health/liveliness").mock(side_effect=self.liveliness)
         mock.get(f"{base}/credentials").mock(side_effect=self.list_credentials)
         mock.post(f"{base}/credentials").mock(side_effect=self.create_credential)
         mock.patch(url__regex=rf"{base}/credentials/.+").mock(side_effect=self.patch_credential)
@@ -122,12 +126,27 @@ class FakeLiteLLM:
         mock.get(f"{base}/model/info").mock(side_effect=self.model_info)
         mock.post(f"{base}/model/new").mock(side_effect=self.model_new)
         mock.post(f"{base}/model/delete").mock(side_effect=self.model_delete)
+        mock.patch(url__regex=rf"{base}/model/.+/update").mock(side_effect=self.model_update)
         mock.post(f"{base}/v1/chat/completions").mock(side_effect=self.chat)
 
     def _auth(self, request: httpx.Request) -> bool:
         return request.headers.get("authorization") == "Bearer sk-master-test"
 
+    def liveliness(self, request):
+        if self.down:
+            raise httpx.ConnectError("connection refused")
+        return httpx.Response(200, json="I'm alive!")
+
+    def restart(self, wipe: bool = True) -> None:
+        """LiteLLM restarted; with `wipe`, its DB lost our deployments and credentials."""
+        self.down = False
+        if wipe:
+            self.models.clear()
+            self.credentials.clear()
+
     def list_credentials(self, request):
+        if self.down:
+            raise httpx.ConnectError("connection refused")
         return httpx.Response(200, json={"credentials": [{"credential_name": n} for n in self.credentials]})
 
     def create_credential(self, request):
@@ -152,19 +171,69 @@ class FakeLiteLLM:
         return httpx.Response(200, json={"success": True})
 
     def model_info(self, request):
-        return httpx.Response(200, json={"data": list(self.models.values())})
+        if self.down:
+            raise httpx.ConnectError("connection refused")
+        # Like v1.108.8: a `<provider>/*` wildcard is listed once per provider model, all with one id.
+        rows = []
+        for m in self.models.values():
+            if m["model_name"].endswith("/*"):
+                prefix = m["model_name"][:-1]
+                rows += [{**m, "model_name": prefix + name} for name in self.wildcard_models]
+            else:
+                rows.append(m)
+        return httpx.Response(200, json={"data": rows})
 
     def model_new(self, request):
+        # Recorded from v1.108.8: a caller-chosen model_info.id is kept; reusing an existing id is a
+        # 500 "Failed to add model to db".
+        if self.broken:
+            return httpx.Response(500, text="boom")
         body = json.loads(request.content)
         self._n += 1
-        mid = f"m{self._n}"
+        mid = body.get("model_info", {}).get("id") or f"m{self._n}"
+        if mid in self.models:
+            return httpx.Response(
+                500,
+                json={
+                    "error": {
+                        "message": "{'error': 'Failed to add model to db. "
+                        "Check your server logs for more details.'}",
+                        "code": "500",
+                    }
+                },
+            )
         body["model_info"] = {**body.get("model_info", {}), "id": mid, "db_model": True}
         self.models[mid] = body
+        self.model_writes += 1
+        return httpx.Response(200, json={"model_id": mid})
+
+    def model_update(self, request):
+        mid = request.url.path.split("/")[-2]
+        if mid not in self.models:
+            return httpx.Response(
+                400, json={"error": {"message": f"{{'error': 'Model with id={mid} not found in db'}}"}}
+            )
+        body = json.loads(request.content)
+        body["model_info"] = {**body.get("model_info", {}), "id": mid, "db_model": True}
+        self.models[mid] = body
+        self.model_writes += 1
         return httpx.Response(200, json={"model_id": mid})
 
     def model_delete(self, request):
-        self.models.pop(json.loads(request.content)["id"])
-        return httpx.Response(200, json={"message": "deleted"})
+        # Recorded from v1.108.8: deleting an id that is gone is a 400 with "not found in db".
+        mid = json.loads(request.content)["id"]
+        if self.models.pop(mid, None) is None:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": f"{{'error': 'Model with id={mid} not found in db'}}",
+                        "type": "auth_error",
+                        "code": "400",
+                    }
+                },
+            )
+        return httpx.Response(200, json={"message": f"Model: {mid} deleted successfully"})
 
     def resolve(self, name: str) -> str | None:
         """Served deployment for an alias or a `<provider>/<model>` wildcard name, like LiteLLM."""
@@ -314,9 +383,11 @@ def hostprobe_up(mock_http):
 
 @pytest.fixture
 async def client(litellm):
+    from app import sync
     from app.litellm_admin import LiteLLMAdmin
     from app.main import app
 
+    sync.reset()
     app.state.litellm = LiteLLMAdmin()
     app.state.background = {}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://router.test") as c:

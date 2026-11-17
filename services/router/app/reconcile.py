@@ -2,9 +2,12 @@
 
 LiteLLM's DB is the single source of truth for routable models, and the router is its only writer
 (docs/m1a.md). Only deployments tagged model_info.managed_by=switchboard are touched; anything added
-by hand in the LiteLLM UI is left alone. Idempotent: a no-op when nothing changed.
+by hand in the LiteLLM UI is left alone. Idempotent: a no-op when nothing changed, and safe to re-run
+after any partial failure (see litellm_admin). One reconcile runs at a time: a key change, a credits
+cut-off and the background resync (app/sync.py) used to be able to race and delete the same model.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -61,25 +64,23 @@ def credential_values(registry: Registry, provider: str, key: str) -> dict[str, 
     return values
 
 
-async def reconcile(
-    session: AsyncSession, admin: LiteLLMAdmin, registry: Registry | None = None
-) -> dict[str, list[str]]:
-    registry = registry or load_registry()
+_lock = asyncio.Lock()
+
+
+async def _keys(session: AsyncSession, registry: Registry) -> dict[str, str]:
     keys: dict[str, str] = {}
     for p in registry.api_providers():
         k = await secrets.load_key(session, p.id)
         if k:
             keys[p.id] = k
+    return keys
 
-    # 1. Credentials: one per keyed provider; drop ours for providers whose key was removed.
-    for pid, k in keys.items():
-        await admin.upsert_credential(pid, credential_values(registry, pid, k))
-    ours = {credential_name(p.id): p.id for p in registry.api_providers()}
-    for name in await admin.credential_names():
-        if name in ours and ours[name] not in keys:
-            await admin.delete_credential(ours[name])
 
-    # 2. Deployments. Credit providers whose balance is used up get none (LiteLLM can't pick them).
+async def desired_deployments(
+    session: AsyncSession, registry: Registry, keys: dict[str, str]
+) -> dict[str, tuple[str, dict[str, Any], dict[str, Any]]]:
+    """sb_key -> (model_name, litellm_params, model_info incl. sb_hash) that LiteLLM should hold.
+    Credit providers whose balance is used up get none (LiteLLM can't pick them)."""
     used_up = set(await credits.exhausted(session, registry))
     desired: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
     for d in registry.aliases:
@@ -94,6 +95,54 @@ async def reconcile(
             key, name, params, info = wildcard_spec(p)
             info["sb_hash"] = spec_hash(name, params, info)
             desired[key] = (name, params, info)
+    return desired
+
+
+async def drift(
+    session: AsyncSession, admin: LiteLLMAdmin, registry: Registry | None = None
+) -> dict[str, list[str]]:
+    """Expected vs actual, read-only: sb_keys missing from LiteLLM, and ours that are stale or extra.
+    Cheap enough to poll (one GET /model/info)."""
+    registry = registry or load_registry()
+    keys = await _keys(session, registry)
+    desired = await desired_deployments(session, registry, keys)
+    have_creds = await admin.credential_names()
+    missing_creds = sorted(credential_name(pid) for pid in keys if credential_name(pid) not in have_creds)
+    actual: dict[str, str | None] = {}
+    stale: list[str] = []
+    for dep in await admin.managed_deployments():
+        info = dep.get("model_info", {})
+        k = info.get("sb_key")
+        if k in actual or k not in desired or info.get("sb_hash") != desired[k][2]["sb_hash"]:
+            stale.append(str(k))
+        actual[k] = info.get("sb_hash")
+    return {
+        "missing": sorted(k for k in desired if k not in actual),
+        "stale": sorted(stale),
+        "missing_credentials": missing_creds,
+    }
+
+
+async def reconcile(
+    session: AsyncSession, admin: LiteLLMAdmin, registry: Registry | None = None
+) -> dict[str, list[str]]:
+    async with _lock:
+        return await _reconcile(session, admin, registry or load_registry())
+
+
+async def _reconcile(session: AsyncSession, admin: LiteLLMAdmin, registry: Registry) -> dict[str, list[str]]:
+    keys = await _keys(session, registry)
+
+    # 1. Credentials: one per keyed provider; drop ours for providers whose key was removed.
+    for pid, k in keys.items():
+        await admin.upsert_credential(pid, credential_values(registry, pid, k))
+    ours = {credential_name(p.id): p.id for p in registry.api_providers()}
+    for name in await admin.credential_names():
+        if name in ours and ours[name] not in keys:
+            await admin.delete_credential(ours[name])
+
+    # 2. Deployments.
+    desired = await desired_deployments(session, registry, keys)
 
     result: dict[str, list[str]] = {"added": [], "removed": [], "kept": []}
     seen: set[str] = set()

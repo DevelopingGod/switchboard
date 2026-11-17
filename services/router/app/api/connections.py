@@ -12,14 +12,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app import credits, hostprobe_client, model_test, secrets
+from app import credits, hostprobe_client, model_test, secrets, sync
 from app.catalog.fetchers import FetchError, fetch
 from app.catalog.job import get_connection, record_fetch
 from app.db import get_session
 from app.deps import litellm, require_admin
+from app.errors import classify, problem
 from app.litellm_admin import LiteLLMAdmin, LiteLLMError
 from app.models import Connection, ModelCatalog
-from app.reconcile import reconcile
 from app.registry import Provider, load_registry, load_tag_rules
 
 log = logging.getLogger("app.connections")
@@ -132,7 +132,11 @@ async def list_connections(session: AsyncSession = Depends(get_session)) -> dict
             "status": c.status if c else "unknown",
             "last_checked": c.last_checked if c else None,
             "last_error": c.last_error if c else None,
+            "last_error_code": classify(c.last_error) if c else None,
         }
+        if p.id in sync.state.provider_errors:
+            # Registration in LiteLLM failed; the background sync is retrying. Shown with "Retry sync".
+            row["sync_error"] = sync.state.provider_errors[p.id]
         if p.kind == "api_key":
             row["key_last4"] = last4.get(p.id)
         if credits.is_credits(p):
@@ -243,17 +247,25 @@ async def put_key(
         try:
             fetched = await fetch(client, p, key)  # validates the key before anything is stored
         except FetchError as e:
-            raise HTTPException(400, f"key test failed: {secrets.redact(str(e))}") from None
+            raise problem(
+                400,
+                classify(str(e)) or "key_rejected",
+                "The provider did not accept this key.",
+                f"key test failed: {e}",
+            ) from None
     await secrets.store_key(session, p.id, key)
     await session.commit()
     counts = await record_fetch(session, p, load_tag_rules(), fetched)
     try:
-        changes = await reconcile(session, admin)
-    except LiteLLMError as e:
-        conn = await get_connection(session, p)
-        conn.last_error = secrets.redact(str(e))
-        await session.commit()
-        raise HTTPException(502, "key stored, but registering it in LiteLLM failed; retry later") from None
+        changes = await sync.sync_once(session, admin, f"key saved ({p.id})")
+    except (LiteLLMError, httpx.HTTPError) as e:
+        sync.request("registration failed", p.id, str(e))
+        raise problem(
+            502,
+            "gateway_sync",
+            "Key saved. Couldn't sync with the model gateway; retrying automatically.",
+            str(e),
+        ) from None
     return {
         "provider": p.id,
         "status": "connected",
@@ -278,12 +290,35 @@ async def put_credits(
     await credits.set_balance(session, p.id, body.starting_usd)
     await session.commit()
     try:
-        await reconcile(session, admin)
-    except LiteLLMError:
-        raise HTTPException(
-            502, "balance saved, but updating LiteLLM failed; it will retry on restart"
+        await sync.sync_once(session, admin, f"credits changed ({p.id})")
+    except (LiteLLMError, httpx.HTTPError) as e:
+        sync.request("credits changed", p.id, str(e))
+        raise problem(
+            502,
+            "gateway_sync",
+            "Balance saved. Couldn't sync with the model gateway; retrying automatically.",
+            str(e),
         ) from None
     return {"provider": p.id, "credits": await credits.status(session, p.id)}
+
+
+@router.post("/connections/{provider_id}/resync", dependencies=[Depends(require_admin)])
+async def resync_provider(
+    provider_id: str,
+    session: AsyncSession = Depends(get_session),
+    admin: LiteLLMAdmin = Depends(litellm),
+) -> dict[str, Any]:
+    """The card's "Retry sync" action, shown when registration failed. Reconciles the whole set now
+    (idempotent)."""
+    p = _provider(provider_id, ("api_key", "local"))
+    try:
+        changes = await sync.sync_once(session, admin, f"retry sync ({p.id})")
+    except Exception as e:
+        sync.request("retry sync failed", p.id, str(e))
+        raise problem(
+            502, "gateway_sync", "Couldn't sync with the model gateway. Retrying automatically.", str(e)
+        ) from None
+    return {"provider": p.id, "ok": True, "litellm": {k: len(v) for k, v in changes.items()}}
 
 
 @router.post("/connections/{provider_id}/test", dependencies=[Depends(require_admin)])
@@ -317,11 +352,15 @@ async def delete_key(
     conn.status, conn.last_error, conn.last_checked = "no_key", None, datetime.now(UTC)
     await session.commit()
     try:
-        changes = await reconcile(session, admin)
+        changes = await sync.sync_once(session, admin, f"key removed ({p.id})")
         await admin.delete_credential(p.id)
-    except LiteLLMError:
-        raise HTTPException(
-            502, "key removed, but updating LiteLLM failed; it will retry on restart"
+    except (LiteLLMError, httpx.HTTPError) as e:
+        sync.request("key removed", p.id, str(e))
+        raise problem(
+            502,
+            "gateway_sync",
+            "Key removed. Couldn't sync with the model gateway; retrying automatically.",
+            str(e),
         ) from None
     return {"provider": p.id, "removed": removed, "status": "no_key", "litellm": changes}
 
