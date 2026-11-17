@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Switchboard setup for WSL2 (Ubuntu). Safe to re-run.
+#   scripts/setup-wsl.sh          interactive (asks before onboarding Paperclip)
+#   scripts/setup-wsl.sh --yes    non-interactive
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$ROOT/deploy/.env"
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$ROOT/deploy/docker-compose.yml")
+NVM_VERSION=v0.41.0
+NODE_MAJOR=24
+GITLEAKS_VERSION=v8.30.1
+YES=false
+[[ "${1:-}" == "--yes" ]] && YES=true
+export PATH="$HOME/.local/bin:$PATH"   # gitleaks, paperclipai shim
+
+say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*"; }
+die()  { printf '\033[1;31mxx\033[0m  %s\n' "$*" >&2; exit 1; }
+confirm() { $YES && return 0; read -r -p "$1 [y/N] " a; [[ "$a" =~ ^[Yy]$ ]]; }
+
+# --- 1. Prerequisites -------------------------------------------------------
+grep -qi microsoft /proc/version || warn "Not running under WSL; continuing anyway."
+command -v docker >/dev/null || die "Docker not found. Install Docker Desktop with the WSL2 backend."
+docker info >/dev/null 2>&1 || die "Docker daemon not reachable. Start Docker Desktop."
+command -v openssl >/dev/null || die "openssl not found (sudo apt install openssl)."
+
+# --- 2. Node (Linux, via nvm) — Paperclip needs >= 24.11 ----------------------
+export NVM_DIR="$HOME/.nvm"
+if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+  say "Installing nvm $NVM_VERSION"
+  curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" | PROFILE="$HOME/.bashrc" bash
+fi
+# shellcheck disable=SC1091
+. "$NVM_DIR/nvm.sh"
+if ! nvm ls "$NODE_MAJOR" >/dev/null 2>&1; then
+  say "Installing Node $NODE_MAJOR"
+  nvm install "$NODE_MAJOR"
+fi
+nvm alias default "$NODE_MAJOR" >/dev/null
+nvm use default >/dev/null
+say "Node $(node --version) at $(command -v node)"
+
+# --- 3. gitleaks + pre-commit hook ------------------------------------------
+if ! gitleaks version 2>/dev/null | grep -q "${GITLEAKS_VERSION#v}"; then
+  say "Installing gitleaks $GITLEAKS_VERSION to ~/.local/bin"
+  tmp=$(mktemp -d)
+  v=${GITLEAKS_VERSION#v}
+  base="https://github.com/gitleaks/gitleaks/releases/download/$GITLEAKS_VERSION"
+  curl -fsSL -o "$tmp/gitleaks_${v}_linux_x64.tar.gz" "$base/gitleaks_${v}_linux_x64.tar.gz"
+  curl -fsSL -o "$tmp/checksums.txt" "$base/gitleaks_${v}_checksums.txt"
+  (cd "$tmp" && grep " gitleaks_${v}_linux_x64.tar.gz\$" checksums.txt | sha256sum -c -) || die "gitleaks checksum mismatch"
+  mkdir -p "$HOME/.local/bin"
+  tar -xzf "$tmp/gitleaks_${v}_linux_x64.tar.gz" -C "$HOME/.local/bin" gitleaks
+  rm -rf "$tmp"
+fi
+git -C "$ROOT" config core.hooksPath .githooks
+say "gitleaks $(gitleaks version) pre-commit hook enabled"
+
+# --- 4. deploy/.env ---------------------------------------------------------
+if [[ ! -f "$ENV_FILE" ]]; then
+  say "Creating deploy/.env from .env.example"
+  cp "$ROOT/deploy/.env.example" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+fi
+fill_secret() {  # fill_secret VAR VALUE — only if empty
+  if grep -qE "^$1=$" "$ENV_FILE"; then
+    sed -i "s|^$1=$|$1=$2|" "$ENV_FILE"
+    say "Generated $1"
+  fi
+}
+fill_secret POSTGRES_PASSWORD "$(openssl rand -hex 24)"
+fill_secret LITELLM_MASTER_KEY "sk-$(openssl rand -hex 24)"
+fill_secret LITELLM_SALT_KEY "sk-$(openssl rand -hex 24)"
+set -a; . "$ENV_FILE"; set +a
+[[ -z "${GROQ_API_KEY:-}" ]] && warn "GROQ_API_KEY is empty in deploy/.env (needed for 'fast')."
+[[ -z "${GEMINI_API_KEY:-}" ]] && warn "GEMINI_API_KEY is empty in deploy/.env (needed for 'smart-free')."
+
+# --- 5. Postgres + LiteLLM ----------------------------------------------------
+say "Starting Postgres and LiteLLM"
+"${COMPOSE[@]}" up -d --wait
+
+# --- 6. Ollama reachability (from Docker, the path LiteLLM uses) ------------
+say "Checking Ollama at $OLLAMA_API_BASE (from inside the litellm container)"
+if "${COMPOSE[@]}" exec -T litellm python -c \
+    "import urllib.request,os; urllib.request.urlopen(os.environ['OLLAMA_API_BASE']+'/api/version', timeout=5)" 2>/dev/null; then
+  say "Ollama reachable"
+else
+  warn "Ollama not reachable. Start Ollama on Windows, then re-run scripts/doctor.sh."
+fi
+
+# --- 7. Paperclip (native, loopback, background service) --------------------
+PC=(npx -y --registry https://registry.npmjs.org "paperclipai@$PAPERCLIP_VERSION")
+if curl -fsS -m 3 "$PAPERCLIP_URL/api/health" >/dev/null 2>&1; then
+  say "Paperclip already running at $PAPERCLIP_URL"
+else
+  echo "Paperclip onboarding will run:"
+  echo "  ${PC[*]} onboard --yes --bind loopback --install-service"
+  if confirm "Run it now?"; then
+    (cd "$HOME" && "${PC[@]}" onboard --yes --bind loopback --install-service)
+  else
+    warn "Skipped Paperclip onboarding."
+  fi
+fi
+
+say "Done. Run scripts/doctor.sh to check every component."
