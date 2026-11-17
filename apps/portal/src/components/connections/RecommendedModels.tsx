@@ -6,6 +6,7 @@ import { testModel, type ModelTestResult } from "@/app/connections/actions";
 import { formatContext, recommend } from "@/lib/recommend";
 import type { CatalogModel } from "@/lib/router-types";
 import { t } from "@/i18n/strings";
+import { tConn } from "@/i18n/connections";
 import { BadgeChip } from "./shared";
 
 type Outcome = { state: "testing" } | { state: "done"; result: ModelTestResult } | { state: "error"; error: string };
@@ -24,13 +25,13 @@ export function RecommendedModels({ provider, models }: { provider: string; mode
   if (picks.length === 0) {
     return (
       <p className="text-sm text-ink-muted">
-        {models.length ? t("card.untagged", { count: untagged || models.length }) : t("card.noModels")}
+        {models.length ? tConn("card.untagged", { count: untagged || models.length }) : tConn("card.noModels")}
       </p>
     );
   }
   return (
     <div className="grid gap-2">
-      <h4 className="label">{t("card.recommended")}</h4>
+      <h4 className="label">{tConn("card.recommended")}</h4>
       <ul className="grid gap-2">
         {picks.map(({ model, badges }) => {
           const o = outcomes[model.model_id];
@@ -43,19 +44,19 @@ export function RecommendedModels({ provider, models }: { provider: string; mode
                   <p className="truncate text-sm font-semibold" title={model.model_id}>
                     {name}
                   </p>
-                  {ctx && <p className="text-xs text-ink-muted">{t("card.ctx", { size: ctx })}</p>}
+                  {ctx && <p className="text-xs text-ink-muted">{tConn("card.ctx", { size: ctx })}</p>}
                 </div>
                 <Button
                   size="sm"
                   variant="glass"
                   loading={o?.state === "testing"}
                   onClick={() => run(model.model_id)}
-                  aria-label={t("card.testModelLabel", { model: name })}
+                  aria-label={tConn("card.testModelLabel", { model: name })}
                 >
-                  {o?.state === "testing" ? t("card.testingModel") : t("card.testModel")}
+                  {o?.state === "testing" ? tConn("card.testingModel") : tConn("card.testModel")}
                 </Button>
               </div>
-              <ul aria-label={t("card.recommended")} className="flex flex-wrap gap-1.5">
+              <ul aria-label={tConn("card.recommended")} className="flex flex-wrap gap-1.5">
                 {badges.map((b) => (
                   <li key={b}>
                     <BadgeChip badge={b} />
@@ -65,17 +66,17 @@ export function RecommendedModels({ provider, models }: { provider: string; mode
               <p role="status" className="text-xs empty:hidden">
                 {o?.state === "done" &&
                   (o.result.ok ? (
-                    <span className="text-ok">{t("card.modelOk", { ms: o.result.latency_ms ?? 0 })}</span>
+                    <span className="text-ok">{tConn("card.modelOk", { ms: o.result.latency_ms ?? 0 })}</span>
                   ) : (
-                    <span className="text-err">{t("card.modelFail", { error: o.result.error ?? t("state.error") })}</span>
+                    <span className="text-err">{tConn("card.modelFail", { error: o.result.error ?? t("state.error") })}</span>
                   ))}
-                {o?.state === "error" && <span className="text-err">{t("card.modelFail", { error: o.error })}</span>}
+                {o?.state === "error" && <span className="text-err">{tConn("card.modelFail", { error: o.error })}</span>}
               </p>
             </li>
           );
         })}
       </ul>
-      {untagged > 0 && <p className="text-xs text-ink-muted">{t("card.untagged", { count: untagged })}</p>}
+      {untagged > 0 && <p className="text-xs text-ink-muted">{tConn("card.untagged", { count: untagged })}</p>}
     </div>
   );
 }

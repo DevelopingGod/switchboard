@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowUp, Lock, Paperclip, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUp, Lock, Paperclip, Sparkles, Square } from "lucide-react";
 import { GlassPanel } from "./GlassPanel";
 import { Dial } from "./Dial";
 import { ExplainPopover } from "./ExplainPopover";
@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/cn";
-import { strings, t } from "@/i18n/strings";
+import { applySlash, slashMatches, type SlashCommand } from "@/lib/slash";
+import { strings, t, type StringKey } from "@/i18n/strings";
 
 export interface ComposerSend {
   text: string;
@@ -31,6 +32,20 @@ export interface ComposerProps {
   disabledReason?: string;
   errorMessage?: string;
   className?: string;
+  /** Replaces the static "Target: Auto" label (Chat passes the lazy target picker). */
+  targetSlot?: React.ReactNode;
+  /** Optional control of the options (Chat keeps them across messages). */
+  privateOn?: boolean;
+  onPrivateChange?: (on: boolean) => void;
+  autonomy?: number;
+  onAutonomyChange?: (level: number) => void;
+  temperature?: number;
+  onTemperatureChange?: (t: number) => void;
+  /** A reply is streaming: Send becomes Stop. */
+  streaming?: boolean;
+  onStop?: () => void;
+  /** Shorter text box (Chat, where the composer is pinned to the bottom of the screen). */
+  compact?: boolean;
 }
 
 /** The one large glass composer. Text sits on a near-opaque inner surface. */
@@ -44,6 +59,16 @@ export function Composer({
   disabledReason,
   errorMessage,
   className,
+  targetSlot,
+  privateOn,
+  onPrivateChange,
+  autonomy: autonomyProp,
+  onAutonomyChange,
+  temperature: tempProp,
+  onTemperatureChange,
+  streaming = false,
+  onStop,
+  compact = false,
 }: ComposerProps) {
   const { mode } = usePrefs();
   const [inner, setInner] = React.useState(defaultValue);
@@ -52,20 +77,65 @@ export function Composer({
     setInner(v);
     onValueChange?.(v);
   };
-  const [autonomy, setAutonomy] = React.useState(1);
-  const [priv, setPriv] = React.useState(false);
-  const [temp, setTemp] = React.useState(0.7);
+  const [autonomyInner, setAutonomyInner] = React.useState(1);
+  const [privInner, setPrivInner] = React.useState(false);
+  const [tempInner, setTempInner] = React.useState(0.7);
+  const autonomy = autonomyProp ?? autonomyInner;
+  const priv = privateOn ?? privInner;
+  const temp = tempProp ?? tempInner;
+  const setAutonomy = (v: number) => (onAutonomyChange ? onAutonomyChange(v) : setAutonomyInner(v));
+  const setPriv = (v: boolean) => (onPrivateChange ? onPrivateChange(v) : setPrivInner(v));
+  const setTemp = (v: number) => (onTemperatureChange ? onTemperatureChange(v) : setTempInner(v));
+
   const ids = React.useId();
+  const area = React.useRef<HTMLTextAreaElement>(null);
+  const hintList = React.useRef<HTMLUListElement>(null);
+  React.useImperativeHandle(inputRef, () => area.current as HTMLTextAreaElement, []);
 
   const disabled = state === "disabled";
   const busy = state === "loading";
   const locked = disabled || busy;
   const level = strings.autonomy.levels[autonomy];
+  const hints = locked ? null : slashMatches(text);
 
+  const send = () => {
+    if (!text.trim() || locked || streaming) return;
+    onSend?.({ text: text.trim(), autonomy, private: priv, temperature: temp });
+  };
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim() || locked) return;
-    onSend?.({ text: text.trim(), autonomy, private: priv, temperature: temp });
+    if (streaming) onStop?.();
+    else send();
+  };
+  const pick = (cmd: SlashCommand) => {
+    const v = applySlash(cmd);
+    setText(v);
+    const el = area.current;
+    if (el) {
+      el.focus();
+      requestAnimationFrame(() => el.setSelectionRange(v.length, v.length));
+    }
+  };
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (hints && e.key === "ArrowDown") {
+      e.preventDefault();
+      hintList.current?.querySelector("button")?.focus();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      if (hints && hints.length === 1 && text !== applySlash(hints[0]).trim()) pick(hints[0]);
+      else send();
+    }
+  };
+  const onHintKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const items = [...(hintList.current?.querySelectorAll("button") ?? [])];
+    const i = items.indexOf(e.currentTarget);
+    if (e.key === "ArrowDown") items[Math.min(i + 1, items.length - 1)]?.focus();
+    else if (e.key === "ArrowUp") (i === 0 ? area.current : items[i - 1])?.focus();
+    else if (e.key === "Escape") area.current?.focus();
+    else return;
+    e.preventDefault();
   };
 
   return (
@@ -76,8 +146,8 @@ export function Composer({
       aria-busy={busy || undefined}
       className={cn("grid gap-3 rounded-hero p-3 sm:p-4", className)}
     >
-      <div className="surface-strong relative rounded-[calc(var(--radius-hero)-10px)] p-4">
-        <label htmlFor={`${ids}-msg`} className="label mb-2 block">
+      <div className={cn("surface-strong relative rounded-[calc(var(--radius-hero)-10px)]", compact ? "px-4 py-3" : "p-4")}>
+        <label htmlFor={`${ids}-msg`} className={cn("label block", compact ? "mb-1" : "mb-2")}>
           {t("composer.label")}
         </label>
         {busy ? (
@@ -88,20 +158,39 @@ export function Composer({
         ) : null}
         <textarea
           id={`${ids}-msg`}
-          ref={inputRef}
+          ref={area}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKey}
           readOnly={locked}
-          rows={3}
+          rows={compact ? 2 : 3}
           placeholder={t("composer.placeholder")}
           aria-describedby={`${ids}-note`}
           aria-invalid={state === "error" || undefined}
           className={cn(
-            "block min-h-24 w-full resize-none bg-transparent text-lg leading-relaxed tracking-tight text-ink placeholder:text-ink-muted focus-visible:outline-none",
+            "block w-full resize-none bg-transparent leading-relaxed tracking-tight text-ink placeholder:text-ink-muted focus-visible:outline-none",
+            compact ? "min-h-14 text-base" : "min-h-24 text-lg",
             busy && "sr-only",
           )}
         />
-        <p id={`${ids}-note`} className="min-h-5 text-sm">
+        {hints && (
+          <ul ref={hintList} aria-label={t("composer.slash.label")} className="mt-2 grid gap-1 border-t border-hairline pt-2">
+            {hints.map((cmd) => (
+              <li key={cmd}>
+                <button
+                  type="button"
+                  onClick={() => pick(cmd)}
+                  onKeyDown={onHintKey}
+                  className="flex w-full items-baseline gap-3 rounded-control px-2 py-1.5 text-left text-sm hover:bg-pill-active focus-visible:bg-pill-active"
+                >
+                  <span className="font-mono font-semibold">/{cmd}</span>
+                  <span className="text-ink-muted">{t(`composer.slash.${cmd}` as StringKey)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p id={`${ids}-note`} className={cn("text-sm", !compact && "min-h-5")}>
           {disabled ? (
             <span className="flex items-center gap-1.5 text-ink-muted">
               <Lock aria-hidden className="size-4" /> {disabledReason ?? t("composer.disabledDefault")}
@@ -123,10 +212,12 @@ export function Composer({
           <Paperclip aria-hidden className="size-4" />
         </Button>
 
-        <span className="inline-flex min-h-9 items-center gap-1.5 rounded-chip border border-hairline bg-glass-strong px-3 text-[0.8125rem] font-semibold">
-          <Sparkles aria-hidden className="size-3.5 text-accent-strong" />
-          <span className="label">{t("composer.target")}</span> {t("composer.auto")}
-        </span>
+        {targetSlot ?? (
+          <span className="inline-flex min-h-9 items-center gap-1.5 rounded-chip border border-hairline bg-glass-strong px-3 text-[0.8125rem] font-semibold">
+            <Sparkles aria-hidden className="size-3.5 text-accent-strong" />
+            <span className="label">{t("composer.target")}</span> {t("composer.auto")}
+          </span>
+        )}
 
         <div className="flex items-center gap-2">
           <Dial
@@ -172,10 +263,17 @@ export function Composer({
           </label>
         )}
 
-        <Button type="submit" className="ml-auto" loading={busy} disabled={disabled || (!busy && !text.trim())}>
-          {busy ? t("composer.sending") : t("composer.send")}
-          {!busy && <ArrowUp aria-hidden className="size-4" />}
-        </Button>
+        {streaming ? (
+          <Button type="submit" variant="glass" className="ml-auto">
+            <Square aria-hidden className="size-3.5 fill-current" />
+            {t("composer.stop")}
+          </Button>
+        ) : (
+          <Button type="submit" className="ml-auto" loading={busy} disabled={disabled || (!busy && !text.trim())}>
+            {busy ? t("composer.sending") : t("composer.send")}
+            {!busy && <ArrowUp aria-hidden className="size-4" />}
+          </Button>
+        )}
       </div>
     </GlassPanel>
   );

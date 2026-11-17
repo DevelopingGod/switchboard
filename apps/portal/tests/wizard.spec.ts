@@ -51,7 +51,7 @@ test("complete the wizard end to end", async ({ page }) => {
   await next.click();
 
   await expect(page.getByRole("heading", { name: /You’re all set, Riley/ })).toBeVisible();
-  await expect(page.getByText("Coming in M2")).toBeVisible(); // "Try it" is a placeholder until routing ships
+  await expect(page.getByText("Chat is live")).toBeVisible(); // "Try it" points to Chat now that routing ships (M2)
   await page.getByRole("button", { name: "Open Switchboard" }).click();
   await expect(page).toHaveURL(urls.firstRun + "/");
   await expect(page.getByRole("link", { name: "Finish setup" })).toHaveCount(0);

@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { ready } from "./helpers";
 
 const schemes = ["light", "dark"] as const;
-const pages = ["/", "/dev/components", "/chat", "/settings", "/connections", "/welcome?step=1", "/welcome?step=2", "/welcome?step=3", "/welcome?step=4", "/welcome?step=5"];
+const pages = ["/", "/dev/components", "/chat", "/chat?t=6f1c2a10-0000-4000-8000-000000000001", "/settings", "/connections", "/welcome?step=1", "/welcome?step=2", "/welcome?step=3", "/welcome?step=4", "/welcome?step=5"];
 
 /** `scope`: audit only this part of the page (a modal: the page behind it is inert and dimmed on purpose). */
 async function audit(page: Page, label: string, scope?: string) {
@@ -48,6 +48,26 @@ for (const scheme of schemes) {
       await page.keyboard.press("Control+k");
       await expect(page.getByRole("dialog")).toBeVisible();
       await audit(page, `palette ${scheme}`);
+    });
+
+    test("chat · why this? popover and target picker open", async ({ page }) => {
+      await page.goto("/chat?t=6f1c2a10-0000-4000-8000-000000000001");
+      await ready(page);
+      await page.getByRole("button", { name: /Why this\? Routed to Google AI Studio/ }).click();
+      await expect(page.getByRole("dialog", { name: "Why this route?" })).toBeVisible();
+      await audit(page, `why popover ${scheme}`);
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: /Target/ }).click();
+      await expect(page.getByRole("radiogroup", { name: "Choose a target" }).getByRole("radio", { name: /^fast/ })).toBeVisible();
+      await audit(page, `target picker ${scheme}`);
+    });
+
+    test("chat · slash hints open", async ({ page }) => {
+      await page.goto("/chat?t=6f1c2a10-0000-4000-8000-000000000001");
+      await ready(page);
+      await page.getByLabel("Message").fill("/");
+      await expect(page.getByRole("list", { name: "Slash commands" })).toBeVisible();
+      await audit(page, `chat interactions ${scheme}`);
     });
 
     test("connections · key form open", async ({ page }) => {

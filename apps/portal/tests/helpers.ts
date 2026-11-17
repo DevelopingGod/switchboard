@@ -10,3 +10,8 @@ export async function ready(page: Page) {
 export async function unstick(page: Page) {
   await page.addStyleTag({ content: "header{position:static!important}" });
 }
+
+/** Full-page shots: the chat composer is sticky to the viewport bottom and would cover messages. */
+export async function unstickComposer(page: Page) {
+  await page.addStyleTag({ content: "form.lg\\:sticky{position:static!important}" });
+}

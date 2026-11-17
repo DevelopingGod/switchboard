@@ -1,6 +1,6 @@
 import { CopyButton } from "@/components/kit/CopyButton";
 import { binOf, fullPathCommand, pathFixLine } from "@/lib/cli-hint";
-import { t } from "@/i18n/strings";
+import { tConn } from "@/i18n/connections";
 
 interface Props {
   /** The login command, e.g. "opencode auth login". */
@@ -37,24 +37,24 @@ export function LoginSteps({ command, note, binPath, binDir, onUserPath, heading
   const bin = binOf(command);
   return (
     <div className="grid gap-3">
-      <p className="text-sm text-ink-muted">{t("cli.loginBody")}</p>
+      <p className="text-sm text-ink-muted">{tConn("cli.loginBody")}</p>
       {needsPath && (
         <section className="grid gap-1.5">
-          <H className="label">{t("cli.pathTitle", { bin })}</H>
-          <p className="text-sm text-ink-muted">{t("cli.pathBody", { bin, dir: binDir! })}</p>
-          <Command text={pathFixLine(binDir!)} label={t("cli.copyPath")} />
+          <H className="label">{tConn("cli.pathTitle", { bin })}</H>
+          <p className="text-sm text-ink-muted">{tConn("cli.pathBody", { bin, dir: binDir! })}</p>
+          <Command text={pathFixLine(binDir!)} label={tConn("cli.copyPath")} />
         </section>
       )}
       <section className="grid gap-1.5">
-        <H className="label">{needsPath ? t("cli.loginStep") : t("cli.loginTitle")}</H>
-        <Command text={command} label={t("cli.copyLogin")} />
-        {note && <p className="text-xs text-ink-muted">{t("cli.loginNote", { note })}</p>}
+        <H className="label">{needsPath ? tConn("cli.loginStep") : tConn("cli.loginTitle")}</H>
+        <Command text={command} label={tConn("cli.copyLogin")} />
+        {note && <p className="text-xs text-ink-muted">{tConn("cli.loginNote", { note })}</p>}
       </section>
       {needsPath && (
         <section className="grid gap-1.5">
-          <H className="label">{t("cli.fullPathTitle")}</H>
-          <p className="text-sm text-ink-muted">{t("cli.fullPathBody")}</p>
-          <Command text={fullPathCommand(command, binPath!)} label={t("cli.copyFullPath")} />
+          <H className="label">{tConn("cli.fullPathTitle")}</H>
+          <p className="text-sm text-ink-muted">{tConn("cli.fullPathBody")}</p>
+          <Command text={fullPathCommand(command, binPath!)} label={tConn("cli.copyFullPath")} />
         </section>
       )}
     </div>

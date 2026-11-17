@@ -66,6 +66,44 @@
   line-height: 1.55;
 }
 
+/* ---------- Chat replies (Markdown) ---------- */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote { margin: 0.6em 0; }
+.md ul { list-style: disc; padding-left: 1.25rem; }
+.md ol { list-style: decimal; padding-left: 1.25rem; }
+.md li + li { margin-top: 0.2em; }
+.md h1, .md h2, .md h3, .md h4 {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 1em 0 0.4em;
+}
+.md h1 { font-size: 1.35rem; }
+.md h2 { font-size: 1.2rem; }
+.md h3, .md h4 { font-size: 1.05rem; }
+.md strong { font-weight: 700; }
+.md blockquote { border-left: 3px solid var(--hairline); padding-left: 0.75rem; color: var(--ink-muted); }
+.md hr { border: 0; border-top: 1px solid var(--hairline); margin: 1em 0; }
+.md table { border-collapse: collapse; font-size: 0.875rem; }
+.md th, .md td { border: 1px solid var(--hairline); padding: 0.35rem 0.6rem; text-align: left; }
+.md-inline-code {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: var(--accent-soft);
+}
+/* highlight.js tokens on the solid code panel (both themes are dark there; all >= 7:1). */
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type { color: #cdbdff; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #a3ecbf; }
+.hljs-number, .hljs-literal, .hljs-symbol { color: #ffd59a; }
+.hljs-comment, .hljs-quote { color: #b4bbdf; font-style: italic; }
+.hljs-title, .hljs-section, .hljs-function .hljs-title { color: #9ad8ff; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-property { color: #ffbfd0; }
+.hljs-meta, .hljs-deletion { color: #ffc2b8; }
+
 /* ---------- Motion primitives ---------- */
 .shimmer {
   position: relative;

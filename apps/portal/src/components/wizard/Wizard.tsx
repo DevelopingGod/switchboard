@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { saveOnboarding } from "@/app/welcome/actions";
 import { setPrefs, usePrefs } from "@/lib/prefs";
 import type { CatalogModel, ConnectionRow, OnboardingResponse, OnboardingState, Preset } from "@/lib/router-types";
-import { t, type StringKey } from "@/i18n/strings";
+import { t } from "@/i18n/strings";
+import { type WizardKey, tWizard } from "@/i18n/wizard";
 import { STEPS, neededProviders } from "@/lib/wizard";
 import { ConnectStep, FinishStep, GoalsStep, PresetStep, StepList, WelcomeStep } from "./steps";
 
@@ -54,7 +55,7 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
     setError(null);
     const r = await saveOnboarding({ step: STEPS[to], name, goals, preset, ...extra });
     setBusy(false);
-    if (!r.ok) setError(`${t("wizard.saveFailed")}: ${r.error}`);
+    if (!r.ok) setError(`${tWizard("wizard.saveFailed")}: ${r.error}`);
     else if (name.trim()) setPrefs({ name: name.trim() });
     return r.ok;
   };
@@ -70,15 +71,15 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
     <div className="mx-auto grid max-w-[78rem] items-start gap-8 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
       <GlassPanel as="aside" blur={2} className="grid content-start gap-6 lg:sticky lg:top-24">
         <ColumnsArt className="text-ink" />
-        <h1 className="heading">{t("wizard.title")}</h1>
+        <h1 className="heading">{tWizard("wizard.title")}</h1>
         <StepList steps={STEPS} current={step} />
       </GlassPanel>
 
       <GlassPanel as="section" tone="strong" aria-labelledby="wizard-step" className="grid gap-6 p-5! sm:p-7!">
         <header className="grid gap-1">
-          <p className="label">{t("wizard.step", { n: step + 1, total: STEPS.length })}</p>
+          <p className="label">{tWizard("wizard.step", { n: step + 1, total: STEPS.length })}</p>
           <h2 id="wizard-step" ref={heading} tabIndex={-1} className="heading focus:outline-none">
-            {id === "finish" ? t("wizard.finish.title", { name: name.trim() || t("home.fallbackName") }) : t(`wizard.${id}.title` as StringKey)}
+            {id === "finish" ? tWizard("wizard.finish.title", { name: name.trim() || t("home.fallbackName") }) : tWizard(`wizard.${id}.title` as WizardKey)}
           </h2>
         </header>
 
@@ -96,7 +97,7 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
 
         <footer className="flex flex-wrap items-center gap-2 border-t border-hairline pt-5">
           <Button variant="ghost" disabled={step === 0 || busy} onClick={() => go(step - 1)}>
-            {t("wizard.back")}
+            {tWizard("wizard.back")}
           </Button>
           <Button
             variant="ghost"
@@ -105,7 +106,7 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
               if (await persist(step, { skipped: true })) router.push("/");
             }}
           >
-            {t("wizard.skip")}
+            {tWizard("wizard.skip")}
           </Button>
           {id === "finish" ? (
             <Button
@@ -118,11 +119,11 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
                 }
               }}
             >
-              {t("wizard.open")}
+              {tWizard("wizard.open")}
             </Button>
           ) : (
             <Button className="ml-auto" loading={busy} disabled={blocked} aria-describedby={blocked ? "goals-empty" : undefined} onClick={() => go(step + 1)}>
-              {t("wizard.next")}
+              {tWizard("wizard.next")}
             </Button>
           )}
         </footer>

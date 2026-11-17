@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import secrets
 from app.litellm_admin import LiteLLMAdmin, credential_name, spec_hash
-from app.registry import AliasDeployment, Registry, load_registry
+from app.registry import AliasDeployment, Provider, Registry, load_registry
 
 log = logging.getLogger("app.reconcile")
 
@@ -33,6 +33,24 @@ def deployment_spec(d: AliasDeployment, registry: Registry) -> tuple[dict[str, A
         params["order"] = d.order
     info = {"sb_key": d.key, "provider": p.id, "privacy": p.privacy}
     return params, info
+
+
+WILDCARD_TIMEOUT = {"local": 300, "api_key": 60}
+
+
+def wildcard_spec(p: Provider) -> tuple[str, str, dict[str, Any], dict[str, Any]]:
+    """One `<provider>/*` deployment per connected provider, so a rule or a manual pick can name any
+    catalog model (`model:groq/openai/gpt-oss-20b`). Verified on v1.108.8: LiteLLM's pattern router
+    maps `<provider>/<model>` to `<litellm_prefix>/<model>` with the provider's stored credential."""
+    name = f"{p.id}/*"
+    params: dict[str, Any] = {"model": f"{p.litellm_prefix}/*"}
+    if p.kind == "local":
+        params["api_base"] = "os.environ/OLLAMA_API_BASE"
+    else:
+        params["litellm_credential_name"] = credential_name(p.id)
+    params["timeout"] = params["stream_timeout"] = WILDCARD_TIMEOUT[p.kind]
+    key = f"*|{p.id}|*"
+    return key, name, params, {"sb_key": key, "provider": p.id, "privacy": p.privacy}
 
 
 def credential_values(registry: Registry, provider: str, key: str) -> dict[str, str]:
@@ -70,6 +88,11 @@ async def reconcile(
         params, info = deployment_spec(d, registry)
         info["sb_hash"] = spec_hash(d.alias, params, info)
         desired[d.key] = (d.alias, params, info)
+    for p in registry.providers.values():
+        if p.kind == "local" or (p.kind == "api_key" and p.id in keys):
+            key, name, params, info = wildcard_spec(p)
+            info["sb_hash"] = spec_hash(name, params, info)
+            desired[key] = (name, params, info)
 
     result: dict[str, list[str]] = {"added": [], "removed": [], "kept": []}
     seen: set[str] = set()

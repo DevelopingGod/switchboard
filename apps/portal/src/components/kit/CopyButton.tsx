@@ -26,10 +26,10 @@ export function CopyButton({ text, label, className }: { text: string; label?: s
     <>
       <Button type="button" size="sm" variant="glass" onClick={copy} className={className}>
         {state === "copied" ? <Check aria-hidden className="size-4" /> : <Copy aria-hidden className="size-4" />}
-        {state === "copied" ? t("cli.copied") : (label ?? t("cli.copy"))}
+        {state === "copied" ? t("copy.copied") : (label ?? t("copy.label"))}
       </Button>
       <span role="status" className="sr-only">
-        {state === "copied" ? t("cli.copied") : state === "failed" ? t("cli.copyFailed") : ""}
+        {state === "copied" ? t("copy.copied") : state === "failed" ? t("copy.failed") : ""}
       </span>
     </>
   );

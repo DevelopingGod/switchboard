@@ -1,5 +1,6 @@
 import "server-only";
 import * as fixtures from "./fixtures";
+import * as chatFixtures from "./chat-fixtures";
 
 /**
  * The only module that knows the Router URL and ROUTER_ADMIN_TOKEN. Server components read with
@@ -27,7 +28,11 @@ function messageOf(body: unknown, fallback: string): string {
 }
 
 async function call<T>(method: string, path: string, body: unknown, admin: boolean, timeoutMs: number): Promise<Result<T>> {
-  if (fixtureMode()) return fixtures.handle<T>(method, path, body);
+  if (fixtureMode()) {
+    return path.startsWith("/chat/") || path.startsWith("/route/")
+      ? chatFixtures.handle<T>(method, path, body)
+      : fixtures.handle<T>(method, path, body);
+  }
   if (admin && !process.env.ROUTER_ADMIN_TOKEN) {
     return { ok: false, status: 500, error: "ROUTER_ADMIN_TOKEN is not set for the portal. See docs/m1b.md." };
   }
@@ -54,9 +59,41 @@ async function call<T>(method: string, path: string, body: unknown, admin: boole
 
 export const routerGet = <T>(path: string) => call<T>("GET", path, undefined, false, 15_000);
 
+/** Admin-token reads (chat history is private, so the router requires the token for it). */
+export const routerGetAdmin = <T>(path: string) => call<T>("GET", path, undefined, true, 15_000);
+
 /** Admin-token writes. `timeoutMs` is long for key validation and installs. */
-export const routerSend = <T>(method: "POST" | "PUT" | "DELETE", path: string, body?: unknown, timeoutMs = 60_000) =>
+export const routerSend = <T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown, timeoutMs = 60_000) =>
   call<T>(method, path, body, true, timeoutMs);
+
+/**
+ * A chat turn (SSE) POSTed to the router with the admin token, passed through unchanged. Aborting
+ * `signal` (the browser's Stop or a closed tab) closes the upstream stream, which stops the reply.
+ */
+export async function routerChatStream(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
+  if (fixtureMode()) return chatFixtures.stream(path, body, signal);
+  const token = process.env.ROUTER_ADMIN_TOKEN;
+  if (!token) return new Response("ROUTER_ADMIN_TOKEN is not set", { status: 500 });
+  try {
+    const up = await fetch(routerUrl() + path, {
+      method: "POST",
+      headers: { ...adminHeader(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal,
+    });
+    if (!up.ok || !up.body) {
+      const json = (await up.json().catch(() => null)) as unknown;
+      return Response.json({ error: messageOf(json, `Router returned ${up.status}`) }, { status: up.status === 200 ? 502 : up.status });
+    }
+    return new Response(up.body, {
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },
+    });
+  } catch {
+    if (signal.aborted) return new Response(null, { status: 499 });
+    return Response.json({ error: "The router is not reachable. Is the stack running? (scripts/doctor.sh)" }, { status: 503 });
+  }
+}
 
 /** Server-sent events from an install job, passed through unchanged. */
 export async function routerStream(path: string, signal: AbortSignal): Promise<Response> {

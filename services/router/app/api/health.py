@@ -7,8 +7,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import hostprobe_client
+from app.config import get_settings
 from app.db import get_session
 from app.registry import load_registry
+from app.routing.rules import load_rules
 from app.startup import env_keys_still_present, key_checks
 
 router = APIRouter(tags=["health"])
@@ -24,11 +26,17 @@ async def health(request: Request, session: AsyncSession = Depends(get_session))
     except Exception:
         db = "down"
     litellm_ok = await request.app.state.litellm.alive()
+    try:
+        rules = f"ok ({len(load_rules().rules)} rules)"
+    except Exception as e:  # a broken config/rules.yaml must show up in doctor.sh, not crash health
+        rules = f"error: {str(e)[:160]}"
     return {
         "status": "ok" if db == "ok" else "degraded",
         "db": db,
         "litellm": "ok" if litellm_ok else "down",
         "hostprobe": "ok" if await hostprobe_client.alive() else "down",
+        "rules": rules,
+        "fault_injection": get_settings().router_fault_injection,
     }
 
 

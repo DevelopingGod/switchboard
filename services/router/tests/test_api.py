@@ -66,7 +66,16 @@ async def test_add_test_remove_key(client, litellm, providers_ok, hostprobe_up, 
     assert len(fast) == 1 and fast[0]["litellm_params"]["litellm_credential_name"] == "sb-groq"
     assert fast[0]["litellm_params"]["timeout"] == 25 and fast[0]["litellm_params"]["order"] == 1
     assert "api_key" not in fast[0]["litellm_params"]
-    assert {d["model_name"] for d in litellm.deployments()} == {"fast", "local", "private", "local-code"}
+    assert {d["model_name"] for d in litellm.deployments()} == {
+        "fast",
+        "local",
+        "private",
+        "local-code",
+        "groq/*",  # M2: any catalog model by name (model:groq/<id>)
+        "ollama/*",
+    }
+    wild = litellm.deployments("groq/*")[0]["litellm_params"]
+    assert wild["model"] == "groq/*" and wild["litellm_credential_name"] == "sb-groq"
     local_code = litellm.deployments("local-code")[0]["litellm_params"]
     assert local_code == {"model": "ollama_chat/qwen2.5-coder:3b", "api_base": "os.environ/OLLAMA_API_BASE"}
 
@@ -185,7 +194,14 @@ async def test_models_test_gemini_uses_header(client, litellm, mock_http, sessio
 async def test_router_healthy_when_hostprobe_down(client, hostprobe_down):
     r = await client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "db": "ok", "litellm": "ok", "hostprobe": "down"}
+    assert r.json() == {
+        "status": "ok",
+        "db": "ok",
+        "litellm": "ok",
+        "hostprobe": "down",
+        "rules": "ok (11 rules)",
+        "fault_injection": False,
+    }
     r = await client.get("/connections")
     assert r.status_code == 200 and r.json()["hostprobe"] == "down"
     clis = [p for p in r.json()["providers"] if p["kind"] == "cli"]

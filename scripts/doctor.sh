@@ -115,6 +115,11 @@ section "Router API (M1a)"
 if h=$(curl -fsS -m 10 "$ROUTER/health" 2>/dev/null); then
   [[ $(echo "$h" | json 'd["db"]') == ok ]] && green "Router API" "$ROUTER" || red "Router API" "db: $(echo "$h" | json 'd["db"]')"
   [[ $(echo "$h" | json 'd["litellm"]') == ok ]] && green "Router -> LiteLLM" ok || red "Router -> LiteLLM" down
+  rules=$(echo "$h" | json 'd.get("rules","missing")')
+  [[ "$rules" == ok* ]] && green "Routing rules (M2)" "config/rules.yaml $rules" || red "Routing rules (M2)" "config/rules.yaml: $rules"
+  [[ $(echo "$h" | json 'd.get("fault_injection")') == True ]] \
+    && yellow "Fault injection" "ON (dev only): unset ROUTER_FAULT_INJECTION and restart the router" \
+    || green "Fault injection" "off"
 else red "Router API" "no answer on $ROUTER — docker compose -f deploy/docker-compose.yml up -d router"; fi
 
 status=$(curl -fsS -m 10 "$ROUTER/system/status" 2>/dev/null)

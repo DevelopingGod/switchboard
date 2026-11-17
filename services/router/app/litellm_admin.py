@@ -32,6 +32,11 @@ class LiteLLMAdmin:
             timeout=30,
         )
 
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """The authenticated client (base URL = LiteLLM), used for streaming chat."""
+        return self._client
+
     async def aclose(self) -> None:
         await self._client.aclose()
 

@@ -1,19 +1,21 @@
+import type * as React from "react";
 import { AlertTriangle, ChevronRight, Route } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/i18n/strings";
 import { Skeleton, LoadingLabel } from "./Skeleton";
 
-export interface RouteChipProps {
+export interface RouteChipProps extends Omit<React.ComponentPropsWithRef<"button">, "children"> {
   target: string;
   rule?: string;
   /** Opens the decision log. */
-  onClick?: () => void;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   state?: "default" | "loading" | "empty" | "error" | "disabled";
   className?: string;
 }
 
-/** "Routed to X by rule Y": every reply, job and media item carries one (SPEC §8b). */
-export function RouteChip({ target, rule, onClick, state = "default", className }: RouteChipProps) {
+/** "Routed to X by rule Y": every reply, job and media item carries one (SPEC §8b). Extra props
+ * (ref, aria-expanded, …) pass through so it can be a popover trigger. */
+export function RouteChip({ target, rule, onClick, state = "default", className, ...rest }: RouteChipProps) {
   if (state === "loading") {
     return (
       <span aria-busy className={cn("inline-flex", className)}>
@@ -28,6 +30,7 @@ export function RouteChip({ target, rule, onClick, state = "default", className 
   return (
     <button
       type="button"
+      {...rest}
       onClick={onClick}
       disabled={state === "disabled" || isErr || isEmpty}
       aria-label={isErr || isEmpty ? undefined : `${t("route.why")} ${t("route.routedTo", { target })}${rule ? ` ${t("route.byRule", { rule })}` : ""}`}

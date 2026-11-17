@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle2, Circle, ChevronRight, Loader2 } from "luci
 import { cn } from "@/lib/cn";
 import { STAGES, collapse, failureSummary, progressOf, stageOf } from "@/lib/install-log";
 import type { LogEntry } from "@/lib/router-types";
-import { t, type StringKey } from "@/i18n/strings";
+import { type ConnectionKey, tConn } from "@/i18n/connections";
 
 export type InstallPhase = "running" | "ok" | "failed" | "cancelled" | "timeout";
 
@@ -40,7 +40,7 @@ export function InstallProgress({ name, version, phase, entries, next, error, re
 
   return (
     <div className="grid gap-4">
-      <ol aria-label={t("install.stagesLabel")} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <ol aria-label={tConn("install.stagesLabel")} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {STAGES.map((s, i) => {
           const done = i < stage || (phase === "ok" && i <= stage);
           const active = i === stage && phase === "running";
@@ -66,8 +66,8 @@ export function InstallProgress({ name, version, phase, entries, next, error, re
               ) : (
                 <Circle aria-hidden className="size-4 shrink-0" />
               )}
-              <span>{t(`install.stage.${s}` as StringKey)}</span>
-              {done && <span className="sr-only">{t("install.stageDone")}</span>}
+              <span>{tConn(`install.stage.${s}` as ConnectionKey)}</span>
+              {done && <span className="sr-only">{tConn("install.stageDone")}</span>}
             </li>
           );
         })}
@@ -76,11 +76,11 @@ export function InstallProgress({ name, version, phase, entries, next, error, re
       {phase === "running" && percent !== null && (
         <div className="grid gap-1.5">
           <div className="flex items-baseline justify-between text-sm">
-            <span className="font-semibold">{t("install.progress", { pct: percent })}</span>
+            <span className="font-semibold">{tConn("install.progress", { pct: percent })}</span>
           </div>
           <div
             role="progressbar"
-            aria-label={t("install.progressLabel")}
+            aria-label={tConn("install.progressLabel")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent}
@@ -90,31 +90,31 @@ export function InstallProgress({ name, version, phase, entries, next, error, re
           </div>
         </div>
       )}
-      {reconnecting && <p className="text-sm text-ink-muted">{t("install.reconnecting")}</p>}
+      {reconnecting && <p className="text-sm text-ink-muted">{tConn("install.reconnecting")}</p>}
 
       {phase === "ok" && (
         <div role="status" className="grid gap-3">
           <p className="flex items-center gap-2 font-display text-lg font-bold tracking-tight text-ok">
             <CheckCircle2 aria-hidden className="size-6 shrink-0" />
-            {t("install.successTitle", { name, version })}
+            {tConn("install.successTitle", { name, version })}
           </p>
           {next}
         </div>
       )}
 
-      {phase === "cancelled" && <p role="status" className="text-sm text-ink-muted">{t("install.cancelled")}</p>}
+      {phase === "cancelled" && <p role="status" className="text-sm text-ink-muted">{tConn("install.cancelled")}</p>}
 
       {failed && fail && (
         <div role="alert" className="grid gap-2">
           <p className="flex items-start gap-2 font-semibold text-err">
             <AlertTriangle aria-hidden className="mt-0.5 size-5 shrink-0" />
             <span>
-              {phase === "timeout" ? t("install.timedOut") : (error ?? t("install.failedTitle"))}
+              {phase === "timeout" ? tConn("install.timedOut") : (error ?? tConn("install.failedTitle"))}
               {fail.summary && <span className="mt-0.5 block text-sm font-normal text-ink">{fail.summary}</span>}
             </span>
           </p>
-          <H className="label">{t("install.lastLines", { n: fail.lines.length })}</H>
-          <pre className="solid-panel max-h-48 overflow-auto p-3 whitespace-pre-wrap" tabIndex={0} aria-label={t("install.lastLines", { n: fail.lines.length })}>
+          <H className="label">{tConn("install.lastLines", { n: fail.lines.length })}</H>
+          <pre className="solid-panel max-h-48 overflow-auto p-3 whitespace-pre-wrap" tabIndex={0} aria-label={tConn("install.lastLines", { n: fail.lines.length })}>
             {fail.lines.join("\n")}
           </pre>
         </div>
@@ -123,17 +123,17 @@ export function InstallProgress({ name, version, phase, entries, next, error, re
       <details className="group rounded-control border border-hairline bg-glass-strong">
         <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-semibold">
           <ChevronRight aria-hidden className="size-4 transition-transform group-open:rotate-90 motion-reduce:transition-none" />
-          {t("install.details")}
-          <span className="font-normal text-ink-muted">· {t("install.detailsHint")}</span>
+          {tConn("install.details")}
+          <span className="font-normal text-ink-muted">· {tConn("install.detailsHint")}</span>
         </summary>
         <pre
           ref={logRef}
           role="log"
-          aria-label={t("install.log")}
+          aria-label={tConn("install.log")}
           tabIndex={0}
           className="solid-panel m-2 max-h-56 min-h-16 overflow-auto p-3 whitespace-pre-wrap"
         >
-          {lines.length ? lines.map((l) => l.t).join("\n") : t("install.running")}
+          {lines.length ? lines.map((l) => l.t).join("\n") : tConn("install.running")}
         </pre>
       </details>
     </div>

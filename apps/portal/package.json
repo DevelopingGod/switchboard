@@ -25,18 +25,20 @@
     "@radix-ui/react-dialog": "^1.3.1",
     "@radix-ui/react-popover": "^1.3.1",
     "@radix-ui/react-slot": "^1.5.0",
-    "@radix-ui/react-switch": "^1.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "geist": "^1.9.2",
+    "highlight.js": "^11.12.0",
     "lucide-react": "^1.73.0",
     "motion": "^14.14.0",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "tailwind-merge": "^3.7.0",
-    "server-only": "^0.0.1"
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

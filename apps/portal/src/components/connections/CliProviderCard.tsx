@@ -11,7 +11,8 @@ import { useToast } from "@/components/kit/Toast";
 import { Button } from "@/components/ui/button";
 import { cliCheck } from "@/app/connections/actions";
 import type { ConnectionRow } from "@/lib/router-types";
-import { t, type StringKey } from "@/i18n/strings";
+import { t } from "@/i18n/strings";
+import { type ConnectionKey, tConn } from "@/i18n/connections";
 import { splitHint } from "@/lib/cli-hint";
 import { LoginSteps } from "./LoginSteps";
 import { PrivacyLine } from "./shared";
@@ -47,11 +48,11 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
     setNote(null);
     const r = await cliCheck();
     setChecking(false);
-    if (!r.ok) setNote({ ok: false, text: `${t("cli.checkFailed")}: ${r.error}` });
+    if (!r.ok) setNote({ ok: false, text: `${tConn("cli.checkFailed")}: ${r.error}` });
     else if (r.data[row.provider]?.status === "logged_in" && status !== "logged_in") {
-      setNote({ ok: true, text: t("cli.nowLoggedIn", { name: row.name }) });
-      push({ tone: "success", title: t("cli.nowLoggedIn", { name: row.name }) });
-    } else if (needsLogin && r.data[row.provider]?.status !== "logged_in") setNote({ ok: false, text: t("cli.stillLoggedOut") });
+      setNote({ ok: true, text: tConn("cli.nowLoggedIn", { name: row.name }) });
+      push({ tone: "success", title: tConn("cli.nowLoggedIn", { name: row.name }) });
+    } else if (needsLogin && r.data[row.provider]?.status !== "logged_in") setNote({ ok: false, text: tConn("cli.stillLoggedOut") });
     router.refresh();
   };
 
@@ -69,21 +70,21 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
             <p className="label">{t("provider.cli")}</p>
           </div>
         </div>
-        <StatusBadge status={statusVisual[status]} label={t(`cli.status.${status}` as StringKey)} />
+        <StatusBadge status={statusVisual[status]} label={tConn(`cli.status.${status}` as ConnectionKey)} />
       </header>
 
       <div className="surface-strong grid gap-2 p-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <CostBadge kind={row.paid ? "paid" : "free"} amount={t("cli.subscription")} />
-          {row.version && <span className="font-mono text-ink-muted">{t("cli.version", { version: row.version })}</span>}
+          <CostBadge kind={row.paid ? "paid" : "free"} amount={tConn("cli.subscription")} />
+          {row.version && <span className="font-mono text-ink-muted">{tConn("cli.version", { version: row.version })}</span>}
         </div>
         <PrivacyLine privacy={row.privacy} />
         {row.notes && <p className="text-ink-muted">{row.notes}</p>}
-        {status === "windows_only" && <p className="text-ink-muted">{t("cli.windowsOnlyNote")}</p>}
+        {status === "windows_only" && <p className="text-ink-muted">{tConn("cli.windowsOnlyNote")}</p>}
         {status === "unknown" && (
           <p className="flex items-start gap-1.5 text-ink-muted">
             <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
-            {t("cli.unknownNote")}
+            {tConn("cli.unknownNote")}
           </p>
         )}
       </div>
@@ -105,7 +106,7 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
       <footer className="flex flex-wrap items-center gap-2">
         {canInstall && (
           <Button size="sm" onClick={() => setInstalling(true)}>
-            {t("cli.install")}
+            {tConn("cli.install")}
           </Button>
         )}
         {(needsLogin || status === "logged_in" || status === "unknown") && (
@@ -115,7 +116,7 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
             loading={checking}
             onClick={check}
           >
-            {checking ? t("cli.checking") : t("cli.checkAgain")}
+            {checking ? tConn("cli.checking") : tConn("cli.checkAgain")}
           </Button>
         )}
       </footer>

@@ -1,5 +1,6 @@
 """Router DB tables (SPEC §9, §6.4). Schema changes go through Alembic (alembic/versions)."""
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,11 +13,12 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -111,8 +113,41 @@ class ModelStats(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class Thread(Base):
+    """A chat thread (M2). `private` is sticky: once set, every request in it stays local."""
+
+    __tablename__ = "threads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(120), default="")
+    title_source: Mapped[str] = mapped_column(String(16), default="none")  # none | words | local | user
+    private: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Message(Base):
+    """One chat message. Reasoning/thinking text is never stored (only the answer)."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("threads.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(16))  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    # user: done ; assistant: streaming | done | stopped | error | notice | blocked
+    status: Mapped[str] = mapped_column(String(16), default="done")
+    request_id: Mapped[int | None] = mapped_column(ForeignKey("requests.id", ondelete="SET NULL"))
+    private: Mapped[bool] = mapped_column(Boolean, default=False)
+    feedback: Mapped[int | None] = mapped_column(SmallInteger)  # 1 | -1 | null
+    meta_json: Mapped[dict[str, Any]] = mapped_column(default=dict)  # route summary for the chip
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Request(Base):
-    """Stub (SPEC §9); written from M2."""
+    """Every routed request (SPEC §9, §13.5): rule, target, fallbacks tried and why, latency."""
 
     __tablename__ = "requests"
 
@@ -129,10 +164,21 @@ class Request(Base):
     status: Mapped[str | None] = mapped_column(String(32))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # M2
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("threads.id", ondelete="SET NULL")
+    )
+    intent: Mapped[str | None] = mapped_column(String(32))
+    model: Mapped[str | None] = mapped_column(String(255))  # deployment that served it
+    model_catalog_id: Mapped[int | None] = mapped_column(ForeignKey("model_catalog.id", ondelete="SET NULL"))
+    ttft_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+    decision_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
 
 
 class Cost(Base):
-    """Stub (SPEC §9); written from M2/M6."""
+    """One row per billable event (SPEC §9). `cost_usd` is what counts toward caps: free-tier calls
+    are $0 there and keep the provider's list price in `list_price_usd`."""
 
     __tablename__ = "costs"
 
@@ -145,4 +191,5 @@ class Cost(Base):
     tokens_out: Mapped[int | None] = mapped_column(Integer)
     units: Mapped[float | None] = mapped_column(Float)
     cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    list_price_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

@@ -1,6 +1,7 @@
 import { AlertTriangle, BadgeCheck, Code2, Maximize2, ShieldCheck, Zap, Cpu, Info } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t, type StringKey } from "@/i18n/strings";
+import { type ConnectionKey, tConn } from "@/i18n/connections";
 import type { Badge } from "@/lib/recommend";
 import type { Privacy } from "@/lib/router-types";
 
@@ -39,7 +40,7 @@ export function PrivacyLine({ privacy }: { privacy: Privacy }) {
   return (
     <span className="flex items-center gap-1.5 text-ink-muted">
       <Icon aria-hidden className={cn("size-4 shrink-0", color)} />
-      {t(`privacy.${privacy}` as StringKey)}
+      {tConn(`privacy.${privacy}` as ConnectionKey)}
     </span>
   );
 }

@@ -1,4 +1,5 @@
-"""Switchboard Router API (SPEC §5). Connections, model catalog, CLI detection and install, onboarding."""
+"""Switchboard Router API (SPEC §5). Connections, model catalog, CLI detection and install, onboarding,
+rules-based routing and chat (M2)."""
 
 import asyncio
 import logging
@@ -9,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db, secrets
-from app.api import catalog, connections, health, onboarding
+from app.api import catalog, chat, connections, health, onboarding
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
@@ -66,10 +67,11 @@ app = FastAPI(title="Switchboard Router", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(health.router)
 app.include_router(connections.router)
 app.include_router(catalog.router)
 app.include_router(onboarding.router)
+app.include_router(chat.router)

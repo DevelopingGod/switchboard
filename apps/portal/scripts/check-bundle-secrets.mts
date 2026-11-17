@@ -61,6 +61,7 @@ const server = spawn("npx", ["next", "start", "-H", "127.0.0.1", "-p", String(PO
   cwd: root,
   env: { ...process.env, ROUTER_ADMIN_TOKEN: SENTINEL, PORTAL_DATA: "fixture" },
   stdio: "ignore",
+  detached: true, // own process group, so the `next` child is stopped too (not only npx)
 });
 try {
   for (let i = 0; i < 60; i++) {
@@ -93,8 +94,38 @@ try {
     req.end();
   });
   if (rebindStatus !== 403) failures.push(`install log endpoint answered a foreign Host (${rebindStatus})`);
+
+  // The chat stream (POST, spends tokens) also needs this exact loopback Origin.
+  const chat = `http://127.0.0.1:${PORT}/api/chat/stream`;
+  const body = JSON.stringify({ mode: "send", text: "hi", target: "auto", private: false });
+  const json = { "Content-Type": "application/json" };
+  for (const [what, headers] of [
+    ["no Origin", json],
+    ["a foreign Origin", { ...json, Origin: "http://evil.example" }],
+    ["another loopback port", { ...json, Origin: "http://127.0.0.1:1" }],
+    ["a cross-site fetch", { ...json, Origin: `http://127.0.0.1:${PORT}`, "Sec-Fetch-Site": "cross-site" }],
+  ] as const) {
+    const r = await fetch(chat, { method: "POST", headers, body });
+    if (r.status !== 403) failures.push(`chat stream answered ${what} (${r.status})`);
+  }
+  const chatRebind = await new Promise<number>((resolve) => {
+    const req = request(
+      { host: "127.0.0.1", port: PORT, path: "/api/chat/stream", method: "POST", headers: { Host: "evil.example", Origin: "http://evil.example", ...json } },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
+    req.on("error", () => resolve(0));
+    req.end(body);
+  });
+  if (chatRebind !== 403) failures.push(`chat stream answered a foreign Host (${chatRebind})`);
 } finally {
-  server.kill();
+  try {
+    process.kill(-server.pid!, "SIGTERM");
+  } catch {
+    server.kill();
+  }
 }
 
 if (failures.length) {

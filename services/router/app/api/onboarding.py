@@ -1,8 +1,8 @@
 """First-run wizard state (SPEC §8b) and the goal -> provider mapping.
 
 The wizard's progress lives here, not in the browser, so it resumes on any device. It is stored as
-one JSON row in `system_meta` (key `onboarding`). The preset is saved now and applied by the M2
-rules engine; nothing reads it yet.
+one JSON row in `system_meta` (key `onboarding`). The preset selects a `presets:` overlay in
+config/rules.yaml (app/routing/context.py).
 """
 
 import json
