@@ -3,13 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 import { ImagePlus, PenLine, Search, Sparkles, Wrench, type LucideIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Composer } from "@/components/kit/Composer";
 import { useToast } from "@/components/kit/Toast";
+import { handOff, type PendingMessage } from "@/lib/pending";
 import { usePrefs } from "@/lib/prefs";
 import { useMedia } from "@/lib/use-media";
 import { t, type StringKey } from "@/i18n/strings";
 
-const chips: { id: "linkedin" | "tests" | "image" | "research"; icon: LucideIcon }[] = [
+type ChipId = "linkedin" | "tests" | "image" | "research";
+const chips: { id: ChipId; icon: LucideIcon }[] = [
   { id: "linkedin", icon: PenLine },
   { id: "tests", icon: Wrench },
   { id: "image", icon: ImagePlus },
@@ -20,18 +23,15 @@ export function HomeHero({ setupPending = false, serverName = "" }: { setupPendi
   const { name } = usePrefs();
   const phone = useMedia("(max-width: 639px)");
   const { push } = useToast();
+  const router = useRouter();
   const [text, setText] = React.useState("");
-  const input = React.useRef<HTMLTextAreaElement>(null);
 
-  // Chips only fill the composer for now; they route to a model or agent in M2.
-  const fill = (prompt: string) => {
-    setText(prompt);
-    const el = input.current;
-    if (el) {
-      el.focus();
-      requestAnimationFrame(() => el.setSelectionRange(prompt.length, prompt.length));
-    }
+  // Home hands the message to /chat, which sends it on arrival (routing, chip and cost show there).
+  const go = (msg: PendingMessage) => {
+    if (!handOff(msg)) return push({ tone: "error", title: t("composer.errorDefault") });
+    router.push("/chat");
   };
+  const chip = (id: ChipId) => go({ text: t(`home.chips.${id}.prompt` as StringKey), private: false, autonomy: 1, temperature: 0.7 });
 
   return (
     <div className="mx-auto grid max-w-4xl gap-10 pt-[6vh]">
@@ -46,8 +46,7 @@ export function HomeHero({ setupPending = false, serverName = "" }: { setupPendi
           disabledReason={t("home.readOnlyNote")}
           value={text}
           onValueChange={setText}
-          inputRef={input}
-          onSend={() => push({ tone: "info", title: t("composer.sending") })}
+          onSend={(m) => go(m)}
         />
         <ul aria-label={t("home.chips.label")} className="flex flex-wrap gap-2.5">
           {chips.map(({ id, icon: Icon }) => (
@@ -55,7 +54,7 @@ export function HomeHero({ setupPending = false, serverName = "" }: { setupPendi
               <button
                 type="button"
                 disabled={phone}
-                onClick={() => fill(t(`home.chips.${id}.prompt` as StringKey))}
+                onClick={() => chip(id)}
                 className="glass inline-flex min-h-10 items-center gap-2 rounded-chip! px-4 text-sm font-semibold text-ink transition-transform duration-(--d-fast) hover:bg-pill-active active:scale-[0.97] disabled:pointer-events-none disabled:opacity-60"
               >
                 <Icon aria-hidden className="size-4 text-accent-strong" />

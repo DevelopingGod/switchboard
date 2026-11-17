@@ -99,17 +99,12 @@ test("max two stacked blur layers", async ({ page }) => {
   expect(deepest).toBeLessThanOrEqual(2);
 });
 
-test("quick-start chips fill the composer and focus it", async ({ page }) => {
+test("quick-start chips are the four sample tasks", async ({ page }) => {
   await page.goto("/");
   await ready(page);
   const chips = page.getByRole("list", { name: "Quick starts" });
   await expect(chips.getByRole("button")).toHaveText(["Write a LinkedIn post", "Fix failing tests", "Make an image", "Research a topic"]);
-  await chips.getByRole("button", { name: "Make an image" }).click();
-  const box = page.getByLabel("Message");
-  await expect(box).toHaveValue("Make an image of ");
-  await expect(box).toBeFocused();
-  await chips.getByRole("button", { name: "Research a topic" }).click();
-  await expect(box).toHaveValue("Research "); // a chip replaces the text, it does not append
+  // Sending is covered in chat.spec.ts (it changes fixture state, so it runs on the mutating server).
 });
 
 test("the loading Dial is a ring, not a grey disc", async ({ page }) => {

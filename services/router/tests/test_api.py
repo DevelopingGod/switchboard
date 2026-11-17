@@ -194,7 +194,14 @@ async def test_models_test_gemini_uses_header(client, litellm, mock_http, sessio
 async def test_router_healthy_when_hostprobe_down(client, hostprobe_down):
     r = await client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "db": "ok", "litellm": "ok", "hostprobe": "down"}
+    assert r.json() == {
+        "status": "ok",
+        "db": "ok",
+        "litellm": "ok",
+        "hostprobe": "down",
+        "rules": "ok (11 rules)",
+        "fault_injection": False,
+    }
     r = await client.get("/connections")
     assert r.status_code == 200 and r.json()["hostprobe"] == "down"
     clis = [p for p in r.json()["providers"] if p["kind"] == "cli"]

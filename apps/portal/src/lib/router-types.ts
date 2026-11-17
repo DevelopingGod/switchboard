@@ -113,3 +113,122 @@ export type OnboardingPatch = Partial<Omit<OnboardingState, "completed_at">> & {
 
 /** What server actions return to client components. */
 export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error: string };
+
+// --- Chat (M2) -----------------------------------------------------------------------------------
+
+export interface ChatThread {
+  id: string;
+  title: string;
+  title_source: "none" | "words" | "local" | "user";
+  private: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RouteSkip {
+  target: string;
+  label: string;
+  code: string;
+  reason: string;
+}
+
+/** What the RouteChip and "Why this?" popover show; stored on every reply by the router. */
+export interface RouteInfo {
+  request_id: number | null;
+  rule: string;
+  matched_by: "manual" | "slash" | "private" | "intent" | "default";
+  intent: string;
+  preset: string;
+  private: boolean;
+  job_suggested: boolean;
+  target: string | null;
+  label: string | null;
+  local: boolean | null;
+  free_tier: boolean | null;
+  reasons: string[];
+  runner_up: string | null;
+  skipped: RouteSkip[];
+  context_tokens: number;
+  thinking_ms: number | null;
+  model?: string;
+  provider?: string;
+  provider_name?: string;
+  tokens_in?: number;
+  tokens_out?: number;
+  estimated?: boolean;
+  cost_usd?: number;
+  list_price_usd?: number | null;
+  latency_ms?: number;
+  ttft_ms?: number | null;
+  error?: string | null;
+  notice?: "image" | "video" | "audio";
+  blocked?: BlockedInfo;
+}
+
+export interface BlockedInfo {
+  code: "budget_daily" | "budget_request";
+  reason: string;
+  daily_cap_usd: number;
+  max_cost_usd: number;
+  spent_today: number;
+}
+
+export type MessageStatus = "streaming" | "done" | "stopped" | "error" | "notice" | "blocked";
+
+export interface ChatMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  status: MessageStatus;
+  private: boolean;
+  feedback: "up" | "down" | null;
+  route: RouteInfo | null;
+  created_at: string;
+}
+
+export interface ThreadResponse {
+  thread: ChatThread;
+  messages: ChatMessage[];
+}
+
+export interface TargetAlias {
+  target: string;
+  alias: string;
+  label: string;
+  available: boolean;
+  reason: string | null;
+  local: boolean;
+  free_tier: boolean;
+  paid: boolean;
+  privacy: Privacy;
+}
+
+export interface TargetModel extends CatalogModel {
+  target: string;
+  paid: boolean;
+}
+
+export interface TargetProvider {
+  provider: string;
+  name: string;
+  local: boolean;
+  privacy: Privacy;
+  models: TargetModel[];
+}
+
+export interface TargetsResponse {
+  aliases: TargetAlias[];
+  providers: TargetProvider[];
+  preset: string;
+}
+
+/** Body of POST /api/chat/stream (validated again on the server). */
+export interface ChatStreamBody {
+  mode: "send" | "regenerate" | "edit";
+  thread_id?: string | null;
+  text?: string;
+  target: string;
+  private: boolean;
+  temperature?: number | null;
+  autonomy?: number | null;
+}

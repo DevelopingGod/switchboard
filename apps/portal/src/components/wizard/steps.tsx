@@ -9,11 +9,11 @@ import { GlassPanel } from "@/components/kit/GlassPanel";
 import { cn } from "@/lib/cn";
 import { GOAL_ORDER, neededProviders } from "@/lib/wizard";
 import type { CatalogModel, ConnectionRow, Preset } from "@/lib/router-types";
-import { t, type StringKey } from "@/i18n/strings";
+import { type WizardKey, tWizard } from "@/i18n/wizard";
 
 export const PRESETS: Preset[] = ["free", "balanced", "best"];
 
-export const goalLabel = (id: string) => (GOAL_ORDER.includes(id as never) ? t(`wizard.goals.items.${id}.label` as StringKey) : id);
+export const goalLabel = (id: string) => (GOAL_ORDER.includes(id as never) ? tWizard(`wizard.goals.items.${id}.label` as WizardKey) : id);
 
 const field =
   "min-h-(--ctl) w-full rounded-control border border-hairline bg-glass-strong px-3 text-ink placeholder:text-ink-muted";
@@ -21,10 +21,10 @@ const field =
 export function WelcomeStep({ name, onName, nameId }: { name: string; onName: (v: string) => void; nameId: string }) {
   return (
     <div className="grid gap-5">
-      <p className="max-w-xl text-lg leading-relaxed text-ink-muted">{t("wizard.welcome.body")}</p>
+      <p className="max-w-xl text-lg leading-relaxed text-ink-muted">{tWizard("wizard.welcome.body")}</p>
       <div className="grid max-w-sm gap-1.5">
         <label htmlFor={nameId} className="label">
-          {t("wizard.welcome.nameLabel")}
+          {tWizard("wizard.welcome.nameLabel")}
         </label>
         <input
           id={nameId}
@@ -32,12 +32,12 @@ export function WelcomeStep({ name, onName, nameId }: { name: string; onName: (v
           onChange={(e) => onName(e.target.value)}
           maxLength={60}
           autoComplete="given-name"
-          placeholder={t("wizard.welcome.namePlaceholder")}
+          placeholder={tWizard("wizard.welcome.namePlaceholder")}
           className={field}
         />
       </div>
       <div className="grid gap-1.5">
-        <p className="label">{t("wizard.welcome.modeLabel")}</p>
+        <p className="label">{tWizard("wizard.welcome.modeLabel")}</p>
         <div>
           <ModeSwitch />
         </div>
@@ -58,7 +58,7 @@ export function GoalsStep({
   const ids = GOAL_ORDER.filter((g) => available.includes(g));
   return (
     <fieldset className="grid gap-3">
-      <legend className="max-w-xl pb-1 text-ink-muted">{t("wizard.goals.body")}</legend>
+      <legend className="max-w-xl pb-1 text-ink-muted">{tWizard("wizard.goals.body")}</legend>
       <div className="grid gap-3 sm:grid-cols-2">
         {ids.map((id) => (
           <label
@@ -75,15 +75,15 @@ export function GoalsStep({
               className="mt-1 size-4 shrink-0 accent-(--accent-strong)"
             />
             <span className="grid gap-0.5">
-              <span className="font-semibold tracking-tight">{t(`wizard.goals.items.${id}.label` as StringKey)}</span>
-              <span className="text-sm text-ink-muted">{t(`wizard.goals.items.${id}.hint` as StringKey)}</span>
+              <span className="font-semibold tracking-tight">{tWizard(`wizard.goals.items.${id}.label` as WizardKey)}</span>
+              <span className="text-sm text-ink-muted">{tWizard(`wizard.goals.items.${id}.hint` as WizardKey)}</span>
             </span>
           </label>
         ))}
       </div>
       {goals.length === 0 && (
         <p id="goals-empty" className="text-sm text-ink-muted">
-          {t("wizard.goals.empty")}
+          {tWizard("wizard.goals.empty")}
         </p>
       )}
     </fieldset>
@@ -99,10 +99,10 @@ export function ConnectStep({
   rows: ConnectionRow[];
   modelsByProvider: Record<string, CatalogModel[]>;
 }) {
-  if (needed.length === 0) return <p className="text-ink-muted">{t("wizard.connect.none")}</p>;
+  if (needed.length === 0) return <p className="text-ink-muted">{tWizard("wizard.connect.none")}</p>;
   return (
     <div className="grid gap-4">
-      <p className="max-w-xl text-ink-muted">{t("wizard.connect.body")}</p>
+      <p className="max-w-xl text-ink-muted">{tWizard("wizard.connect.body")}</p>
       <div className="grid gap-(--gap) md:grid-cols-2">
         {needed.map((n) => {
           const row = rows.find((r) => r.provider === n.provider);
@@ -110,7 +110,7 @@ export function ConnectStep({
           return (
             <div key={n.provider} className="grid content-start gap-1.5">
               <ProviderCardFor row={row} models={modelsByProvider[n.provider] ?? []} />
-              <p className="px-2 text-xs text-ink-muted">{t("wizard.connect.forGoals", { goals: n.for.map(goalLabel).join(", ") })}</p>
+              <p className="px-2 text-xs text-ink-muted">{tWizard("wizard.connect.forGoals", { goals: n.for.map(goalLabel).join(", ") })}</p>
             </div>
           );
         })}
@@ -122,7 +122,7 @@ export function ConnectStep({
 export function PresetStep({ preset, onPick }: { preset: Preset; onPick: (p: Preset) => void }) {
   return (
     <fieldset className="grid gap-3">
-      <legend className="max-w-xl pb-1 text-ink-muted">{t("wizard.preset.body")}</legend>
+      <legend className="max-w-xl pb-1 text-ink-muted">{tWizard("wizard.preset.body")}</legend>
       {PRESETS.map((id) => (
         <label
           key={id}
@@ -140,13 +140,13 @@ export function PresetStep({ preset, onPick }: { preset: Preset; onPick: (p: Pre
             className="mt-1 size-4 shrink-0 accent-(--accent-strong)"
           />
           <span className="grid gap-0.5">
-            <span className="font-semibold tracking-tight">{t(`wizard.preset.${id}.label` as StringKey)}</span>
-            <span className="text-sm text-ink-muted">{t(`wizard.preset.${id}.body` as StringKey)}</span>
+            <span className="font-semibold tracking-tight">{tWizard(`wizard.preset.${id}.label` as WizardKey)}</span>
+            <span className="text-sm text-ink-muted">{tWizard(`wizard.preset.${id}.body` as WizardKey)}</span>
           </span>
           {id === "free" && <CostBadge kind="free" className="ml-auto" />}
         </label>
       ))}
-      <p className="text-sm text-ink-muted">{t("wizard.preset.note")}</p>
+      <p className="text-sm text-ink-muted">{tWizard("wizard.preset.note")}</p>
     </fieldset>
   );
 }
@@ -162,12 +162,12 @@ export function FinishStep({
 }) {
   return (
     <div className="grid gap-5">
-      <p className="max-w-xl text-ink-muted">{t("wizard.finish.body")}</p>
+      <p className="max-w-xl text-ink-muted">{tWizard("wizard.finish.body")}</p>
       <dl className="grid gap-3 sm:grid-cols-3">
         {[
-          [t("wizard.finish.goals"), goals.length ? goals.map(goalLabel).join(", ") : t("wizard.finish.none")],
-          [t("wizard.finish.preset"), t(`wizard.preset.${preset}.label` as StringKey)],
-          [t("wizard.finish.connected"), connected.length ? connected.join(", ") : t("wizard.finish.none")],
+          [tWizard("wizard.finish.goals"), goals.length ? goals.map(goalLabel).join(", ") : tWizard("wizard.finish.none")],
+          [tWizard("wizard.finish.preset"), tWizard(`wizard.preset.${preset}.label` as WizardKey)],
+          [tWizard("wizard.finish.connected"), connected.length ? connected.join(", ") : tWizard("wizard.finish.none")],
         ].map(([k, v]) => (
           <div key={k} className="rounded-control border border-hairline bg-glass-strong p-3">
             <dt className="label">{k}</dt>
@@ -178,10 +178,10 @@ export function FinishStep({
       <GlassPanel as="section" tone="solid" aria-labelledby="try-it" className="grid gap-1.5 font-sans!">
         <h3 id="try-it" className="flex items-center gap-2 font-semibold">
           <Lock aria-hidden className="size-4" />
-          {t("wizard.finish.tryTitle")}
-          <span className="rounded-chip border border-hairline px-2 py-0.5 text-xs">{t("wizard.finish.tryBadge")}</span>
+          {tWizard("wizard.finish.tryTitle")}
+          <span className="rounded-chip border border-hairline px-2 py-0.5 text-xs">{tWizard("wizard.finish.tryBadge")}</span>
         </h3>
-        <p className="text-sm leading-relaxed opacity-90">{t("wizard.finish.tryBody")}</p>
+        <p className="text-sm leading-relaxed opacity-90">{tWizard("wizard.finish.tryBody")}</p>
       </GlassPanel>
     </div>
   );
@@ -189,7 +189,7 @@ export function FinishStep({
 
 export function StepList({ steps, current }: { steps: readonly string[]; current: number }) {
   return (
-    <ol aria-label={t("wizard.progress")} className="grid gap-2">
+    <ol aria-label={tWizard("wizard.progress")} className="grid gap-2">
       {steps.map((s, i) => (
         <li
           key={s}
@@ -207,7 +207,7 @@ export function StepList({ steps, current }: { steps: readonly string[]; current
           >
             {i < current ? <Check className="size-3.5" /> : i + 1}
           </span>
-          {t(`wizard.steps.${s}` as StringKey)}
+          {tWizard(`wizard.steps.${s}` as WizardKey)}
           {i < current && <span className="sr-only"> (done)</span>}
         </li>
       ))}

@@ -3,9 +3,9 @@ import { RouterDown } from "@/components/connections/RouterDown";
 import { Wizard } from "@/components/wizard/Wizard";
 import { STEPS } from "@/lib/wizard";
 import { loadConnections, loadOnboarding } from "@/lib/server/data";
-import { t } from "@/i18n/strings";
+import { tWizard } from "@/i18n/wizard";
 
-export const metadata: Metadata = { title: t("wizard.title") };
+export const metadata: Metadata = { title: tWizard("wizard.title") };
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ step?: string }> }) {
   const [ob, conn, sp] = await Promise.all([loadOnboarding(), loadConnections(), searchParams]);

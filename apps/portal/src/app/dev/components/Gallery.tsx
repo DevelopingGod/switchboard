@@ -26,6 +26,7 @@ const InstallProgress = dynamic(() => import("@/components/connections/InstallPr
 const LoginSteps = dynamic(() => import("@/components/connections/LoginSteps").then((m) => m.LoginSteps));
 import { Button } from "@/components/ui/button";
 import { strings, t } from "@/i18n/strings";
+import { devStrings, tDev } from "@/i18n/dev";
 
 type S = "default" | "loading" | "empty" | "error" | "disabled";
 const allStates: S[] = ["default", "loading", "empty", "error", "disabled"];
@@ -51,10 +52,10 @@ function Cell({ label, children, className }: { label: string; children: React.R
 }
 
 const grid = "grid gap-(--gap) sm:grid-cols-2 xl:grid-cols-3";
-const stateLabel = (s: S) => t(`dev.${s}`);
+const stateLabel = (s: S) => tDev(`dev.${s}`);
 
 export function Gallery() {
-  const g = strings.dev.gallery;
+  const g = devStrings.dev.gallery;
   const [tab, setTab] = React.useState("day");
   const [autonomy, setAutonomy] = React.useState(1);
   const [budget, setBudget] = React.useState(62);
@@ -63,14 +64,14 @@ export function Gallery() {
   return (
     <div className="grid gap-14">
       <header className="grid gap-3">
-        <h1 className="display">{t("dev.title")}</h1>
-        <p className="max-w-2xl text-lg text-ink-muted">{t("dev.intro")}</p>
+        <h1 className="display">{tDev("dev.title")}</h1>
+        <p className="max-w-2xl text-lg text-ink-muted">{tDev("dev.intro")}</p>
       </header>
 
       <Section id="brand" title={g.sections.brand}>
         <div className={grid}>
           <Cell label={g.logo}><GlassPanel tone="strong"><Logo /></GlassPanel></Cell>
-          <Cell label={t("dev.columnsCaption")}><GlassPanel><ColumnsArt className="text-ink" /></GlassPanel></Cell>
+          <Cell label={tDev("dev.columnsCaption")}><GlassPanel><ColumnsArt className="text-ink" /></GlassPanel></Cell>
         </div>
       </Section>
 
@@ -79,7 +80,7 @@ export function Gallery() {
           <Cell label={g.glassCaption}><GlassPanel className="min-h-28"><p className="label">{g.container}</p></GlassPanel></Cell>
           <Cell label={g.strongCaption}><GlassPanel tone="strong" className="min-h-28"><p>{g.strongBody}</p></GlassPanel></Cell>
           <Cell label={g.solidCaption}>
-            <GlassPanel tone="solid" className="min-h-28"><pre>{`$ ${t("dev.sampleCode")}\n${g.sampleOutput}`}</pre></GlassPanel>
+            <GlassPanel tone="solid" className="min-h-28"><pre>{`$ ${tDev("dev.sampleCode")}\n${g.sampleOutput}`}</pre></GlassPanel>
           </Cell>
           <Cell label={g.nestedCaption}>
             <GlassPanel blur={2}><GlassPanel><GlassPanel className="min-h-12"><p className="label">{g.layer3}</p></GlassPanel></GlassPanel></GlassPanel>
@@ -89,10 +90,10 @@ export function Gallery() {
 
       <Section id="pill-tabs" title={g.sections.pillTabs}>
         <div className={grid}>
-          <Cell label={t("dev.interactive")}>
+          <Cell label={tDev("dev.interactive")}>
             <PillTabs label={g.tabsLabel} value={tab} onChange={setTab} items={[{ id: "day", label: g.day }, { id: "week", label: g.week }, { id: "month", label: g.month }]} />
           </Cell>
-          <Cell label={t("dev.disabled")}>
+          <Cell label={tDev("dev.disabled")}>
             <PillTabs label={g.tabsDisabledLabel} value="day" items={[{ id: "day", label: g.day }, { id: "week", label: g.week, disabled: true }]} />
           </Cell>
         </div>
@@ -107,14 +108,14 @@ export function Gallery() {
             </GlassPanel>
           </Cell>
           <Cell label={g.budgetCaption}>
-            <GlassPanel tone="strong"><Dial size={140} value={budget} onChange={setBudget} step={5} label={g.dailyBudget} valueText={t("dev.gallery.budgetUsed", { pct: budget })}><span className="stat-value text-3xl!">{budget}%</span></Dial></GlassPanel>
+            <GlassPanel tone="strong"><Dial size={140} value={budget} onChange={setBudget} step={5} label={g.dailyBudget} valueText={tDev("dev.gallery.budgetUsed", { pct: budget })}><span className="stat-value text-3xl!">{budget}%</span></Dial></GlassPanel>
           </Cell>
-          <Cell label={`${t("dev.readOnly")} ${g.quota}`}>
+          <Cell label={`${tDev("dev.readOnly")} ${g.quota}`}>
             <GlassPanel tone="strong"><Dial size={140} value={38} label={g.quotaLeft} valueText="38%"><span className="stat-value text-3xl!">38%</span></Dial></GlassPanel>
           </Cell>
-          <Cell label={t("dev.loading")}><GlassPanel tone="strong"><Dial size={140} value={0} label={g.loadingDial} state="loading" /></GlassPanel></Cell>
-          <Cell label={t("dev.error")}><GlassPanel tone="strong"><Dial size={140} value={20} label={g.quotaDial} state="error" /></GlassPanel></Cell>
-          <Cell label={t("dev.disabled")}><GlassPanel tone="strong"><Dial size={140} value={70} label={g.budgetDial} state="disabled" onChange={() => {}} /></GlassPanel></Cell>
+          <Cell label={tDev("dev.loading")}><GlassPanel tone="strong"><Dial size={140} value={0} label={g.loadingDial} state="loading" /></GlassPanel></Cell>
+          <Cell label={tDev("dev.error")}><GlassPanel tone="strong"><Dial size={140} value={20} label={g.quotaDial} state="error" /></GlassPanel></Cell>
+          <Cell label={tDev("dev.disabled")}><GlassPanel tone="strong"><Dial size={140} value={70} label={g.budgetDial} state="disabled" onChange={() => {}} /></GlassPanel></Cell>
         </div>
       </Section>
 
@@ -174,9 +175,9 @@ export function Gallery() {
           <Cell label={g.costPaid}><CostBadge kind="paid" amount={g.jobPaid} /></Cell>
           <Cell label={g.costEstimate}><CostBadge kind="estimate" amount={g.costEstimateAmount} /></Cell>
           <Cell label={g.costUnknown}><CostBadge kind="unknown" /></Cell>
-          <Cell label={t("dev.loading")}><CostBadge kind="paid" state="loading" /></Cell>
-          <Cell label={t("dev.error")}><CostBadge kind="paid" state="error" /></Cell>
-          <Cell label={t("dev.disabled")}><CostBadge kind="paid" amount={g.jobPaid} state="disabled" /></Cell>
+          <Cell label={tDev("dev.loading")}><CostBadge kind="paid" state="loading" /></Cell>
+          <Cell label={tDev("dev.error")}><CostBadge kind="paid" state="error" /></Cell>
+          <Cell label={tDev("dev.disabled")}><CostBadge kind="paid" amount={g.jobPaid} state="disabled" /></Cell>
         </div>
       </Section>
 
@@ -190,7 +191,7 @@ export function Gallery() {
 
       <Section id="explain-popover" title={g.sections.explainPopover}>
         <div className="flex flex-wrap items-center gap-6">
-          <Cell label={t("dev.default")}>
+          <Cell label={tDev("dev.default")}>
             <GlassPanel tone="strong" className="flex items-center gap-1 py-2">
               <span className="font-semibold">{g.fallbacks}</span>
               <ExplainPopover topic={g.fallbacks} title={g.fallbacksTitle} learnMoreHref="#fallbacks">
@@ -198,7 +199,7 @@ export function Gallery() {
               </ExplainPopover>
             </GlassPanel>
           </Cell>
-          <Cell label={t("dev.disabled")}>
+          <Cell label={tDev("dev.disabled")}>
             <GlassPanel tone="strong" className="flex items-center gap-1 py-2">
               <span className="font-semibold">{g.fallbacks}</span>
               <ExplainPopover topic={g.fallbacks} disabled>{g.unused}</ExplainPopover>
@@ -265,14 +266,14 @@ export function Gallery() {
 
       <Section id="toast" title={g.sections.toast}>
         <div className={grid}>
-          <Cell label={g.toastInfo}><ToastView tone="info" title={t("dev.toastTitle")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
-          <Cell label={g.toastSuccess}><ToastView tone="success" title={t("dev.toastTitle")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
-          <Cell label={g.toastWarning}><ToastView tone="warning" title={t("toast.warning")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
-          <Cell label={g.toastError}><ToastView tone="error" title={t("state.error")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastInfo}><ToastView tone="info" title={tDev("dev.toastTitle")} body={tDev("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastSuccess}><ToastView tone="success" title={tDev("dev.toastTitle")} body={tDev("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastWarning}><ToastView tone="warning" title={t("toast.warning")} body={tDev("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastError}><ToastView tone="error" title={t("state.error")} body={tDev("dev.toastBody")} onClose={() => {}} /></Cell>
         </div>
         <div>
-          <Button variant="glass" onClick={() => push({ tone: "success", title: t("dev.toastTitle"), body: t("dev.toastBody") })}>
-            {t("dev.pushToast")}
+          <Button variant="glass" onClick={() => push({ tone: "success", title: tDev("dev.toastTitle"), body: tDev("dev.toastBody") })}>
+            {tDev("dev.pushToast")}
           </Button>
         </div>
       </Section>

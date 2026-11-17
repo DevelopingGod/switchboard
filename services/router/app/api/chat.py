@@ -297,7 +297,15 @@ async def targets(session: AsyncSession = Depends(get_session)) -> dict[str, Any
                 "paid": p.paid,
                 "privacy": e.privacy,
                 "status": "available",
-                "test": None if e.p50_ms is None else {"p50_ms": e.p50_ms, "last_ok": True},
+                "test": None
+                if e.p50_ms is None
+                else {
+                    "samples": None,
+                    "error_rate": None,
+                    "p50_ms": e.p50_ms,
+                    "p95_ms": None,
+                    "last_ok": True,
+                },
             }
         )
     providers = [

@@ -7,12 +7,14 @@ import { activeNavId, navItems } from "./nav-items";
 import { cn } from "@/lib/cn";
 import { t } from "@/i18n/strings";
 
-/** Bottom bar for phones; the top pill tabs take over from tablet width. */
+/** Bottom bar for phones; the top pill tabs take over from tablet width. Its labels sit on the
+ * near-opaque surface (SPEC §8c): content such as dark code panels scrolls underneath it. */
 export function MobileNav() {
   const active = activeNavId(usePathname());
   return (
     <GlassPanel
       as="nav"
+      tone="strong"
       padded={false}
       aria-label={t("nav.mobileLabel")}
       className="fixed inset-x-3 bottom-3 z-40 rounded-chip p-1 md:hidden"

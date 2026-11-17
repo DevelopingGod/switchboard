@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { removeKey, saveKey, testConnection } from "@/app/connections/actions";
 import type { CatalogModel, ConnectionRow } from "@/lib/router-types";
 import { t } from "@/i18n/strings";
+import { tConn } from "@/i18n/connections";
 import { PrivacyLine } from "./shared";
 import { RecommendedModels } from "./RecommendedModels";
 
@@ -48,7 +49,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     setKey("");
     setMode("view");
     setNote(null);
-    push({ tone: "success", title: t("card.saved", { name: row.name }) });
+    push({ tone: "success", title: tConn("card.saved", { name: row.name }) });
     router.refresh();
   };
 
@@ -58,7 +59,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     const r = await testConnection(row.provider);
     setBusy(null);
     const ok = r.ok && r.data.ok;
-    setNote({ ok, text: ok ? t("card.testOk", { name: row.name }) : `${t("card.testFailed")}: ${r.ok ? (r.data.error ?? "") : r.error}` });
+    setNote({ ok, text: ok ? tConn("card.testOk", { name: row.name }) : `${tConn("card.testFailed")}: ${r.ok ? (r.data.error ?? "") : r.error}` });
     router.refresh();
   };
 
@@ -70,7 +71,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     if (!r.ok) setNote({ ok: false, text: r.error });
     else {
       setNote(null);
-      push({ tone: "info", title: t("card.removed", { name: row.name }) });
+      push({ tone: "info", title: tConn("card.removed", { name: row.name }) });
     }
     router.refresh();
   };
@@ -90,26 +91,26 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
           </div>
         </div>
         {connected ? (
-          <StatusBadge status="healthy" label={t("card.connected")} />
+          <StatusBadge status="healthy" label={tConn("card.connected")} />
         ) : failing ? (
-          <StatusBadge status="error" label={t("card.needsAttention")} />
+          <StatusBadge status="error" label={tConn("card.needsAttention")} />
         ) : (
-          <StatusBadge status="offline" label={t("card.notConnected")} />
+          <StatusBadge status="offline" label={tConn("card.notConnected")} />
         )}
       </header>
 
       <div className="surface-strong grid gap-2 p-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <CostBadge kind={row.paid ? "paid" : "free"} amount={t("provider.paid")} />
-          {hasKey && <span className="font-mono text-ink-muted">{t("card.keyLast4", { last4: row.key_last4 ?? "" })}</span>}
+          {hasKey && <span className="font-mono text-ink-muted">{tConn("card.keyLast4", { last4: row.key_last4 ?? "" })}</span>}
           {typeof row.models_available === "number" && row.models_available > 0 && (
-            <span className="text-ink-muted">{t("card.models", { count: row.models_available })}</span>
+            <span className="text-ink-muted">{tConn("card.models", { count: row.models_available })}</span>
           )}
         </div>
         <PrivacyLine privacy={row.privacy} />
         {row.free_limits && (
           <p className="text-ink-muted">
-            <span className="font-semibold text-ink">{t("card.limits")}: </span>
+            <span className="font-semibold text-ink">{tConn("card.limits")}: </span>
             {row.free_limits}
           </p>
         )}
@@ -131,7 +132,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
       {mode === "add" && (
         <form onSubmit={submit} className="grid gap-2">
           <label htmlFor={`${ids}-key`} className="label">
-            {t("card.keyLabel", { name: row.name })}
+            {tConn("card.keyLabel", { name: row.name })}
           </label>
           <input
             id={`${ids}-key`}
@@ -150,7 +151,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
             className="min-h-(--ctl) w-full rounded-control border border-hairline bg-glass-strong px-3 font-mono text-sm text-ink placeholder:text-ink-muted"
           />
           <p id={`${ids}-help`} className="text-xs text-ink-muted">
-            {t("card.keyHelp", { name: row.name })}
+            {tConn("card.keyHelp", { name: row.name })}
           </p>
           {error && (
             <p id={`${ids}-err`} role="alert" className="text-sm text-err">
@@ -159,7 +160,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
           )}
           <div className="flex gap-2">
             <Button type="submit" size="sm" loading={busy === "save"} disabled={key.trim().length < 8}>
-              {busy === "save" ? t("card.saving") : t("card.saveKey")}
+              {busy === "save" ? tConn("card.saving") : tConn("card.saveKey")}
             </Button>
             <Button
               type="button"
@@ -172,21 +173,21 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
                 setError(null);
               }}
             >
-              {t("card.cancel")}
+              {tConn("card.cancel")}
             </Button>
           </div>
         </form>
       )}
 
       {mode === "confirm-remove" && (
-        <div role="alertdialog" aria-label={t("card.removeKey")} className="grid gap-2 rounded-control border border-err bg-glass-strong p-3">
-          <p className="text-sm">{t("card.confirmRemove")}</p>
+        <div role="alertdialog" aria-label={tConn("card.removeKey")} className="grid gap-2 rounded-control border border-err bg-glass-strong p-3">
+          <p className="text-sm">{tConn("card.confirmRemove")}</p>
           <div className="flex gap-2">
             <Button size="sm" variant="danger" loading={busy === "remove"} onClick={remove}>
-              {t("card.confirmRemoveYes")}
+              {tConn("card.confirmRemoveYes")}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setMode("view")} disabled={busy === "remove"}>
-              {t("card.keep")}
+              {tConn("card.keep")}
             </Button>
           </div>
         </div>
@@ -200,23 +201,23 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
         <footer className="flex flex-wrap gap-2">
           {isLocal ? (
             <Button size="sm" variant="glass" loading={busy === "test"} onClick={test}>
-              {busy === "test" ? t("card.testing") : t("card.testConnection")}
+              {busy === "test" ? tConn("card.testing") : tConn("card.testConnection")}
             </Button>
           ) : hasKey ? (
             <>
               <Button size="sm" variant="glass" loading={busy === "test"} onClick={test}>
-                {busy === "test" ? t("card.testing") : t("card.testConnection")}
+                {busy === "test" ? tConn("card.testing") : tConn("card.testConnection")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setMode("add")}>
-                {t("card.replaceKey")}
+                {tConn("card.replaceKey")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setMode("confirm-remove")}>
-                {t("card.removeKey")}
+                {tConn("card.removeKey")}
               </Button>
             </>
           ) : (
             <Button size="sm" onClick={() => setMode("add")}>
-              {t("card.addKey")}
+              {tConn("card.addKey")}
             </Button>
           )}
         </footer>
