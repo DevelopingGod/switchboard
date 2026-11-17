@@ -13,7 +13,7 @@
 | M1a Router backend | ✅ Merged | m1a / #4 | Opus 5.5 | Split from M1; see M1a outcome |
 | M1b Connections UI + wizard | ✅ Merged | m1b / #5 | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
 | M2 Chat + Router | 🔎 In review | m2 / #6 | Opus 5.5, high | Rules engine, streaming chat, fallbacks with reasons, caps, private; see M2 outcome |
-| Provider fixes | 🔎 In review | provider-fixes / PR pending | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
+| Provider fixes | 🔎 In review | provider-fixes / #7 | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
 | M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
