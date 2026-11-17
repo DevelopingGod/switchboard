@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import hostprobe_client, secrets, sync
+from app import credits, hostprobe_client, secrets, sync, user_settings
 from app.config import get_settings
 from app.db import get_session
 from app.deps import litellm, require_admin
@@ -23,6 +23,9 @@ from app.errors import classify, problem
 from app.litellm_admin import LiteLLMAdmin
 from app.models import Connection
 from app.registry import load_registry
+from app.routing.context import spent_today, value_saved_today
+from app.routing.health import cooldowns
+from app.routing.rules import load_rules
 
 router = APIRouter(tags=["system"])
 
@@ -149,3 +152,49 @@ async def resync(
             502, "gateway_sync", "Couldn't sync with the model gateway. Retrying automatically.", str(e)
         ) from None
     return {"ok": True, "litellm": {k: len(v) for k, v in changes.items()}, "sync": sync.state.snapshot()}
+
+
+@router.get("/system/summary")
+async def summary(request: Request, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    """The portal footer, polled every 60 s while visible: four health dots, today's spend and the
+    value of free calls, quota status and the version. Probes are cached 15 s (`_reachable`)."""
+    s = get_settings()
+    litellm_up, (ollama_ok, _), (pc_ok, _) = await asyncio.gather(
+        request.app.state.litellm.alive(),
+        _reachable("ollama", s.ollama_api_base.rstrip("/") + "/api/tags"),
+        _reachable("paperclip", s.paperclip_url.rstrip("/") + "/api/health"),
+    )
+    o = await user_settings.load(session)
+    cap = float(o.get("daily_cap_usd", load_rules().defaults.daily_cap_usd))
+    spent = await spent_today(session)
+    cooling = cooldowns.active()
+    registry = load_registry()
+    low, out = [], []
+    for p in registry.providers.values():
+        if credits.is_credits(p) and (c := await credits.status(session, p.id)):
+            if c["exhausted"]:
+                out.append(p.id)
+            elif c["starting_usd"] and c["remaining_usd"] / c["starting_usd"] < 0.2:
+                low.append(p.id)
+    cap_used = spent / cap if cap > 0 else 1.0
+    quota = "blocked" if cap_used >= 1 else ("limited" if cooling or out or cap_used >= 0.8 or low else "ok")
+    return {
+        "health": {
+            "router": "ok",
+            "litellm": "ok" if litellm_up else "down",
+            "ollama": "ok" if ollama_ok else "down",
+            "paperclip": "ok" if pc_ok else "down",
+            "model_sync": sync.state.status,
+        },
+        "spend_today_usd": round(spent, 4),
+        "value_saved_usd": round(await value_saved_today(session), 4),
+        "quota": {
+            "status": quota,
+            "daily_cap_usd": cap,
+            "daily_cap_used": round(min(cap_used, 1.0), 3),
+            "cooling_down": sorted(cooling),
+            "credits_low": low,
+            "credits_out": out,
+        },
+        "version": request.app.version,
+    }

@@ -122,6 +122,7 @@ class Thread(Base):
     title: Mapped[str] = mapped_column(String(120), default="")
     title_source: Mapped[str] = mapped_column(String(16), default="none")  # none | words | local | user
     private: Mapped[bool] = mapped_column(Boolean, default=False)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 

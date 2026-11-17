@@ -67,6 +67,24 @@ class RuleSet:
         rules = tuple(_overlay(r, overrides[r.id]) if r.id in overrides else r for r in self.rules)
         return replace(self, rules=rules, preset=name, paid=spec.get("paid", "manual"))
 
+    def with_settings(self, s: dict[str, Any]) -> RuleSet:
+        """Owner overrides from the Settings page (app/user_settings.py). A per-request cap also
+        lowers any rule cap above it: the stricter limit always wins."""
+        d = self.defaults
+        cap = s.get("max_cost_usd")
+        defaults = replace(
+            d,
+            max_cost_usd=cap if cap is not None else d.max_cost_usd,
+            daily_cap_usd=s.get("daily_cap_usd", d.daily_cap_usd),
+        )
+        rules = self.rules
+        if cap is not None:
+            rules = tuple(
+                replace(r, max_cost_usd=min(r.max_cost_usd, cap)) if r.max_cost_usd is not None else r
+                for r in rules
+            )
+        return replace(self, defaults=defaults, rules=rules)
+
 
 def _overlay(rule: Rule, o: dict[str, Any]) -> Rule:
     return replace(

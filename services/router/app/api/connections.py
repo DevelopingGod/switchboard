@@ -335,7 +335,12 @@ async def test_connection(provider_id: str, session: AsyncSession = Depends(get_
             conn.status, conn.last_error = "error", secrets.redact(str(e))
             conn.last_checked = datetime.now(UTC)
             await session.commit()
-            return {"provider": p.id, "ok": False, "error": conn.last_error, "error_code": classify(conn.last_error)}
+            return {
+                "provider": p.id,
+                "ok": False,
+                "error": conn.last_error,
+                "error_code": classify(conn.last_error),
+            }
     counts = await record_fetch(session, p, load_tag_rules(), fetched)
     return {"provider": p.id, "ok": True, "catalog": counts}
 
