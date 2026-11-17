@@ -219,6 +219,18 @@ export function ChatScreen({ threads: initialThreads, current }: { threads: Chat
     if (id) void stopReply(id);
   };
 
+  // ⌘. / Ctrl+. (lib/shortcuts.ts) stops the reply from anywhere on the page.
+  React.useEffect(() => {
+    const onStop = () => {
+      const id = requestId.current;
+      if (!abort.current) return;
+      abort.current.abort();
+      if (id) void stopReply(id);
+    };
+    window.addEventListener("sb:stop", onStop);
+    return () => window.removeEventListener("sb:stop", onStop);
+  }, []);
+
   const regenerate = () => {
     const th = threadRef.current;
     if (!th) return;

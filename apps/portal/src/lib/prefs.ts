@@ -77,6 +77,9 @@ function getSnapshot(): Prefs {
   return current;
 }
 
+/** Current prefs outside React (event handlers). */
+export const getPrefs = (): Prefs => getSnapshot();
+
 export function setPrefs(patch: Partial<Prefs>) {
   current = { ...getSnapshot(), ...patch };
   try {
@@ -108,7 +111,8 @@ export function usePrefs(): Prefs {
 
 /**
  * Inline, pre-paint script (kept in sync with applyPrefs). Also accepts test-only URL overrides:
- * ?theme=dark|light &density=compact &solid=1 &sky=image &mode=pro &motion=reduce &cursor=off
+ * ?theme=dark|light &density=compact &solid=1 &sky=image &mode=pro &motion=reduce &cursor=off &nosplash
+ * It also turns on the first-load splash once per browser session (never under reduced motion).
  */
 export const noFlashScript = `(function(){try{
 var d=document.documentElement,p={};
@@ -124,4 +128,5 @@ d.dataset.sky=(q.get("sky")==="image"||p.skyImage)?"image":"css";
 d.dataset.motion=(q.get("motion")||p.motion)==="reduce"?"reduce":"system";
 d.dataset.cursor=(q.get("cursor")==="off"||p.ambientCursor===false)?"off":"on";
 d.dataset.sidebar=p.sidebarCollapsed?"collapsed":"open";
+try{if(!sessionStorage.getItem("sb.splash")&&d.dataset.motion!=="reduce"&&!matchMedia("(prefers-reduced-motion: reduce)").matches&&!q.has("nosplash")){d.setAttribute("data-splash","");sessionStorage.setItem("sb.splash","1")}}catch(e){}
 }catch(e){}})();`;

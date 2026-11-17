@@ -351,6 +351,14 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     return ok({ ok: true });
   }
   if (method === "GET" && p === "/system/components") return ok(components(s));
+  if (method === "GET" && p === "/system/summary")
+    return ok({
+      health: { router: "ok", litellm: "ok", ollama: "ok", paperclip: "down", model_sync: "ok" },
+      spend_today_usd: 0.0123,
+      value_saved_usd: 0.0841,
+      quota: { status: "ok", daily_cap_usd: 1, daily_cap_used: 0.012, cooling_down: [], credits_low: [], credits_out: [] },
+      version: "0.1.5",
+    });
   m = p.match(/^\/connections\/([\w-]+)\/credits$/);
   if (m && method === "PUT") {
     const r = row(m[1]);

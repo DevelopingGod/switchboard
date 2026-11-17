@@ -275,3 +275,19 @@ export interface ComponentsResponse {
   status: ComponentStatus;
   components: SystemComponent[];
 }
+
+/** Footer (GET /system/summary). */
+export interface SystemSummary {
+  health: { router: string; litellm: string; ollama: string; paperclip: string; model_sync: string };
+  spend_today_usd: number;
+  value_saved_usd: number;
+  quota: {
+    status: "ok" | "limited" | "blocked";
+    daily_cap_usd: number;
+    daily_cap_used: number;
+    cooling_down: string[];
+    credits_low: string[];
+    credits_out: string[];
+  };
+  version: string;
+}

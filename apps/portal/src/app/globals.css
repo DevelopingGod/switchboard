@@ -124,6 +124,42 @@ button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; 
   :root, body * { scrollbar-color: auto; }
 }
 
+/* ---------- Page transition (M1.5, app/template.tsx) ----------
+   Transform/opacity only (no layout work), so it cannot cause layout shift. */
+.page-enter { animation: page-in var(--d-enter) var(--ease-out) both; }
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Splash (M1.5) ----------
+   Once per browser session, the logo mark breathes over the sky until the app hydrates (fade out,
+   AppShell) and at most 1.2 s: the fade-out animation is scheduled in CSS, so a slow load can never
+   keep it up. pointer-events: none, so it never blocks anything. Skipped under reduced motion. */
+#sb-splash { display: none; }
+:root[data-splash] #sb-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: var(--sky-bloom-a), var(--sky-bloom-b), var(--sky-gradient);
+  color: var(--ink);
+  animation: splash-out 250ms var(--ease-in) 950ms forwards;
+}
+:root[data-splash="out"] #sb-splash { animation: splash-out 200ms var(--ease-in) forwards; }
+#sb-splash .splash-mark {
+  width: 76px;
+  height: 76px;
+  animation: splash-breathe 900ms var(--ease-out) infinite alternate;
+}
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+@keyframes splash-breathe {
+  from { transform: scale(0.94); opacity: 0.75; }
+  to { transform: scale(1.04); opacity: 1; }
+}
+
 /* ---------- Tooltip (M1.5, lib/enhance/tooltips.ts) ---------- */
 .sb-tip {
   position: fixed;

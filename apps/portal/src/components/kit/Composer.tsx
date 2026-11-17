@@ -157,6 +157,7 @@ export function Composer({
           </div>
         ) : null}
         <textarea
+          data-composer
           id={`${ids}-msg`}
           ref={area}
           value={text}
