@@ -7,13 +7,35 @@ import { SkyBackground } from "@/components/kit/SkyBackground";
 import { ToastProvider } from "@/components/kit/Toast";
 import { TopNav } from "./TopNav";
 import { MobileNav } from "./MobileNav";
+import { usePrefs } from "@/lib/prefs";
 import { t } from "@/i18n/strings";
 
 // The palette (cmdk + Radix Dialog) is loaded the first time it is opened, keeping it out of the initial JS.
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const loadMotionFeatures = () => import("@/lib/motion-features").then((m) => m.default);
 
+/** Scrollbars, tooltips and the ambient cursor: plain DOM, installed once the page is idle. */
+function useEnhancements() {
+  React.useEffect(() => {
+    let off: (() => void) | undefined;
+    let cancelled = false;
+    const start = () =>
+      import("@/lib/enhance").then((m) => {
+        if (!cancelled) off = m.install();
+      });
+    const idle = window.requestIdleCallback?.(start, { timeout: 1500 }) ?? window.setTimeout(start, 300);
+    return () => {
+      cancelled = true;
+      if (window.cancelIdleCallback) window.cancelIdleCallback(idle);
+      else window.clearTimeout(idle);
+      off?.();
+    };
+  }, []);
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const { motion } = usePrefs();
+  useEnhancements();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [paletteMounted, setPaletteMounted] = React.useState(false);
   const openPalette = React.useCallback((open: boolean) => {
@@ -34,7 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <LazyMotion features={loadMotionFeatures} strict>
-      <MotionConfig reducedMotion="user">
+      <MotionConfig reducedMotion={motion === "reduce" ? "always" : "user"}>
       <ToastProvider>
         <SkyBackground />
         <a

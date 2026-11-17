@@ -13,7 +13,7 @@ export default function AppearanceMenuImpl() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="glass" size="icon" aria-label={t("appearance.open")}>
+        <Button variant="glass" size="icon" aria-label={t("appearance.open")} data-tip={t("appearance.open")}>
           <SlidersHorizontal aria-hidden className="size-4" />
         </Button>
       </PopoverTrigger>

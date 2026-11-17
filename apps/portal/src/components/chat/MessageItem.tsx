@@ -138,6 +138,7 @@ function Footer({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy:
               size="icon"
               variant="ghost"
               aria-label={tChat("chat.good")}
+              data-tip={tChat("chat.good")}
               aria-pressed={m.feedback === "up"}
               onClick={() => actions.onFeedback!(m.id, m.feedback === "up" ? null : "up")}
               className={cn("size-9 min-h-9", m.feedback === "up" && "bg-accent-soft text-accent-strong")}
@@ -149,6 +150,7 @@ function Footer({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy:
               size="icon"
               variant="ghost"
               aria-label={tChat("chat.bad")}
+              data-tip={tChat("chat.bad")}
               aria-pressed={m.feedback === "down"}
               onClick={() => actions.onFeedback!(m.id, m.feedback === "down" ? null : "down")}
               className={cn("size-9 min-h-9", m.feedback === "down" && "bg-accent-soft text-accent-strong")}

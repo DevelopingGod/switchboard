@@ -86,6 +86,7 @@ body {
 button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; }
 ::selection { background: var(--accent-soft); }
 
+/* Motion off: the OS setting, or Settings → Appearance → Motion: Reduce (data-motion). */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;
@@ -93,6 +94,58 @@ button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; 
     scroll-behavior: auto !important;
   }
 }
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation: none !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---------- Scrollbars (M1.5) ----------
+   Thin and themed everywhere. Thumbs are transparent at rest and show on hover, keyboard focus, or
+   for 800 ms after scrolling (data-scrolling, lib/enhance/scroll-activity.ts). The gutter is always
+   reserved, so showing a thumb never shifts layout. Touch devices keep their native overlay bars. */
+@media (hover: hover) and (pointer: fine) {
+  :root {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
+  }
+  :root[data-scrolling] { scrollbar-color: var(--scroll-thumb) transparent; }
+  body * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  body *:hover,
+  body *:focus-visible,
+  body *:focus-within,
+  body *[data-scrolling] { scrollbar-color: var(--scroll-thumb) transparent; }
+  body *[data-scrolling]:hover { scrollbar-color: var(--scroll-thumb-hover) transparent; }
+}
+@media (forced-colors: active) {
+  :root, body * { scrollbar-color: auto; }
+}
+
+/* ---------- Tooltip (M1.5, lib/enhance/tooltips.ts) ---------- */
+.sb-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  max-width: min(18rem, calc(100vw - 16px));
+  padding: 0.375rem 0.625rem;
+  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-solid);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease-out);
+}
+.sb-tip[data-state="open"] { opacity: 1; }
+.sb-tip[data-state="closed"] { transition-duration: 100ms; }
 
 /* Mobile is read-only: composer-style inputs are visually muted by the components themselves. */
 .scroll-fade { scrollbar-width: none; }

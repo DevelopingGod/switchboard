@@ -64,7 +64,7 @@ export default function ThreadHeaderImpl({ thread, onRenamed }: { thread: ChatTh
   return (
     <StaticHeader title={thread.title || tChat("chat.title")} privateThread={thread.private}>
       <span className="flex items-center gap-1">
-        <Button type="button" size="icon" variant="ghost" aria-label={tChat("chat.rename")} onClick={() => setRenaming(true)}>
+        <Button type="button" size="icon" variant="ghost" aria-label={tChat("chat.rename")} data-tip={tChat("chat.rename")} onClick={() => setRenaming(true)}>
           <Pencil aria-hidden className="size-4" />
         </Button>
         {confirmDelete ? (
@@ -78,7 +78,7 @@ export default function ThreadHeaderImpl({ thread, onRenamed }: { thread: ChatTh
             </Button>
           </span>
         ) : (
-          <Button type="button" size="icon" variant="ghost" aria-label={tChat("chat.delete")} onClick={() => setConfirmDelete(true)}>
+          <Button type="button" size="icon" variant="ghost" aria-label={tChat("chat.delete")} data-tip={tChat("chat.delete")} onClick={() => setConfirmDelete(true)}>
             <Trash2 aria-hidden className="size-4" />
           </Button>
         )}

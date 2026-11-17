@@ -41,7 +41,7 @@ export function RecommendedModels({ provider, models }: { provider: string; mode
             <li key={model.model_id} className="grid gap-1.5 rounded-control border border-hairline bg-glass-strong p-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold" title={model.model_id}>
+                  <p className="truncate text-sm font-semibold" data-tip={name !== model.model_id ? model.model_id : undefined} data-tip-truncated>
                     {name}
                   </p>
                   {ctx && <p className="text-xs text-ink-muted">{tConn("card.ctx", { size: ctx })}</p>}

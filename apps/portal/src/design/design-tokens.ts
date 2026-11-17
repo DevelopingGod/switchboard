@@ -38,6 +38,12 @@ export interface ThemeTokens {
   focus: string;
   shadowGlass: string;
   shadowPop: string;
+  /** Thin themed scrollbars (M1.5): thumb at rest and on hover/drag; both ≥ 3:1 on surfaces. */
+  scrollThumb: string;
+  scrollThumbHover: string;
+  /** Ambient cursor (M1.5): the soft pointer glow and the lit edge of glass cards. */
+  cursorGlow: string;
+  cursorEdge: string;
 }
 
 export const themes: Record<ThemeName, ThemeTokens> = {
@@ -69,6 +75,10 @@ export const themes: Record<ThemeName, ThemeTokens> = {
     focus: "#4b50c4",
     shadowGlass: "0 12px 40px -14px rgba(70,70,160,0.32), inset 0 1px 0 rgba(255,255,255,0.8)",
     shadowPop: "0 18px 56px -16px rgba(50,50,140,0.45)",
+    scrollThumb: "rgba(40,44,100,0.54)",
+    scrollThumbHover: "rgba(40,44,100,0.7)",
+    cursorGlow: "rgba(139,143,232,0.22)",
+    cursorEdge: "rgba(110,115,226,0.7)",
   },
   // "Dusk": deep indigo to violet.
   dark: {
@@ -98,6 +108,10 @@ export const themes: Record<ThemeName, ThemeTokens> = {
     focus: "#b3b6fa",
     shadowGlass: "0 14px 44px -14px rgba(0,0,20,0.6), inset 0 1px 0 rgba(255,255,255,0.08)",
     shadowPop: "0 20px 60px -16px rgba(0,0,30,0.75)",
+    scrollThumb: "rgba(200,200,255,0.5)",
+    scrollThumbHover: "rgba(200,200,255,0.7)",
+    cursorGlow: "rgba(139,143,232,0.26)",
+    cursorEdge: "rgba(179,182,250,0.75)",
   },
 };
 
@@ -106,18 +120,36 @@ export const shared = {
   /** At most two stacked blur layers anywhere on screen. */
   blur: { one: "14px", two: "24px" },
   radius: { chip: "999px", control: "14px", panel: "20px", hero: "28px" },
+  /**
+   * Motion system v2 (M1.5). Every UI transition is 150–300 ms on transform/opacity only, and all of
+   * it is off under prefers-reduced-motion or the Motion → Reduce setting. Ambient loops (clouds,
+   * breathing dots) are the only longer durations.
+   */
   motion: {
     fast: "150ms",
     base: "200ms",
     slow: "250ms",
-    /** CSS approximation of a spring (slight overshoot). */
+    /** Page and list entrances. */
+    enter: "220ms",
+    /** Exits are quicker than entrances. */
+    exit: "150ms",
+    /** Delay between list items in a stagger (at most 8 items are staggered). */
+    stagger: "30ms",
+    /** CSS approximation of a spring (slight overshoot): presses, pops. */
     ease: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+    /** Decelerate: things arriving. */
     easeOut: "cubic-bezier(0.22, 1, 0.36, 1)",
+    /** Accelerate: things leaving. */
+    easeIn: "cubic-bezier(0.4, 0, 1, 1)",
     cloudDrift: "90s",
     breathe: "3.2s",
   },
-  /** Spring presets for Motion (framer-motion). Durations stay within 150–250ms feel. */
+  /** Spring presets for Motion (motion/react); they settle in about 200–300 ms. */
   spring: { stiffness: 520, damping: 34, mass: 0.8 },
+  springs: {
+    snappy: { type: "spring", stiffness: 520, damping: 34, mass: 0.8 },
+    gentle: { type: "spring", stiffness: 300, damping: 30, mass: 0.9 },
+  },
   density: {
     comfortable: { pad: "20px", gap: "16px", row: "52px", ctl: "44px" },
     compact: { pad: "12px", gap: "10px", row: "38px", ctl: "36px" },
@@ -154,6 +186,10 @@ export function buildCss(): string {
     dSlow: motion.slow,
     ease: motion.ease,
     easeOut: motion.easeOut,
+    easeIn: motion.easeIn,
+    dEnter: motion.enter,
+    dExit: motion.exit,
+    stagger: motion.stagger,
     cloudDrift: motion.cloudDrift,
     breathe: motion.breathe,
     pad: density.comfortable.pad,

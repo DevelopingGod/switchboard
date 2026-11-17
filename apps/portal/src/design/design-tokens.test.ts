@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildCss, themes, type ThemeName, type ThemeTokens } from "./design-tokens";
+import { buildCss, shared, themes, type ThemeName, type ThemeTokens } from "./design-tokens";
 
 type RGBA = [number, number, number, number];
 
@@ -72,12 +72,33 @@ describe.each(Object.keys(themes) as ThemeName[])("%s theme contrast (WCAG AA)",
     expect(contrast(parse(t.solidInk), parse(t.solid))).toBeGreaterThanOrEqual(7);
   });
 
+  it("scrollbar thumbs meet 3:1 on surfaces (M1.5)", () => {
+    for (const sky of skyStops(t)) {
+      const strong = over(parse(t.glassStrong), sky);
+      for (const k of ["scrollThumb", "scrollThumbHover"] as const)
+        expect(contrast(over(parse(t[k]), strong), strong), `${k} on glassStrong`).toBeGreaterThanOrEqual(3);
+    }
+    for (const k of ["scrollThumb", "scrollThumbHover"] as const)
+      expect(contrast(over(parse(t[k]), parse(t.surfaceSolid)), parse(t.surfaceSolid)), `${k} on solid`).toBeGreaterThanOrEqual(3);
+  });
+
   it("focus ring and dial arc meet 3:1 against surfaces", () => {
     for (const sky of skyStops(t)) {
       const strong = over(parse(t.glassStrong), sky);
       expect(contrast(parse(t.focus), strong)).toBeGreaterThanOrEqual(3);
       expect(contrast(parse(t.accentStrong), strong)).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+describe("motion tokens (M1.5)", () => {
+  it("UI transitions stay within 150–300 ms", () => {
+    const ms = (v: string) => parseFloat(v);
+    for (const k of ["fast", "base", "slow", "enter", "exit"] as const) {
+      expect(ms(shared.motion[k]), k).toBeGreaterThanOrEqual(150);
+      expect(ms(shared.motion[k]), k).toBeLessThanOrEqual(300);
+    }
+    expect(ms(shared.motion.stagger) * 8).toBeLessThanOrEqual(300); // a full stagger stays short
   });
 });
 

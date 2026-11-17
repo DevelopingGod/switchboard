@@ -208,7 +208,7 @@ export function Composer({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1">
-        <Button type="button" variant="glass" size="icon" disabled={locked} aria-label={t("composer.attach")}>
+        <Button type="button" variant="glass" size="icon" disabled={locked} aria-label={t("composer.attach")} data-tip={t("composer.attach")}>
           <Paperclip aria-hidden className="size-4" />
         </Button>
 
