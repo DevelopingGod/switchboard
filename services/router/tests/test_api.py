@@ -213,7 +213,7 @@ def test_redaction_patterns():
         "failed my-custom-secret-value gsk_abcdefgh12345 AIzaSyA-0123456789abcdefghijk Bearer abc.def-123456"
     )
     clean = secrets.redact(msg)
-    for s in ("my-custom-secret-value", "gsk_abcdefgh12345", "AIzaSyA", "abc.def-123456"):  # gitleaks:allow (fake test value)
+    for s in ("my-custom-secret-value", "gsk_abcdefgh12345", "AIzaSyA", "abc.def-123456"):  # gitleaks:allow
         assert s not in clean
     secrets.forget("my-custom-secret-value")
 
