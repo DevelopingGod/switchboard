@@ -2,32 +2,45 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ExternalLink, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ExternalLink, ShieldCheck } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/kit/Toast";
 import { Skeleton, LoadingLabel } from "@/components/kit/Skeleton";
-import { cliCheck, cliInstallCancel, cliInstallPlan, cliInstallRun } from "@/app/connections/actions";
-import type { InstallJob, InstallPlan } from "@/lib/router-types";
+import { cliCheck, cliInstallCancel, cliInstallPlan, cliInstallRun, type CliCheck } from "@/app/connections/actions";
+import { splitHint } from "@/lib/cli-hint";
+import type { InstallJob, InstallPlan, LogEntry } from "@/lib/router-types";
 import { t } from "@/i18n/strings";
+import { InstallProgress, type InstallPhase } from "./InstallProgress";
+import { LoginSteps } from "./LoginSteps";
 
-type Phase = "planning" | "review" | "starting" | "running" | "ok" | "failed" | "cancelled" | "timeout" | "plan-error";
+type Phase = "planning" | "review" | "starting" | "plan-error" | InstallPhase;
 
 /**
- * Install flow: 1) read the exact plan (nothing runs yet), 2) confirm, 3) watch the streamed log.
- * The plan is fetched through a server action; the log arrives over SSE from our own origin.
+ * Install flow: 1) read the exact plan (nothing runs yet), 2) confirm, 3) watch progress.
+ * The plan is fetched through a server action; progress arrives over SSE from our own origin.
  */
-export default function InstallDialog({ provider, name, onClose }: { provider: string; name: string; onClose: () => void }) {
+export default function InstallDialog({
+  provider,
+  name,
+  loginHint,
+  onClose,
+}: {
+  provider: string;
+  name: string;
+  loginHint: string | null | undefined;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const { push } = useToast();
   const [phase, setPhase] = React.useState<Phase>("planning");
   const [plan, setPlan] = React.useState<InstallPlan | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [lines, setLines] = React.useState<string[]>([]);
+  const [entries, setEntries] = React.useState<LogEntry[]>([]);
   const [job, setJob] = React.useState<InstallJob | null>(null);
   const [reconnecting, setReconnecting] = React.useState(false);
+  const [installed, setInstalled] = React.useState<CliCheck | null>(null);
   const planned = React.useRef(false);
-  const logRef = React.useRef<HTMLPreElement>(null);
 
   const loadPlan = React.useCallback(async () => {
     setPhase("planning");
@@ -49,22 +62,21 @@ export default function InstallDialog({ provider, name, onClose }: { provider: s
   }, [loadPlan]);
 
   React.useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [lines]);
-
-  React.useEffect(() => {
     if (!job) return;
     const es = new EventSource(`/api/install/${job.id}/events`);
     es.addEventListener("log", (e) => {
       setReconnecting(false);
-      setLines((prev) => [...prev, JSON.parse((e as MessageEvent).data) as string]);
+      setEntries((prev) => [...prev, JSON.parse((e as MessageEvent).data) as LogEntry]);
     });
     es.addEventListener("exit", async (e) => {
       es.close();
-      const { state } = JSON.parse((e as MessageEvent).data) as { state: Phase };
+      const { state } = JSON.parse((e as MessageEvent).data) as { state: InstallPhase };
       setPhase(state);
       if (state === "ok") {
-        await cliCheck();
+        // A fresh probe flips the card; it also says where the binary landed and whether a new
+        // terminal can find it, which the "Log in next" step needs.
+        const r = await cliCheck();
+        if (r.ok) setInstalled(r.data[provider] ?? null);
         router.refresh();
         push({ tone: "success", title: t("install.done", { name }), body: t("install.doneNext") });
       }
@@ -76,7 +88,7 @@ export default function InstallDialog({ provider, name, onClose }: { provider: s
       } else setReconnecting(true);
     };
     return () => es.close();
-  }, [job, name, push, router]);
+  }, [job, name, provider, push, router]);
 
   const confirm = async () => {
     if (!plan) return;
@@ -87,12 +99,15 @@ export default function InstallDialog({ provider, name, onClose }: { provider: s
       setPhase("plan-error");
       return;
     }
-    setLines([]);
+    setEntries([]);
+    setInstalled(null);
     setJob(r.data);
     setPhase("running");
   };
 
   const running = phase === "running" || phase === "starting";
+  const finished = phase === "ok" || phase === "failed" || phase === "cancelled" || phase === "timeout";
+  const { command, note } = splitHint(loginHint);
 
   return (
     <Dialog open onOpenChange={(o) => !o && !running && onClose()}>
@@ -198,44 +213,46 @@ export default function InstallDialog({ provider, name, onClose }: { provider: s
           </div>
         )}
 
-        {(running || phase === "ok" || phase === "failed" || phase === "cancelled" || phase === "timeout") && (
-          <div className="grid gap-3">
-            <pre
-              ref={logRef}
-              role="log"
-              aria-live="polite"
-              aria-label={t("install.log")}
-              tabIndex={0}
-              className="solid-panel max-h-64 min-h-32 overflow-auto p-3 whitespace-pre-wrap"
-            >
-              {lines.length ? lines.join("\n") : t("install.running")}
-            </pre>
-            {reconnecting && <p className="text-sm text-ink-muted">{t("install.reconnecting")}</p>}
-            <p role="status" className="flex items-center gap-1.5 text-sm font-semibold">
-              {phase === "ok" && (
-                <span className="flex items-center gap-1.5 text-ok">
-                  <CheckCircle2 aria-hidden className="size-4" />
-                  {t("install.done", { name })} {t("install.doneNext")}
-                </span>
-              )}
-              {phase === "failed" && <span className="text-err">{error ?? t("install.failed")}</span>}
-              {phase === "cancelled" && <span className="text-ink-muted">{t("install.cancelled")}</span>}
-              {phase === "timeout" && <span className="text-err">{t("install.timedOut")}</span>}
-            </p>
-            <div className="flex gap-2">
+        {(running || finished) && plan && (
+          <div className="grid gap-4">
+            <InstallProgress
+              name={name}
+              version={plan.version}
+              phase={running ? "running" : (phase as InstallPhase)}
+              entries={entries}
+              error={phase === "failed" ? error : null}
+              reconnecting={reconnecting}
+              next={
+                phase === "ok" ? (
+                  installed ? (
+                    <section aria-labelledby="login-next" className="grid gap-2 rounded-control border border-hairline bg-glass-strong p-3">
+                      <h3 id="login-next" className="font-display text-base font-bold tracking-tight">
+                        {t("cli.loginNext")}
+                      </h3>
+                      <LoginSteps
+                        headingAs="h3"
+                        command={command}
+                        note={note}
+                        binPath={installed.bin_path}
+                        binDir={installed.bin_dir}
+                        onUserPath={installed.on_user_path}
+                      />
+                    </section>
+                  ) : (
+                    <p className="text-sm text-ink-muted">{t("install.checking")}</p>
+                  )
+                ) : null
+              }
+            />
+            <div className="flex flex-wrap gap-2">
               {running ? (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  disabled={!job}
-                  onClick={() => job && void cliInstallCancel(job.id)}
-                >
+                <Button variant="danger" size="sm" disabled={!job} onClick={() => job && void cliInstallCancel(job.id)}>
                   {t("install.stop")}
                 </Button>
               ) : (
                 <>
                   <Button size="sm" onClick={onClose}>
-                    {t("install.close")}
+                    {phase === "ok" ? t("install.doneButton") : t("install.close")}
                   </Button>
                   {phase !== "ok" && (
                     <Button size="sm" variant="ghost" onClick={loadPlan}>

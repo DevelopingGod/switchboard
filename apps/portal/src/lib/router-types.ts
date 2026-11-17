@@ -22,7 +22,19 @@ export interface ConnectionRow {
   windows_only?: boolean | null;
   login_method?: string | null;
   login_hint?: string | null;
+  /** Home-relative ("~/.opencode/bin/opencode") so absolute home paths are not sent around. */
+  bin_path?: string | null;
+  bin_dir?: string | null;
+  /** Whether a new terminal's PATH contains bin_dir; null when unknown or not installed. */
+  on_user_path?: boolean | null;
   error?: string;
+}
+
+/** One install-log entry from hostprobe. `r`: a redraw the next entry replaces; `p`: download percent. */
+export interface LogEntry {
+  t: string;
+  r: boolean;
+  p: number | null;
 }
 
 export interface ConnectionsResponse {

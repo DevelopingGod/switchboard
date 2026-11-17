@@ -7,13 +7,13 @@ import { AlertTriangle, TerminalSquare } from "lucide-react";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { StatusBadge, type Status } from "@/components/kit/StatusBadge";
 import { CostBadge } from "@/components/kit/CostBadge";
-import { CopyButton } from "@/components/kit/CopyButton";
 import { useToast } from "@/components/kit/Toast";
 import { Button } from "@/components/ui/button";
 import { cliCheck } from "@/app/connections/actions";
 import type { ConnectionRow } from "@/lib/router-types";
 import { t, type StringKey } from "@/i18n/strings";
 import { splitHint } from "@/lib/cli-hint";
+import { LoginSteps } from "./LoginSteps";
 import { PrivacyLine } from "./shared";
 
 // The dialog (Radix + EventSource log) loads the first time someone clicks Install.
@@ -48,10 +48,10 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
     const r = await cliCheck();
     setChecking(false);
     if (!r.ok) setNote({ ok: false, text: `${t("cli.checkFailed")}: ${r.error}` });
-    else if (r.data[row.provider] === "logged_in" && status !== "logged_in") {
+    else if (r.data[row.provider]?.status === "logged_in" && status !== "logged_in") {
       setNote({ ok: true, text: t("cli.nowLoggedIn", { name: row.name }) });
       push({ tone: "success", title: t("cli.nowLoggedIn", { name: row.name }) });
-    } else if (needsLogin && r.data[row.provider] !== "logged_in") setNote({ ok: false, text: t("cli.stillLoggedOut") });
+    } else if (needsLogin && r.data[row.provider]?.status !== "logged_in") setNote({ ok: false, text: t("cli.stillLoggedOut") });
     router.refresh();
   };
 
@@ -89,16 +89,13 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
       </div>
 
       {needsLogin && (
-        <section aria-labelledby={`${ids}-login`} className="grid gap-2">
-          <h4 id={`${ids}-login`} className="label">
-            {t("cli.loginTitle")}
-          </h4>
-          <p className="text-sm text-ink-muted">{t("cli.loginBody")}</p>
-          <pre className="solid-panel overflow-x-auto p-3" tabIndex={0} aria-label={command}>
-            <code>{command}</code>
-          </pre>
-          {loginNote && <p className="text-xs text-ink-muted">{t("cli.loginNote", { note: loginNote })}</p>}
-        </section>
+        <LoginSteps
+          command={command}
+          note={loginNote}
+          binPath={row.bin_path}
+          binDir={row.bin_dir}
+          onUserPath={row.on_user_path}
+        />
       )}
 
       <p role="status" className={note?.text ? (note.ok ? "text-sm text-ok" : "text-sm text-err") : "sr-only"}>
@@ -111,7 +108,6 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
             {t("cli.install")}
           </Button>
         )}
-        {needsLogin && <CopyButton text={command} />}
         {(needsLogin || status === "logged_in" || status === "unknown") && (
           <Button
             size="sm"
@@ -128,6 +124,7 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
         <InstallDialog
           provider={row.provider}
           name={row.name}
+          loginHint={row.login_hint}
           onClose={() => {
             setInstalling(false);
             router.refresh();

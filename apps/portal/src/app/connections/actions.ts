@@ -46,12 +46,27 @@ export async function testModel(provider: string, modelId: string): Promise<Acti
   return run(routerSend<ModelTestResult>("POST", "/models/test", { provider, model_id: modelId }, 90_000));
 }
 
-/** "Check again": a fresh probe through the router. Returns provider id → status for the message. */
-export async function cliCheck(): Promise<ActionResult<Record<string, string>>> {
-  const r = await routerSend<{ clis: Record<string, { status: string }> }>("POST", "/connections/cli/refresh");
+export interface CliCheck {
+  status: string;
+  bin_path: string | null;
+  bin_dir: string | null;
+  on_user_path: boolean | null;
+}
+
+/** "Check again": a fresh probe through the router. Returns provider id → status and PATH facts. */
+export async function cliCheck(): Promise<ActionResult<Record<string, CliCheck>>> {
+  const r = await routerSend<{ clis: Record<string, Partial<CliCheck> & { status: string }> }>("POST", "/connections/cli/refresh");
   revalidatePath("/connections");
   if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true, data: Object.fromEntries(Object.entries(r.data.clis).map(([id, c]) => [id, c.status])) };
+  return {
+    ok: true,
+    data: Object.fromEntries(
+      Object.entries(r.data.clis).map(([id, c]) => [
+        id,
+        { status: c.status, bin_path: c.bin_path ?? null, bin_dir: c.bin_dir ?? null, on_user_path: c.on_user_path ?? null },
+      ]),
+    ),
+  };
 }
 
 export async function cliInstallPlan(provider: string): Promise<ActionResult<InstallPlan>> {

@@ -199,6 +199,14 @@ async def test_cli_rows_from_hostprobe(client, hostprobe_up):
     assert clis["codex"]["status"] == "logged_in" and clis["codex"]["version"] == "0.98.1"
     assert clis["gemini-cli"]["status"] == "logged_out"
     assert clis["grok-build"]["status"] == "not_installed"
+    # Where the binary lives and whether a new terminal can find it, for the "add to PATH" step.
+    codex = clis["codex"]
+    assert (codex["bin_path"], codex["bin_dir"], codex["on_user_path"]) == (
+        "~/.local/bin/codex",
+        "~/.local/bin",
+        False,
+    )
+    assert clis["grok-build"]["bin_path"] is None and clis["grok-build"]["on_user_path"] is None
 
 
 async def test_hostprobe_token_sent(client, mock_http):

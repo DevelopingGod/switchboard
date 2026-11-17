@@ -15,6 +15,8 @@ Security rules (M1a, docs/m1a.md):
   runs those same bytes. No request field reaches a command. Never sudo (a sudo shim fails the
   call, and the service refuses to run installs as root); one install at a time; 10 min limit.
 - Login is never run here: interactive OAuth stays in the user's terminal.
+- PATH detection (M1b): one fixed `bash -lic` call prints a login shell's PATH (the PATH of a new
+  terminal) so the UI can say when an installed CLI's directory is not on it. Nothing is changed.
 
 Stdlib only, so it runs on the system python3 without a venv.
 """
@@ -138,7 +140,8 @@ def files_exist(rel_paths: tuple[str, ...]) -> bool:
     return any(os.path.exists(HOME / rel) for rel in rel_paths)
 
 
-def probe_cli(spec: CliSpec, path: list[str]) -> dict:
+def probe_cli(spec: CliSpec, path: list[str], user_path: str | None = None) -> dict:
+    """`user_path` is a new terminal's PATH (see bash_path); None means unknown."""
     exe = which(spec.bin, path)
     if exe is None:
         return {
@@ -159,18 +162,28 @@ def probe_cli(spec: CliSpec, path: list[str]) -> dict:
     if logged_in is None and spec.auth_files:
         logged_in = files_exist(spec.auth_files)
         method = "credential file present (stat only)"
+    bin_dir = os.path.dirname(exe)
     return {
         "installed": True,
         "version": m.group(0) if m else None,
         "logged_in": logged_in,
         "windows_only": False,
         "login_method": method,
+        # Where it lives, and whether a new terminal can find it ("command not found" otherwise).
+        "bin_path": display_path(exe),
+        "bin_dir": display_path(bin_dir),
+        "on_user_path": None if user_path is None else bin_dir in user_path.split(":"),
     }
 
 
 def probe_all() -> dict:
     path = linux_path()
-    return {"clis": {name: probe_cli(spec, path) for name, spec in CLIS.items()}, "at": int(time.time())}
+    # One login-shell call, and only when something is installed.
+    user_path = bash_path(path) if any(which(spec.bin, path) for spec in CLIS.values()) else None
+    return {
+        "clis": {name: probe_cli(spec, path, user_path) for name, spec in CLIS.items()},
+        "at": int(time.time()),
+    }
 
 
 class TokenBucket:
@@ -240,6 +253,7 @@ INSTALL_TIMEOUT_S = 600
 MAX_SCRIPT_BYTES = 2_000_000
 MAX_LOG_LINES = 3000
 MAX_LINE_CHARS = 400
+USER_PATH_TIMEOUT_S = 8
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 TOKENISH_RE = re.compile(r"(?:sk-|gsk_|ghp_|xai-|AIza)[A-Za-z0-9_\-]{12,}")
 
@@ -346,26 +360,121 @@ def fetch_script(url: str, hosts: tuple[str, ...]) -> bytes:
 
 
 def clean_line(line: str) -> str:
-    """One log line: ANSI and control characters stripped, progress-bar rewrites collapsed, secrets masked."""
-    line = line.rstrip("\r\n").split("\r")[-1]
+    """One log line: ANSI and control characters stripped, secrets masked."""
     line = "".join(ch for ch in ANSI_RE.sub("", line) if ch == "\t" or ch >= " ")
     return TOKENISH_RE.sub("[redacted]", line)[:MAX_LINE_CHARS]
+
+
+PERCENT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+CURL_TABLE_RE = re.compile(r"^\s*(\d{1,3})\s+\S+\s+(\d{1,3})\s+\S+\s+\d+\s+\d+")  # curl's default meter row
+PROGRESS_MIN_INTERVAL_S = 0.25
+
+
+def percent_of(text: str) -> float | None:
+    """A download percentage in a progress line (`#### 45.2%`, or curl's table row), else None."""
+    m = PERCENT_RE.search(text)
+    if m:
+        return min(100.0, float(m.group(1)))
+    m = CURL_TABLE_RE.match(text)
+    return min(100.0, float(m.group(2))) if m else None
+
+
+class LineAssembler:
+    """Turns raw installer output into log entries `{t, r, p}`.
+
+    A line ended by "\r" is a redraw (curl's progress bar): `r` is true and the UI replaces the
+    previous redraw with it. A line ended by "\n" (or "\r\n") is final. `p` is a download percentage
+    when the line is progress output. Redraws are throttled (a new percent, or 250 ms) so a 60 MB
+    download cannot flood the log. Python's text mode would turn every "\r" into "\n", which is why
+    the pipe is read as bytes and split here.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic):
+        self.buf = ""
+        self.cr = False  # the previous character was "\r"
+        self.clock = clock
+        self.last_redraw = (None, -1e9)  # (whole percent, time)
+        self.decoder = __import__("codecs").getincrementaldecoder("utf-8")("replace")
+
+    def feed(self, data: bytes, final: bool = False) -> list[dict]:
+        out: list[dict] = []
+        for ch in self.decoder.decode(data, final):
+            if self.cr and ch != "\n":
+                self._emit(out, redraw=True)  # "\r" not followed by "\n": the line was redrawn
+            self.cr = False
+            if ch == "\r":
+                self.cr = True
+            elif ch == "\n":
+                self._emit(out, redraw=False)
+            else:
+                self.buf += ch
+        if final:
+            if self.cr:
+                self._emit(out, redraw=True)
+                self.cr = False
+            self._emit(out, redraw=False)
+        return out
+
+    def _emit(self, out: list[dict], redraw: bool) -> None:
+        raw, self.buf = self.buf, ""
+        text = clean_line(raw).rstrip()
+        if not text.strip():
+            return
+        pct = percent_of(text)
+        if redraw:
+            whole, at = self.last_redraw
+            now = self.clock()
+            same = pct is not None and int(pct) == whole
+            if (same and now - at < PROGRESS_MIN_INTERVAL_S) or (
+                pct is None and now - at < PROGRESS_MIN_INTERVAL_S
+            ):
+                return
+            self.last_redraw = (int(pct) if pct is not None else None, now)
+        out.append({"t": text, "r": redraw, "p": pct})
+
+
+def bash_path(path: list[str]) -> str | None:
+    """PATH of a new terminal: a login+interactive bash prints it (fixed argv, nothing from a request)."""
+    bash = which("bash", path)
+    if bash is None:
+        return None
+    env = {"HOME": str(HOME), "PATH": "/usr/local/bin:/usr/bin:/bin", "TERM": "dumb"}
+    try:
+        r = subprocess.run(  # noqa: S603 - fixed argv
+            [bash, "-lic", 'printf "<<%s>>" "$PATH"'],
+            capture_output=True,
+            text=True,
+            timeout=USER_PATH_TIMEOUT_S,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    m = re.search(r"<<(.*?)>>", r.stdout or "", re.S)
+    return m.group(1) if m else None
+
+
+def display_path(p: str) -> str:
+    """Home-relative for the UI ("~/.opencode/bin"), so absolute home paths are not sent around."""
+    home = str(HOME)
+    return "~" + p[len(home) :] if p == home or p.startswith(home + os.sep) else p
 
 
 class Job:
     def __init__(self, job_id: str, cli: str):
         self.id, self.cli = job_id, cli
-        self.lines: list[str] = []
+        self.lines: list[dict] = []  # entries {t, r, p}; append-only so resuming by index works
         self.state = "running"  # running | ok | failed | cancelled | timeout
         self.exit_code: int | None = None
         self.cond = threading.Condition()
         self.proc: subprocess.Popen | None = None
         self.cancelled = False
 
-    def add(self, line: str) -> None:
+    def add(self, entry: dict) -> None:
         with self.cond:
             if len(self.lines) < MAX_LOG_LINES:
-                self.lines.append(line)
+                self.lines.append(entry)
             self.cond.notify_all()
 
     def finish(self, state: str, code: int | None) -> None:
@@ -508,9 +617,7 @@ class Installer:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                errors="replace",
-                bufsize=1,
+                bufsize=0,
                 start_new_session=True,
             )
         except (InstallError, OSError) as e:
@@ -527,9 +634,14 @@ class Installer:
         assert proc is not None and proc.stdout is not None
         timer = threading.Timer(self.timeout_s, self._kill, args=(job, "timeout"))
         timer.start()
+        asm = LineAssembler()
         try:
-            for raw in proc.stdout:
-                job.add(clean_line(raw))
+            fd = proc.stdout.fileno()
+            while chunk := os.read(fd, 4096):
+                for entry in asm.feed(chunk):
+                    job.add(entry)
+            for entry in asm.feed(b"", final=True):
+                job.add(entry)
             code = proc.wait()
         finally:
             timer.cancel()
@@ -550,7 +662,7 @@ class Installer:
             except OSError:
                 pass
         if state == "timeout":
-            job.add("Timed out; the install was stopped.")
+            job.add({"t": "Timed out; the install was stopped.", "r": False, "p": None})
             job.finish("timeout", None)
 
     def cancel(self, job_id: str) -> dict:

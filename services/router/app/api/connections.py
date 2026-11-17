@@ -82,7 +82,17 @@ def _cli_rows(reachable: bool, data: dict[str, Any] | None, error: str | None) -
             rows[p.id] = {
                 "status": status,
                 **{
-                    k: c.get(k) for k in ("installed", "version", "logged_in", "windows_only", "login_method")
+                    k: c.get(k)
+                    for k in (
+                        "installed",
+                        "version",
+                        "logged_in",
+                        "windows_only",
+                        "login_method",
+                        "bin_path",
+                        "bin_dir",
+                        "on_user_path",
+                    )
                 },
             }
     return rows

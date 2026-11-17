@@ -129,6 +129,9 @@ const connections = (): ConnectionRow[] => [
     version: "0.169.0",
     logged_in: true,
     login_method: "codex login status",
+    bin_path: "~/.local/bin/codex",
+    bin_dir: "~/.local/bin",
+    on_user_path: true,
   }),
   cli("gemini-cli", "Gemini CLI", "gemini  (choose Login with Google)", {
     privacy: "may-train",
@@ -137,6 +140,9 @@ const connections = (): ConnectionRow[] => [
     version: "0.68.0",
     logged_in: false,
     login_method: "credential file present (stat only)",
+    bin_path: "~/.nvm/versions/node/v24.22.3/bin/gemini",
+    bin_dir: "~/.nvm/versions/node/v24.22.3/bin",
+    on_user_path: true,
   }),
   cli("grok-build", "Grok Build", "grok auth login", {
     paid: true,
@@ -356,14 +362,55 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
   return fail(404, `fixture: no route for ${method} ${p}`);
 }
 
-const LOG = (version: string, bin: string) => [
-  `Downloading ${bin} ${version}…`,
-  "Verifying checksum… ok",
-  `Installing ${bin} ${version}`,
-  "Done.",
-];
+/** What each fixture install leaves behind. opencode lands off a new terminal's PATH (as it did for real). */
+const AFTER: Record<string, { bin_dir: string; on_user_path: boolean }> = {
+  claude: { bin_dir: "~/.local/bin", on_user_path: true },
+  codex: { bin_dir: "~/.local/bin", on_user_path: true },
+  gemini: { bin_dir: "~/.nvm/versions/node/v24.22.3/bin", on_user_path: true },
+  grok: { bin_dir: "~/.grok/bin", on_user_path: true },
+  opencode: { bin_dir: "~/.opencode/bin", on_user_path: false },
+};
 
-/** Canned SSE for an install job; flips the CLI to installed when it finishes. */
+/** Claude Code's fixture install fails, so the failure state can be tested. */
+const FAILS = new Set(["claude"]);
+
+interface Entry {
+  t: string;
+  r: boolean;
+  p: number | null;
+}
+const line = (t: string): Entry => ({ t, r: false, p: null });
+const bar = (pct: number, last = false): Entry => ({
+  t: `${"#".repeat(Math.round(pct * 0.72))}${" ".repeat(72 - Math.round(pct * 0.72))} ${pct.toFixed(1)}%`,
+  r: !last,
+  p: pct,
+});
+
+function script(bin: string, version: string): Entry[] {
+  if (FAILS.has(bin)) {
+    return [
+      line(`Downloading ${bin} ${version}…`),
+      bar(8.9),
+      bar(31.4),
+      line("curl: (22) The requested URL returned error: 404"),
+      ...Array.from({ length: 22 }, (_, i) => line(`retry ${i + 1}: mirror unavailable`)),
+      line(`Install failed: could not download ${bin} ${version}`),
+    ];
+  }
+  return [
+    line(`Downloading ${bin} ${version}…`),
+    { t: "#=#=#", r: true, p: null },
+    bar(8.9),
+    bar(44.8),
+    bar(85.1),
+    bar(100, true),
+    line(`Installing ${bin} ${version}`),
+    line("Verifying checksum… ok"),
+    line("Done."),
+  ];
+}
+
+/** Canned SSE for an install job; flips the CLI to installed when it succeeds. */
 export function stream(path: string): Response {
   const s = store();
   const m = path.match(/\/connections\/cli\/jobs\/([\w-]+)\/events/);
@@ -374,17 +421,30 @@ export function stream(path: string): Response {
   const body = new ReadableStream({
     async start(c) {
       let n = 0;
-      for (const line of LOG(SOURCES[bin].version, bin)) {
+      for (const entry of script(bin, SOURCES[bin].version)) {
         if (job.cancelled) break;
         await new Promise((r) => setTimeout(r, 120));
-        c.enqueue(enc.encode(`id: ${++n}\nevent: log\ndata: ${JSON.stringify(line)}\n\n`));
+        c.enqueue(enc.encode(`id: ${++n}\nevent: log\ndata: ${JSON.stringify(entry)}\n\n`));
       }
-      const state = job.cancelled ? "cancelled" : "ok";
+      const failed = FAILS.has(bin);
+      const state = job.cancelled ? "cancelled" : failed ? "failed" : "ok";
       if (state === "ok") {
         const r = s.rows.find((x) => x.provider === job.cli);
-        if (r) Object.assign(r, { status: "logged_out", installed: true, windows_only: false, version: SOURCES[bin].version, logged_in: false });
+        const after = AFTER[bin];
+        if (r) {
+          Object.assign(r, {
+            status: "logged_out",
+            installed: true,
+            windows_only: false,
+            version: SOURCES[bin].version,
+            logged_in: false,
+            bin_dir: after.bin_dir,
+            bin_path: `${after.bin_dir}/${bin}`,
+            on_user_path: after.on_user_path,
+          });
+        }
       }
-      c.enqueue(enc.encode(`event: exit\ndata: ${JSON.stringify({ state, exit_code: state === "ok" ? 0 : null })}\n\n`));
+      c.enqueue(enc.encode(`event: exit\ndata: ${JSON.stringify({ state, exit_code: state === "ok" ? 0 : state === "failed" ? 1 : null })}\n\n`));
       c.close();
     },
   });

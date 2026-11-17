@@ -208,6 +208,10 @@ SCRIPT_SLOW = b"#!/bin/sh\necho start\nsleep 30\n"
 SCRIPT_SUDO = b"#!/bin/sh\nsudo true && echo ROOT_OK\nexit 0\n"
 
 
+def texts(job) -> list[str]:
+    return [e["t"] for e in job.lines]
+
+
 def spec(**kw):
     base = {
         "method": "script",
@@ -256,9 +260,13 @@ class InstallerTests(unittest.TestCase):
         job = self.wait(inst.job(inst.start("opencode", plan["plan_id"])["id"]))
         self.assertEqual((job.state, job.exit_code), ("ok", 0))
         self.assertEqual(done, [1])
-        self.assertIn("installing 1.2.3", job.lines)
-        self.assertIn("token [redacted]", job.lines)
-        self.assertIn("b", job.lines)  # carriage-return rewrite collapsed to its last segment
+        lines = texts(job)
+        self.assertIn("installing 1.2.3", lines)
+        self.assertIn("token [redacted]", lines)
+        # "a\rb\n": "a" is a redraw (replaced in the UI) and "b" is the final line.
+        self.assertEqual(
+            [(e["t"], e["r"]) for e in job.lines if e["t"] in ("a", "b")], [("a", True), ("b", False)]
+        )
 
     def test_failure_is_reported(self):
         inst, done = self.installer(SCRIPT_FAIL)
@@ -306,8 +314,8 @@ class InstallerTests(unittest.TestCase):
     def test_sudo_is_blocked(self):
         inst, _ = self.installer(SCRIPT_SUDO)
         job = self.wait(inst.job(inst.start("opencode", inst.plan("opencode")["plan_id"])["id"]))
-        self.assertNotIn("ROOT_OK", job.lines)
-        self.assertTrue(any("sudo is not allowed" in line for line in job.lines))
+        self.assertNotIn("ROOT_OK", texts(job))
+        self.assertTrue(any("sudo is not allowed" in line for line in texts(job)))
 
     def test_refuses_to_run_as_root(self):
         inst, _ = self.installer()
@@ -333,6 +341,136 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaises(hostprobe.InstallError) as e:
             inst.plan("opencode")
         self.assertEqual(e.exception.status, 429)
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+class LineAssemblerTests(unittest.TestCase):
+    def feed_all(self, data: bytes, clock=None, chunk: int = 7):
+        asm = hostprobe.LineAssembler(
+            clock or (lambda: 0.0)
+        )  # a frozen clock: only percent changes get through
+        out = []
+        for i in range(0, len(data), chunk):  # awkward chunk size on purpose
+            out += asm.feed(data[i : i + chunk])
+        return out + asm.feed(b"", final=True)
+
+    def test_recorded_curl_progress_is_redraws_then_one_final_line(self):
+        # Real `curl -#` output (recorded from x.ai/cli/install.sh): redraws separated by \r.
+        raw = (FIXTURES / "curl_progress.bin").read_bytes()
+        self.assertGreater(raw.count(b"\r"), 3)
+        entries = self.feed_all(raw, clock=iter(range(0, 10_000, 1)).__next__)
+        self.assertTrue(entries[-1]["t"].endswith("100.0%"))
+        self.assertFalse(entries[-1]["r"])  # the closing "\n" makes it final
+        self.assertTrue(all(e["r"] for e in entries[:-1]))  # everything before is a redraw
+        self.assertEqual(entries[-1]["p"], 100.0)
+        percents = [e["p"] for e in entries if e["p"] is not None]
+        self.assertEqual(percents, sorted(percents))  # progress only moves forward
+
+    def test_carriage_return_replaces_and_crlf_is_a_normal_newline(self):
+        out = self.feed_all(b"one\r\ntwo\rthree\r\nfour\n")
+        self.assertEqual(
+            [(e["t"], e["r"]) for e in out],
+            [("one", False), ("two", True), ("three", False), ("four", False)],
+        )
+
+    def test_ansi_control_codes_and_secrets_are_stripped(self):
+        out = self.feed_all(b"\x1b[0m\x1b[90mhello\x1b[0m \x07sk-abcdefghijklmnop\n")
+        self.assertEqual(out[0]["t"], "hello [redacted]")
+
+    def test_clear_line_redraw_with_nothing_left_is_dropped(self):
+        self.assertEqual(self.feed_all(b"\r\x1b[K\r\x1b[K\n"), [])
+
+    def test_utf8_split_across_chunks(self):
+        out = self.feed_all("└  1 credentials\n".encode(), chunk=1)
+        self.assertEqual(out[0]["t"], "└  1 credentials")
+
+    def test_unterminated_last_line_is_flushed(self):
+        self.assertEqual(self.feed_all(b"done")[0]["t"], "done")
+
+    def test_a_big_download_cannot_flood_the_log(self):
+        # 500 redraws, 0.2 % apart (0 -> 100 %), 1 ms apart: only whole-percent changes get through.
+        data = b"".join(f"{'#' * int(i / 7)} {i * 0.2:.1f}%\r".encode() for i in range(500)) + b"x\n"
+        clock = iter(i / 1000 for i in range(10_000)).__next__
+        entries = self.feed_all(data, clock=clock)
+        self.assertLess(len(entries), 105)  # about one per whole percent, not 500
+        self.assertEqual(entries[-1]["t"], "x")
+
+    def test_percent_detection(self):
+        p = hostprobe.percent_of
+        self.assertEqual(p("######## 45.2%"), 45.2)
+        self.assertEqual(p("100.0%"), 100.0)
+        self.assertEqual(
+            p("  7 15443    7  1024    0     0   5000      0  0:00:03 --:--:--"), 7.0
+        )  # curl's table row
+        self.assertIsNone(p("Installing opencode"))
+        self.assertIsNone(p("#=#=#"))
+
+
+class UserPathTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        (self.home / ".opencode/bin").mkdir(parents=True)
+        fake_bin(self.home / ".opencode/bin", "opencode", 'echo "1.19.6"')
+        patch = mock.patch.object(hostprobe, "HOME", self.home)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(self.tmp.cleanup)
+        self.path = [str(self.home / ".opencode/bin")]
+
+    def probe(self, user_path):
+        with mock.patch.object(hostprobe, "parse_auth", return_value=True):
+            return hostprobe.probe_cli(hostprobe.CLIS["opencode"], self.path, user_path)
+
+    def test_on_path_when_a_new_terminal_has_the_directory(self):
+        r = self.probe(f"/usr/bin:{self.home}/.opencode/bin:/bin")
+        self.assertTrue(r["on_user_path"])
+        self.assertEqual((r["bin_dir"], r["bin_path"]), ("~/.opencode/bin", "~/.opencode/bin/opencode"))
+
+    def test_not_on_path_is_reported(self):
+        self.assertFalse(self.probe("/usr/bin:/bin")["on_user_path"])
+
+    def test_unknown_when_the_login_shell_could_not_be_read(self):
+        self.assertIsNone(self.probe(None)["on_user_path"])
+
+    def test_home_relative_display_never_leaks_the_absolute_home(self):
+        r = self.probe("/usr/bin")
+        self.assertNotIn(str(self.home), json.dumps(r))
+        self.assertEqual(hostprobe.display_path("/usr/bin"), "/usr/bin")
+
+    def test_bash_path_reads_only_the_delimited_value(self):
+        fake = mock.Mock(
+            stdout="bash: cannot set terminal process group\nhello from .bashrc\n<</a:/b/c>>", returncode=0
+        )
+        with mock.patch.object(hostprobe.subprocess, "run", return_value=fake) as run:
+            self.assertEqual(hostprobe.bash_path(["/usr/bin", "/bin"]), "/a:/b/c")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[1:], ["-lic", 'printf "<<%s>>" "$PATH"'])  # fixed argv, nothing from a request
+
+    def test_bash_path_failure_is_unknown(self):
+        with mock.patch.object(
+            hostprobe.subprocess, "run", side_effect=hostprobe.subprocess.TimeoutExpired("bash", 8)
+        ):
+            self.assertIsNone(hostprobe.bash_path(["/usr/bin", "/bin"]))
+
+
+class OpenCodeStatusTests(unittest.TestCase):
+    """Real `opencode auth list` output (v1.19.6, recorded 2026-11-17 inside the hostprobe environment:
+    NO_COLOR=1, no tty). It still contains ANSI codes and box-drawing characters."""
+
+    HEAD = "\x1b[0m\n\u250c  Credentials \x1b[90m~/.local/share/opencode/auth.json\n\u2502\n"
+    LOGGED_IN = HEAD + "\u25cf  OpenCode \x1b[90mapi\n\u2502\n\u2514  1 credentials\n\n"
+    LOGGED_OUT = HEAD + "\u2514  0 credentials\n\n"
+
+    def test_parses_the_real_output(self):
+        parse = hostprobe.parse_auth
+        self.assertIs(parse("opencode", 0, self.LOGGED_IN), True)
+        self.assertIs(parse("opencode", 0, self.LOGGED_OUT), False)
+
+    def test_a_format_we_do_not_recognise_is_unknown_not_logged_out(self):
+        self.assertIsNone(hostprobe.parse_auth("opencode", 0, "something else entirely"))
 
 
 class InstallTableTests(unittest.TestCase):
