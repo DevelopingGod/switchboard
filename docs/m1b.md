@@ -38,7 +38,7 @@ cd apps/portal
 npm run build
 npx playwright test               # axe (both themes), shell, connections, wizard, visual baselines
 npm run test:bundle               # the token check above
-npm test                          # unit: recommender, goal mapping, design tokens
+npm test                          # unit: recommender, goal mapping, install-log parsing, design tokens
 npm run budget                    # < 200 KB gzip first-load JS per route
 PORTAL_DATA=fixture npx next start -H 127.0.0.1 -p 3210 &  npm run lighthouse && npm run screens
 ```
@@ -62,7 +62,9 @@ Untagged models never get a badge and are counted ("N more models are not tagged
 
 **CLI cards:** installed / Windows-only / not installed / logged in / unknown (hostprobe down).
 
-- **Install** → the router asks hostprobe for a *plan* → the dialog shows the source URL (and official docs link), pinned version, the installer's SHA-256, the exact commands, what it changes, and "never uses sudo" → **Install** only after you confirm → streamed log → the card flips. Nothing runs before the confirm click.
+- **Install** → the router asks hostprobe for a *plan* → the dialog shows the source URL (and official docs link), pinned version, the installer's SHA-256, the exact commands, what it changes, and "never uses sudo" → **Install** only after you confirm → progress → the card flips. Nothing runs before the confirm click.
+- **Progress, not a wall of text:** stages (Downloading → Installing → Verifying → Done), **one** progress bar with a percentage while a download is live, and the raw output in a collapsed **Details** section. On success: a check and "OpenCode 1.19.6 installed", the button changes from **Stop install** to **Done**, the card refreshes, and a **Log in next** step appears. On failure: an error summary plus the last 20 lines, with **Review again**.
+- **PATH:** installers that don't edit your shell profile (OpenCode is run with `--no-modify-path`) leave the binary where a new terminal can't find it ("command not found"). After an install hostprobe reports the binary's directory and whether a new terminal's PATH contains it. If not, **Log in next** (and the card) show, in order: a one-line fix to copy (`echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`), the login command, and the login command by full path as a fallback. The portal never edits `~/.bashrc` itself; offering that with a confirmation would add another write action to hostprobe, so it is deliberately not done.
 - **Log in** is never run by the portal. The card shows the exact command for your Ubuntu terminal (with **Copy command**) and **Check again** (a fresh probe that bypasses hostprobe's 30 s cache).
 
 ## Install: how it is kept safe
@@ -77,6 +79,10 @@ hostprobe (`services/hostprobe/hostprobe.py`) gained the only actions it has:
 | `POST /install/jobs/{id}/cancel` | stops the process group |
 
 No request field reaches a command: the only input is a `plan_id` that selects a stored plan. Never a shell, never `curl | bash`. A `sudo` shim first on PATH fails any `sudo` call; the service refuses to install as root; the PATH is the clean Linux one (no `/mnt/*`); output is stripped of control characters and token-shaped strings; 10-minute limit. Tests cover single-use plans, expiry, wrong-CLI plan ids, concurrent installs, cancel, timeout, sudo, root refusal, npm prefix outside `$HOME`, and that every table entry is `https`, pinned, host-listed and free of `sudo`/`unsafe-perm`.
+
+### Install log format
+
+hostprobe reads the installer's output as **bytes** and splits on `\r` and `\n` itself. (Python's text mode turns every `\r` into `\n`, which is why curl's progress bar used to print one new line per redraw.) Each SSE `log` event is `{t, r, p}`: `t` the text (ANSI and control characters stripped, token-shaped strings masked), `r` true when the line was redrawn (the next entry replaces it, as a terminal would), `p` the download percentage when the line is progress output (`#### 45.2%` or curl's table row). Redraws are throttled to a new whole percent or 250 ms, so a large download can't flood the log. The log is append-only, so a reconnecting browser resumes by index. The portal collapses redraws (`lib/install-log.ts`), derives the stage and percentage from the entries, and keeps tests against a recorded real `curl -#` capture (`services/hostprobe/tests/fixtures/curl_progress.bin`, assembled into `apps/portal/src/lib/fixtures/install-log.entries.json`).
 
 ### Install methods (verified 2026-11-17, from each installer script)
 

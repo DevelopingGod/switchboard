@@ -137,7 +137,7 @@ curl -s -X POST -H "$A" $R/catalog/refresh
 The router runs in Docker and can't execute WSL binaries, so a small stdlib-only service in WSL does it. Rules (M1a review):
 
 - **Allowlist only.** The argv for each CLI (`--version` plus one auth-status command) is hard-coded in `services/hostprobe/hostprobe.py`. No request data reaches a command, and nothing runs through a shell. M1a had only `GET /cli` and `GET /health`; M1b adds the install endpoints ([docs/m1b.md](m1b.md)).
-- **Minimal output.** It returns `installed`, `version`, `logged_in`, `windows_only` and `login_method`. Command output is reduced to a version string or a boolean, then discarded. Credential files are checked with `stat` only; they are never opened.
+- **Minimal output.** It returns `installed`, `version`, `logged_in`, `windows_only` and `login_method`, plus (M1b) `bin_path`, `bin_dir` (home-relative, e.g. `~/.opencode/bin`) and `on_user_path` (whether a new terminal's PATH contains that directory, from one fixed `bash -lic` call). Command output is reduced to a version string or a boolean, then discarded. Credential files are checked with `stat` only; they are never opened.
 - **Auth and limits.** Every request needs `X-Probe-Token`, compared in constant time. The token is in `deploy/.env`; hostprobe reads only that one variable from the file. It listens on `127.0.0.1` only. Each command has a 5 s timeout. Results are cached for 30 s. Rate limits: 6 probes/min, 60 requests/min.
 - **Resolution.** Binaries are looked up on a clean Linux PATH (nvm bin, `~/.local/bin`, `~/.npm-global/bin`, `~/.bun/bin`, `~/.opencode/bin`, `~/.grok/bin`, `/usr/local/bin`, `/usr/bin`), never under `/mnt/*`. A CLI found only as a Windows install is reported as `windows_only`.
 - **Router side.** If hostprobe is down, the router stays healthy and CLI rows show `unknown`.
@@ -149,7 +149,7 @@ The router runs in Docker and can't execute WSL binaries, so a small stdlib-only
 | codex | `codex --version` | `codex login status` ("Logged in") | Yes, `codex login --help` lists `status` |
 | gemini | `gemini --version` | `~/.gemini/oauth_creds.json` exists (no status command) | Not yet (no Linux install); known default credential path |
 | grok | `grok --version` | `~/.grok/auth.json` or `~/.config/grok/auth.json` exists | No; re-check after installing Grok Build |
-| opencode | `opencode --version` | `opencode auth list` ("N credentials", N > 0); otherwise `~/.local/share/opencode/auth.json` | Not yet (no Linux install); output format checked by unit test only |
+| opencode | `opencode --version` | `opencode auth list` ("N credentials", N > 0); otherwise `~/.local/share/opencode/auth.json` | **Yes, 2026-11-17 (M1b), opencode 1.19.6 installed through the portal.** Real output is `1 credentials` when logged in and `0 credentials` when not, wrapped in ANSI codes and box-drawing characters even with `NO_COLOR=1`; the parser handles both (tests use the recorded bytes). Counts credentials for any provider, not only OpenCode Zen. |
 
 Debug one probe locally (prints JSON and starts no server):
 

@@ -15,6 +15,7 @@ const sections = [
   "status-badge",
   "explain-popover",
   "composer",
+  "install-progress",
   "toast",
   "skeleton",
   "empty-state",

@@ -3,13 +3,10 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 import { Bot } from "lucide-react";
+import { ProviderCard } from "@/components/kit/ProviderCard";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { PillTabs } from "@/components/kit/PillTabs";
 import { Dial } from "@/components/kit/Dial";
-import { StatCard } from "@/components/kit/StatCard";
-import { RouteChip } from "@/components/kit/RouteChip";
-import { ProviderCard } from "@/components/kit/ProviderCard";
-import { JobCard } from "@/components/kit/JobCard";
 import { CostBadge } from "@/components/kit/CostBadge";
 import { ExplainPopover } from "@/components/kit/ExplainPopover";
 import { Composer } from "@/components/kit/Composer";
@@ -18,8 +15,15 @@ import { Skeleton } from "@/components/kit/Skeleton";
 import { EmptyState } from "@/components/kit/EmptyState";
 import { StatusBadge } from "@/components/kit/StatusBadge";
 import { Logo } from "@/components/kit/Logo";
+// Gallery-only components load on demand so the gallery stays under the first-load JS budget.
+const StatCard = dynamic(() => import("@/components/kit/StatCard").then((m) => m.StatCard));
+const RouteChip = dynamic(() => import("@/components/kit/RouteChip").then((m) => m.RouteChip));
+const JobCard = dynamic(() => import("@/components/kit/JobCard").then((m) => m.JobCard));
 // Below the fold and only used here (and in the wizard): keeps it out of the gallery's first-load JS.
 const ColumnsArt = dynamic(() => import("@/components/kit/ColumnsArt").then((m) => m.ColumnsArt));
+// Only used here and in the install dialog: keep it (and LoginSteps) out of the gallery's first-load JS.
+const InstallProgress = dynamic(() => import("@/components/connections/InstallProgress").then((m) => m.InstallProgress));
+const LoginSteps = dynamic(() => import("@/components/connections/LoginSteps").then((m) => m.LoginSteps));
 import { Button } from "@/components/ui/button";
 import { strings, t } from "@/i18n/strings";
 
@@ -210,6 +214,52 @@ export function Gallery() {
               <Composer state={s} defaultValue={s === "empty" ? "" : g.composerText} disabledReason={t("home.readOnlyNote")} />
             </Cell>
           ))}
+        </div>
+      </Section>
+
+      <Section id="install-progress" title={g.sections.installProgress}>
+        <div className="grid gap-(--gap) xl:grid-cols-3">
+          <Cell label={g.installRunning}>
+            <GlassPanel tone="strong">
+              <InstallProgress
+                name="OpenCode"
+                version="1.19.6"
+                phase="running"
+                entries={[
+                  { t: "Downloading opencode 1.19.6", r: false, p: null },
+                  { t: `${"#".repeat(45)}${" ".repeat(27)} 62.0%`, r: true, p: 62 },
+                ]}
+              />
+            </GlassPanel>
+          </Cell>
+          <Cell label={g.installSuccess}>
+            <GlassPanel tone="strong">
+              <InstallProgress
+                name="OpenCode"
+                version="1.19.6"
+                phase="ok"
+                entries={g.installLog.split("\n").map((t) => ({ t, r: false, p: null }))}
+                next={
+                  <LoginSteps
+                    command="opencode auth login"
+                    binPath="~/.opencode/bin/opencode"
+                    binDir="~/.opencode/bin"
+                    onUserPath={false}
+                  />
+                }
+              />
+            </GlassPanel>
+          </Cell>
+          <Cell label={g.installFailure}>
+            <GlassPanel tone="strong">
+              <InstallProgress
+                name="OpenCode"
+                version="1.19.6"
+                phase="failed"
+                entries={g.installFailLog.split("\n").map((t) => ({ t, r: false, p: null }))}
+              />
+            </GlassPanel>
+          </Cell>
         </div>
       </Section>
 

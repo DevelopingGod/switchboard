@@ -70,16 +70,63 @@ test("install OpenCode through the UI with confirmation, then see the login step
   await expect(page.getByRole("article", { name: "OpenCode", includeHidden: true }).getByText("Not installed")).toBeVisible();
 
   await dialog.getByRole("button", { name: "Install OpenCode" }).click();
-  const log = dialog.getByRole("log", { name: "Install log" });
-  await expect(log).toContainText("Installing opencode 1.19.6");
-  await expect(dialog.getByText("OpenCode is installed.")).toBeVisible();
-  await dialog.getByRole("button", { name: "Close" }).first().click();
 
-  // The card flipped, and the login step (a terminal command, never an in-portal OAuth) is shown.
+  // Stages above one progress bar; the raw log is tucked into a collapsed "Details".
+  const stages = dialog.getByRole("list", { name: "Install stages" });
+  await expect(stages.getByRole("listitem")).toHaveText(["Downloading", "Installing", "Verifying", "Done"]);
+  await expect(dialog.getByRole("progressbar", { name: "Download progress" })).toBeVisible();
+  await expect(dialog.locator("details")).not.toHaveAttribute("open", "");
+  await expect(dialog.getByRole("button", { name: "Stop install" })).toBeVisible();
+
+  // Success: a check, the version, a "Done" button (no more "Stop install") and the login step.
+  await expect(dialog.getByText("OpenCode 1.19.6 installed")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Stop install" })).toHaveCount(0);
+  await expect(dialog.getByRole("progressbar")).toHaveCount(0);
+  await expect(dialog.getByRole("heading", { name: "Log in next" })).toBeVisible();
+  await expect(dialog.getByText("opencode auth login", { exact: true }).first()).toBeVisible();
+
+  // opencode lands off a new terminal's PATH: the one-line fix comes first, then login, then the full path.
+  await expect(dialog.getByText("1. Add opencode to your PATH")).toBeVisible();
+  await expect(dialog.getByText(`echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`)).toBeVisible();
+  await expect(dialog.getByText("~/.opencode/bin/opencode auth login", { exact: true })).toBeVisible();
+  for (const name of ["Copy PATH command", "Copy login command", "Copy full-path command"]) {
+    await expect(dialog.getByRole("button", { name })).toBeVisible();
+  }
+
+  // Details holds the raw log, with the progress redraws collapsed into a single line.
+  await dialog.locator("summary").filter({ hasText: "Details" }).click();
+  const log = dialog.getByRole("log", { name: "Install log" });
+  await expect(log).toContainText("Verifying checksum… ok");
+  const text = (await log.innerText()).split("\n");
+  expect(text.filter((l) => l.includes("%"))).toHaveLength(1);
+
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  // The card flipped, and shows the same login steps (a terminal command, never an in-portal OAuth).
   await expect(c.getByText("Not logged in")).toBeVisible();
-  await expect(c.getByText("opencode auth login")).toBeVisible();
+  await expect(c.getByText("opencode auth login", { exact: true }).first()).toBeVisible();
   await c.getByRole("button", { name: "Check again" }).click();
   await expect(c.getByText(/Still not logged in/)).toBeVisible();
+});
+
+test("a failed install shows an error summary and the last 20 lines", async ({ page }) => {
+  await page.goto("/connections");
+  await ready(page);
+  await card(page, "Claude Code").getByRole("button", { name: "Install" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install Claude Code" });
+  await dialog.getByRole("button", { name: "Install Claude Code" }).click();
+
+  const alert = dialog.getByRole("alert");
+  await expect(alert).toContainText("The install failed");
+  await expect(alert).toContainText("Install failed: could not download claude 2.1.311");
+  await expect(alert.getByText("Last 20 lines")).toBeVisible();
+  const tail = (await alert.locator("pre").innerText()).split("\n");
+  expect(tail).toHaveLength(20);
+  expect(tail.at(-1)).toContain("Install failed");
+  await expect(dialog.getByText("OpenCode 1.19.6 installed")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Review again" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).first().click();
+  await expect(card(page, "Claude Code").getByText("Windows only")).toBeVisible(); // nothing changed
 });
 
 test("the browser never receives the admin token", async ({ page }) => {
