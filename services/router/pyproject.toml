@@ -1,0 +1,52 @@
+[project]
+name = "switchboard-router"
+version = "0.1.0"
+description = "Switchboard Router API: connections, model catalog, routing (SPEC §5)"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "fastapi~=0.163.1",
+  "uvicorn~=0.54.0",
+  "sqlalchemy[asyncio]~=2.1.9",
+  "psycopg[binary]~=3.3.9",
+  "alembic~=1.20.1",
+  "httpx~=0.28.1",
+  "pydantic-settings~=2.16.3",
+  "cryptography~=50.0.2",
+  "pyyaml~=6.0.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest~=9.2.0", "pytest-asyncio~=1.5.0", "respx~=0.23.1", "ruff~=0.17.5"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+markers = ["live: hits real provider APIs (opt-in: pytest -m live)"]
+addopts = "-m 'not live' -p no:cacheprovider"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+# ASYNC109: httpx takes per-request timeouts; asyncio.timeout adds nothing here.
+ignore = ["S101", "B008", "ASYNC109"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests", "hostprobe"]
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/*" = ["S105", "S106", "S310"]

@@ -1,0 +1,17 @@
+# systemd user unit; scripts/setup-wsl.sh installs it with @REPO@ replaced by the repo path.
+[Unit]
+Description=Switchboard hostprobe (CLI detection for the Router API)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 @REPO@/services/hostprobe/hostprobe.py --env-file @REPO@/deploy/.env
+WorkingDirectory=%h
+Restart=on-failure
+RestartSec=5
+# Detection only: no new privileges, read-only view of the system.
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

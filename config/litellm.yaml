@@ -1,46 +1,25 @@
-# LiteLLM proxy config (SPEC §6.2). M0 aliases: fast, smart-free, local, private.
-# Model IDs are verified against each provider's /models list; update here if they rotate.
-
-model_list:
-  - model_name: fast
-    litellm_params:
-      model: groq/openai/gpt-oss-120b
-      api_key: os.environ/GROQ_API_KEY
-    model_info:
-      privacy: no-training   # Groq states no training on API data
-
-  - model_name: smart-free
-    litellm_params:
-      # Pinned: gemini-flash-latest (-> 3.8) hung on generateContent at M0 (2026-11-17).
-      model: gemini/gemini-3.5-flash
-      api_key: os.environ/GEMINI_API_KEY
-    model_info:
-      privacy: may-train     # AI Studio free tier may train outside EEA/UK/CH
-
-  - model_name: local
-    litellm_params:
-      model: ollama_chat/qwen3:4b
-      api_base: os.environ/OLLAMA_API_BASE
-    model_info:
-      privacy: local
-
-  - model_name: private
-    litellm_params:
-      model: ollama_chat/qwen3:4b
-      api_base: os.environ/OLLAMA_API_BASE
-    model_info:
-      privacy: local
+# LiteLLM proxy settings (SPEC §6.2).
+#
+# No model_list here: since M1a, LiteLLM's DB (STORE_MODEL_IN_DB=True) is the single source of truth
+# for routable models, and the Router API is its only writer. Aliases are declared in
+# config/providers.yaml (`aliases:`) and reconciled into LiteLLM with provider keys stored as
+# LiteLLM credentials. See docs/m1a.md for the reasoning.
 
 router_settings:
-  # fast: Groq -> Gemini. Cerebras is added in M1. local/private never fall back.
+  # fast: Groq (order 1) -> Cerebras (order 2, if keyed) -> smart-free.
+  # smart-free -> local. local/private/local-code never fall back (never leave the machine).
   fallbacks:
     - fast: ["smart-free"]
+    - smart-free: ["local"]
   num_retries: 1
   allowed_fails: 2
   cooldown_time: 60
+  # Deployments sharing an alias are grouped by `order`: the lowest order is used first and LiteLLM
+  # retries the next order on failure (verified on v1.108.8).
 
 litellm_settings:
   drop_params: true
+  # Global ceiling; per-deployment timeouts (fast: 25 s) are set by the router.
   request_timeout: 120
 
 general_settings:

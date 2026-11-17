@@ -1,0 +1,145 @@
+# Provider registry (SPEC §6, §6.4, §8f). Read by the Router API (services/router).
+# Free limits are seeded from cheahjs/free-llm-api-resources (Nov 2026) — verify in each console.
+# privacy: no-training | may-train | local | varies
+#
+# API keys are never stored here. They are added through the Router API (encrypted in the Router DB
+# and registered as a LiteLLM credential). `env_key` names the deploy/.env variable imported once
+# on first start, if set.
+
+providers:
+  groq:
+    kind: api_key
+    name: Groq
+    base_url: https://api.groq.com/openai/v1
+    catalog: openai          # GET {base_url}/models, Bearer auth
+    litellm_prefix: groq
+    env_key: GROQ_API_KEY
+    privacy: no-training
+    free_limits: "~30 req/min, 1k–14.4k req/day per model"
+    notes: Groq states no training on API data.
+
+  gemini:
+    kind: api_key
+    name: Google AI Studio (Gemini)
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    catalog: gemini          # GET {base_url}/models, x-goog-api-key header
+    litellm_prefix: gemini
+    env_key: GEMINI_API_KEY
+    privacy: may-train
+    free_limits: "Flash: ~10 req/min, ~250 req/day; Flash-Lite higher"
+    notes: Free tier may train on data outside EEA/UK/CH.
+
+  cerebras:
+    kind: api_key
+    name: Cerebras
+    base_url: https://api.cerebras.ai/v1
+    catalog: openai
+    litellm_prefix: cerebras
+    env_key: CEREBRAS_API_KEY
+    privacy: no-training
+    free_limits: "~30 req/min, 14.4k req/day, 1M tokens/day"
+
+  mistral:
+    kind: api_key
+    name: Mistral (La Plateforme)
+    base_url: https://api.mistral.ai/v1
+    catalog: openai
+    litellm_prefix: mistral
+    env_key: MISTRAL_API_KEY
+    privacy: may-train
+    free_limits: "Experiment plan: ~1 req/s, 500k tokens/min, 1B tokens/month"
+    notes: Experiment plan may train on data unless opted out.
+
+  openrouter:
+    kind: api_key
+    name: OpenRouter
+    base_url: https://openrouter.ai/api/v1
+    catalog: openrouter
+    litellm_prefix: openrouter
+    env_key: OPENROUTER_API_KEY
+    privacy: varies
+    free_limits: "`:free` models: 20 req/min, 50 req/day (1000/day after $10 credit)"
+
+  opencode-zen:
+    kind: api_key
+    name: OpenCode Zen
+    base_url: https://opencode.ai/zen/v1
+    chat_base_url: https://opencode.ai/zen/v1
+    catalog: zen
+    litellm_prefix: openai   # OpenAI-compatible; api_base set per deployment
+    env_key: OPENCODE_ZEN_API_KEY
+    privacy: varies
+    free_limits: "Rotating free models (e.g. Big Pickle, *-free); limits per model"
+    notes: Some free models may use your data to improve the model.
+
+  ollama:
+    kind: local
+    name: Ollama (local)
+    base_url_env: OLLAMA_API_BASE
+    catalog: ollama
+    litellm_prefix: ollama_chat
+    privacy: local
+    free_limits: "Unlimited (your GPU: ≤ ~4B params at Q4)"
+
+  claude-code:
+    kind: cli
+    name: Claude Code
+    bin: claude
+    privacy: varies
+    login_hint: "claude  (then /login in the browser)"
+    notes: Claude Pro subscription; official CLI only.
+
+  codex:
+    kind: cli
+    name: Codex CLI
+    bin: codex
+    privacy: varies
+    login_hint: codex login
+
+  gemini-cli:
+    kind: cli
+    name: Gemini CLI
+    bin: gemini
+    privacy: may-train
+    login_hint: "gemini  (choose Login with Google)"
+
+  grok-build:
+    kind: cli
+    name: Grok Build
+    bin: grok
+    privacy: varies
+    login_hint: grok auth login
+    notes: Beta. Headless use may bill an xAI API key — verify before routing jobs (SPEC §12).
+
+  opencode:
+    kind: cli
+    name: OpenCode
+    bin: opencode
+    privacy: varies
+    login_hint: opencode auth login
+
+# LiteLLM aliases (SPEC §6.2). The router reconciles these into LiteLLM's DB (the single source of
+# truth for routable models, see docs/m1a.md). A deployment is registered only when its provider
+# has a key (or is local). Deployments sharing an alias are tried by `order` (1 first).
+aliases:
+  fast:
+    - { provider: groq, model: openai/gpt-oss-120b, order: 1, timeout: 25 }
+    - { provider: cerebras, model: gpt-oss-120b, order: 2, timeout: 25 }
+  cerebras:
+    - { provider: cerebras, model: gpt-oss-120b, timeout: 25 }
+  smart-free:
+    # Pinned: gemini-flash-latest (-> 3.8) hung on generateContent at M0 (2026-11-17).
+    # 30 s: with num_retries=1 a hung Gemini call reaches the `local` fallback in ~60 s.
+    - { provider: gemini, model: gemini-3.5-flash, timeout: 30 }
+  general:
+    - { provider: mistral, model: mistral-small-latest, timeout: 60 }
+  explore:
+    - { provider: openrouter, model: "openai/gpt-oss-120b:free", timeout: 60 }
+  code-free:
+    - { provider: opencode-zen, model: big-pickle, timeout: 90 }
+  local:
+    - { provider: ollama, model: "qwen3:4b" }
+  private:
+    - { provider: ollama, model: "qwen3:4b" }
+  local-code:
+    - { provider: ollama, model: "qwen2.5-coder:3b" }
