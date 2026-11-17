@@ -18,10 +18,11 @@ test("add, test and remove an API key from the UI", async ({ page }) => {
   const input = c.getByLabel("Cerebras API key");
   await expect(input).toHaveAttribute("type", "password");
 
-  // A rejected key shows the router's message and stores nothing.
+  // A rejected key shows a plain sentence (never the raw HTTP text) and stores nothing.
   await input.fill("bad-key-0000");
   await c.getByRole("button", { name: "Check and save" }).click();
-  await expect(c.getByRole("alert")).toContainText("rejected this key");
+  await expect(c.getByRole("alert")).toContainText("did not accept this key");
+  await expect(c.getByText("HTTP 401")).toHaveCount(0);
   await expect(c.getByText("Not connected")).toBeVisible();
 
   await input.fill("csk-test-key-4321");
@@ -181,4 +182,68 @@ test("the browser never receives the admin token", async ({ page }) => {
   await page.goto("/connections");
   await ready(page);
   expect(seen.join("\n")).not.toMatch(/authorization|bearer|ROUTER_ADMIN_TOKEN/i);
+});
+
+test("plain errors: a failed gateway sync offers Retry sync, raw detail only in Pro mode", async ({ page }) => {
+  await page.goto("/connections");
+  await ready(page);
+  const c = card(page, "Cerebras");
+  await c.getByRole("button", { name: "Add key" }).click();
+  await c.getByLabel("Cerebras API key").fill("gateway-fail-4321");
+  await c.getByRole("button", { name: "Check and save" }).click();
+  await expect(c.getByRole("alert")).toContainText("Couldn't sync with the model gateway");
+
+  // The card says it in one sentence with one action; the LiteLLM text is hidden in Simple mode.
+  await expect(c.getByText("Couldn’t sync with the model gateway. Retrying automatically.")).toBeVisible();
+  await expect(c.getByText(/Failed to add model to db/)).toHaveCount(0);
+  await expect(c.getByText("Needs attention")).toBeVisible();
+
+  // Pro mode: the raw detail is available under Details.
+  await page.getByRole("radio", { name: "Pro" }).click();
+  const pro = c;
+  await pro.getByText("Details", { exact: true }).click();
+  await expect(pro.getByText(/Failed to add model to db/)).toBeVisible();
+
+  await pro.getByRole("button", { name: "Retry now" }).click();
+  await expect(pro.getByText("Couldn’t sync with the model gateway. Retrying automatically.")).toHaveCount(0);
+  await expect(pro.getByText("Connected", { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: "Simple" }).click();
+});
+
+test("a provider error is one plain sentence with one action", async ({ page }) => {
+  await page.goto("/connections");
+  await ready(page);
+  const g = card(page, "Google AI Studio (Gemini)");
+  await expect(g.getByText("The provider took too long to answer.")).toBeVisible();
+  await expect(g.getByText("Test call timed out after 30 s.")).toHaveCount(0); // raw text: Pro only
+  await expect(g.getByRole("button", { name: "Try again" })).toBeVisible();
+});
+
+test("Status view lists every component with its fix", async ({ page }) => {
+  await page.goto("/status");
+  await ready(page);
+  await expect(page.getByRole("heading", { level: 1, name: "Status" })).toBeVisible();
+  const rows = page.getByRole("region", { name: "Status" }).getByRole("listitem");
+  const paperclip = rows.filter({ hasText: "Paperclip (jobs)" });
+  await expect(paperclip).toContainText("Jobs won’t run");
+  await expect(paperclip).toContainText("paperclipai service start");
+  await expect(rows.filter({ hasText: "Model gateway" })).toContainText("Running.");
+  await expect(page.getByRole("status").first()).toContainText("need attention");
+
+  // A provider with a failed registration gets an in-app fix.
+  await page.goto("/connections");
+  await ready(page);
+  const c = card(page, "Cerebras");
+  if (await c.getByRole("button", { name: "Replace key" }).isVisible()) await c.getByRole("button", { name: "Replace key" }).click();
+  else await c.getByRole("button", { name: "Add key" }).click();
+  await c.getByLabel("Cerebras API key").fill("gateway-fail-9999");
+  await c.getByRole("button", { name: "Check and save" }).click();
+  await expect(c.getByRole("button", { name: "Retry now" })).toBeVisible();
+
+  await page.goto("/status");
+  await ready(page);
+  const prov = page.getByRole("region", { name: "Status" }).getByRole("listitem").filter({ hasText: "Cerebras" });
+  await prov.getByRole("button", { name: "Resync models" }).click();
+  await expect(page.getByText("Models resynced.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Status" }).getByRole("listitem").filter({ hasText: "Cerebras" })).toHaveCount(0);
 });

@@ -40,7 +40,7 @@ function OptionRow({ o, selected, onPick }: { o: Option; selected: boolean; onPi
         <span className="min-w-0">
           <span className="flex flex-wrap items-center gap-1.5">
             <span className="truncate font-semibold">{o.name}</span>
-            {o.badges?.map((b) => (
+            {o.badges?.filter((b) => !(b === "paid" && o.paid)).map((b) => (
               <span key={b} className="rounded-chip bg-accent-soft px-1.5 text-[0.6875rem] font-semibold text-accent-strong">
                 {t(`badge.${b}`)}
               </span>

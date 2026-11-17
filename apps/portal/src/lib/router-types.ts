@@ -22,6 +22,10 @@ export interface ConnectionRow {
   status: string;
   last_checked: string | null;
   last_error: string | null;
+  /** Stable code for last_error (plain-language mapping in i18n/errors.ts). */
+  last_error_code?: string | null;
+  /** Set while LiteLLM registration failed; the router retries by itself, the card offers "Retry sync". */
+  sync_error?: string;
   key_last4?: string | null;
   /** One-time free credits (Cerebras): tracked against a balance you enter. Absent for other providers. */
   credits?: CreditsInfo;
@@ -122,7 +126,7 @@ export interface OnboardingResponse {
 export type OnboardingPatch = Partial<Omit<OnboardingState, "completed_at">> & { completed?: boolean };
 
 /** What server actions return to client components. */
-export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error: string };
+export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error: string; code?: string; detail?: string | null };
 
 // --- Chat (M2) -----------------------------------------------------------------------------------
 
@@ -171,6 +175,8 @@ export interface RouteInfo {
   latency_ms?: number;
   ttft_ms?: number | null;
   error?: string | null;
+  /** Stable code for `error` (plain-language mapping in i18n/errors.ts). */
+  error_code?: string | null;
   notice?: "image" | "video" | "audio";
   blocked?: BlockedInfo;
 }
@@ -241,4 +247,31 @@ export interface ChatStreamBody {
   private: boolean;
   temperature?: number | null;
   autonomy?: number | null;
+}
+
+/** Status view (GET /system/components). */
+export type ComponentStatus = "ok" | "degraded" | "down";
+export type ComponentFix =
+  | "resync"
+  | "recheck_cli"
+  | "start_docker"
+  | "open_ollama"
+  | "start_paperclip"
+  | "start_hostprobe"
+  | `retest:${string}`;
+
+export interface SystemComponent {
+  id: string;
+  status: ComponentStatus;
+  fix: ComponentFix | null;
+  detail: string | null;
+  name?: string;
+  code?: string | null;
+  last_ok_at?: string | null;
+  next_retry_at?: string | null;
+}
+
+export interface ComponentsResponse {
+  status: ComponentStatus;
+  components: SystemComponent[];
 }

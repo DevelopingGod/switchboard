@@ -5,6 +5,7 @@ import type {
   CatalogModel,
   CatalogResponse,
   ChatThread,
+  ComponentsResponse,
   ConnectionRow,
   ConnectionsResponse,
   OnboardingResponse,
@@ -50,4 +51,12 @@ export async function loadChat(id: string | undefined): Promise<Result<ChatData>
 export async function loadOnboarding(): Promise<Result<OnboardingResponse>> {
   await connection();
   return routerGet<OnboardingResponse>("/onboarding");
+}
+
+/** Status view. When the router itself is down, that is the one thing to fix (start Docker). */
+export async function loadComponents(): Promise<ComponentsResponse> {
+  await connection();
+  const r = await routerGet<ComponentsResponse>("/system/components");
+  if (r.ok) return r.data;
+  return { status: "down", components: [{ id: "router", status: "down", fix: "start_docker", detail: r.error, code: r.code ?? "router_down" }] };
 }

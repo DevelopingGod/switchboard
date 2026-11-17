@@ -1,4 +1,4 @@
-import { AlertTriangle, BadgeCheck, Code2, Maximize2, ShieldCheck, Zap, Cpu, Info } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Code2, Maximize2, ShieldCheck, Zap, Cpu, Info, CircleDollarSign } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t, type StringKey } from "@/i18n/strings";
 import { type ConnectionKey, tConn } from "@/i18n/connections";
@@ -10,6 +10,7 @@ const badgeMeta = {
   fastest: { icon: Zap, key: "badge.fastest", free: false },
   context: { icon: Maximize2, key: "badge.context", free: false },
   free: { icon: BadgeCheck, key: "badge.free", free: true },
+  paid: { icon: CircleDollarSign, key: "badge.paid", free: false },
 } as const;
 
 /** Icon + text, never colour alone. */

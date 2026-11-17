@@ -1,12 +1,12 @@
 /** Target picker helpers (lazy picker chunk; unit-tested in chat-format.test.ts). */
 import type { TargetProvider, TargetsResponse } from "./router-types";
-import { recommend, type Badge } from "./recommend";
+import { isFreeModel, recommend, type Badge } from "./recommend";
 
 /** Badges per model id, computed per provider like the Connections cards (SPEC §6.4 UI). */
 export function badgesFor(p: TargetProvider): Map<string, Badge[]> {
   const out = new Map<string, Badge[]>();
   for (const pick of recommend(p.models).picks) out.set(pick.model.model_id, pick.badges);
-  for (const m of p.models) if (m.free && !out.has(m.model_id)) out.set(m.model_id, ["free"]);
+  for (const m of p.models) if (isFreeModel(m) && !out.has(m.model_id)) out.set(m.model_id, ["free"]);
   return out;
 }
 

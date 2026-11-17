@@ -19,6 +19,9 @@ import { StaticHeader, ThreadHeader } from "./ThreadHeader";
 
 const newLive = (): Live => ({ thinking: "", thinkStart: null, thinkEnd: null, label: null, note: null });
 
+/** A send failure whose message is already plain language. */
+class SendError extends Error {}
+
 export function ChatScreen({ threads: initialThreads, current }: { threads: ChatThread[]; current: ThreadResponse | null }) {
   const { push } = useToast();
   const phone = useMedia("(max-width: 639px)");
@@ -73,8 +76,9 @@ export function ChatScreen({ threads: initialThreads, current }: { threads: Chat
           signal: ctrl.signal,
         });
         if (!res.ok) {
+          // The proxy returns the router's plain sentence (`error`); never show a raw status.
           const j = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(j?.error ?? `HTTP ${res.status}`);
+          throw new SendError(j?.error ?? tChat("chat.sendFailedGeneric"));
         }
         await readSse(res, (e) => {
           const d = JSON.parse(e.data) as Record<string, unknown>;
@@ -150,7 +154,7 @@ export function ChatScreen({ threads: initialThreads, current }: { threads: Chat
           patchMsg(replyId, (m) => (m.status === "streaming" ? { ...m, status: "stopped" } : m));
         } else {
           const reason = e instanceof Error ? e.message : String(e);
-          if (replyId < 0) setSendError(tChat("chat.sendFailed", { reason }));
+          if (replyId < 0) setSendError(e instanceof SendError ? e.message : tChat("chat.sendFailedGeneric"));
           else patchMsg(replyId, (m) => ({ ...m, status: "error", route: m.route ?? ({ error: reason } as RouteInfo) }));
         }
       } finally {

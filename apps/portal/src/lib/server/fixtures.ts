@@ -1,7 +1,9 @@
 import "server-only";
 import type {
   CatalogModel,
+  ComponentsResponse,
   ConnectionRow,
+  SystemComponent,
   InstallPlan,
   OnboardingResponse,
   OnboardingState,
@@ -16,7 +18,7 @@ import type { Result } from "./router";
  */
 
 const ok = <T>(data: unknown): Result<T> => ({ ok: true, data: data as T });
-const fail = <T>(status: number, error: string): Result<T> => ({ ok: false, status, error });
+const fail = <T>(status: number, error: string, code?: string, detail?: string): Result<T> => ({ ok: false, status, error, code, detail: detail ?? null });
 
 const api = (
   provider: string,
@@ -90,6 +92,7 @@ const connections = (): ConnectionRow[] => [
     free_limits: "Flash: ~10 req/min, ~250 req/day; Flash-Lite higher",
     notes: "Free tier may train on data outside EEA/UK/CH.",
     last_error: "Test call timed out after 30 s.",
+    last_error_code: "timeout",
     last_checked: "2026-11-17T08:00:00Z",
   }),
   api("cerebras", "Cerebras", {
@@ -186,6 +189,26 @@ interface Store {
 }
 
 const g = globalThis as unknown as { __sbFixture?: Store };
+
+/** Status view fixture: Paperclip is down (an instruction, not an in-app fix); a provider whose
+ * registration failed shows "Resync models". */
+function components(s: Store): ComponentsResponse {
+  const comps: SystemComponent[] = [
+    { id: "router", status: "ok", fix: null, detail: null },
+    { id: "database", status: "ok", fix: null, detail: null },
+    { id: "litellm", status: "ok", fix: null, detail: null },
+    { id: "model_sync", status: "ok", fix: null, detail: null, last_ok_at: "2026-11-17T09:00:00Z" },
+    { id: "ollama", status: "ok", fix: null, detail: null },
+    { id: "paperclip", status: "down", fix: "start_paperclip", detail: "ConnectError" },
+    { id: "hostprobe", status: "ok", fix: "recheck_cli", detail: null },
+  ];
+  for (const r of s.rows) {
+    if (r.sync_error) comps.push({ id: `provider:${r.provider}`, name: r.name, status: "down", fix: "resync", detail: r.sync_error, code: "gateway_sync" });
+    else if (r.status === "error") comps.push({ id: `provider:${r.provider}`, name: r.name, status: "down", fix: `retest:${r.provider}`, detail: r.last_error, code: r.last_error_code ?? null });
+  }
+  const status = comps.some((c) => c.status === "down") ? "down" : comps.some((c) => c.status === "degraded") ? "degraded" : "ok";
+  return { status, components: comps };
+}
 
 function store(): Store {
   if (!g.__sbFixture) {
@@ -304,11 +327,30 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     }
     const key = String(b.api_key ?? "").trim();
     if (key.length < 8) return fail(422, "String should have at least 8 characters");
-    if (key.toLowerCase().startsWith("bad")) return fail(400, "key test failed: the provider rejected this key (HTTP 401)");
+    if (key.toLowerCase().startsWith("bad"))
+      return fail(400, "The provider did not accept this key.", "key_rejected", "key test failed: the provider rejected this key (HTTP 401)");
+    if (key.toLowerCase().startsWith("gateway")) {
+      // The key is stored, but LiteLLM registration fails: the card offers "Retry sync" (M1.5).
+      const detail = "LiteLLM POST /model/new -> 500: {'error': 'Failed to add model to db.'}";
+      Object.assign(r, { status: "connected", key_last4: key.slice(-4), last_error: null, sync_error: detail });
+      return fail(502, "Key saved. Couldn't sync with the model gateway; retrying automatically.", "gateway_sync", detail);
+    }
     const count = s.catalog.filter((x) => x.provider === r.provider).length;
     Object.assign(r, { status: "connected", key_last4: key.slice(-4), last_error: null, models_available: count || 3 });
     return ok({ provider: r.provider, status: "connected", key_last4: key.slice(-4) });
   }
+  m = p.match(/^\/connections\/([\w-]+)\/resync$/);
+  if (m && method === "POST") {
+    const r = row(m[1]);
+    if (!r) return fail(404, `unknown provider ${m[1]}`);
+    delete r.sync_error;
+    return ok({ provider: r.provider, ok: true });
+  }
+  if (method === "POST" && p === "/system/resync") {
+    for (const r of s.rows) delete r.sync_error;
+    return ok({ ok: true });
+  }
+  if (method === "GET" && p === "/system/components") return ok(components(s));
   m = p.match(/^\/connections\/([\w-]+)\/credits$/);
   if (m && method === "PUT") {
     const r = row(m[1]);
@@ -323,7 +365,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     const r = row(m[1]);
     if (!r) return fail(404, `unknown provider ${m[1]}`);
     if (r.kind === "api_key" && !r.key_last4) return fail(400, `no key stored for ${r.provider}`);
-    if (r.provider === "gemini") return ok({ provider: r.provider, ok: false, error: "Test call timed out after 30 s." });
+    if (r.provider === "gemini") return ok({ provider: r.provider, ok: false, error: "Test call timed out after 30 s.", error_code: "timeout" });
     Object.assign(r, { status: "connected", last_error: null });
     return ok({ provider: r.provider, ok: true });
   }

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, Brain, ChevronDown, Pencil, RefreshCw, Square, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Brain, ChevronDown, Pencil, RefreshCw, Square, ThumbsDown, ThumbsUp } from "lucide-react";
 import { CopyButton } from "@/components/kit/CopyButton";
 import { Button } from "@/components/ui/button";
 import { ms, usd } from "@/lib/chat-format";
@@ -17,6 +17,7 @@ import { WhyThis } from "./WhyThis";
 const JobHint = dynamic(() => import("./MessageExtras").then((m) => m.JobHint), { ssr: false });
 const Notice = dynamic(() => import("./MessageExtras").then((m) => m.Notice), { ssr: false });
 const Blocked = dynamic(() => import("./MessageExtras").then((m) => m.Blocked), { ssr: false });
+const ReplyError = dynamic(() => import("./MessageExtras").then((m) => m.ReplyError), { ssr: false });
 
 /** Client-only streaming state; never persisted (thinking text especially). */
 export interface Live {
@@ -100,12 +101,7 @@ export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: bo
       )}
       {m.status === "notice" && r?.notice && <Notice kind={r.notice} />}
       {m.status === "blocked" && r?.blocked && <Blocked b={r.blocked} />}
-      {m.status === "error" && (
-        <p role="alert" className="flex items-start gap-1.5 text-sm text-err">
-          <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
-          {r?.error ? tChat("chat.error", { reason: r.error }) : tChat("chat.errorGeneric")}
-        </p>
-      )}
+      {m.status === "error" && <ReplyError code={r?.error_code} detail={r?.error} />}
       {m.status === "stopped" && (
         <p className="flex items-center gap-1.5 text-sm text-ink-muted">
           <Square aria-hidden className="size-3.5" /> {tChat("chat.stopped")}

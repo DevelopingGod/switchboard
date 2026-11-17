@@ -43,10 +43,8 @@ export const chatStrings = {
     answering: "Answering with {label}",
     fallingBack: "{label}: {reason}. Trying {next}…",
     fallingBackNone: "{label}: {reason}.",
-    error: "This reply failed: {reason}",
-    errorGeneric: "Something went wrong with this reply.",
     retry: "Try again",
-    sendFailed: "Couldn’t send: {reason}",
+    sendFailedGeneric: "Couldn’t reach Switchboard. Try again in a moment.",
     jobHint: "This looks like a job for an agent. Jobs arrive in milestone M4; for now you get a chat answer.",
     runAsJob: "Run as job (M4)",
     notice: {

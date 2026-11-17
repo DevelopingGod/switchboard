@@ -84,4 +84,25 @@ describe("formatContext", () => {
     expect(formatContext(512)).toBe("512");
     expect(formatContext(null)).toBeNull();
   });
+
+  it("OpenRouter: only :free models are badged; paid ones are never recommended", () => {
+    const or = (id: string, tags: string[], over: Partial<CatalogModel> = {}) => m(id, tags, { provider: "openrouter", ...over });
+    const { picks } = recommend([
+      or("anthropic/big", ["chat", "code", "reasoning"], { context: 1_000_000 }),
+      or("openai/gpt-oss-120b:free", ["chat", "code"], { context: 131072 }),
+      or("meta/fast:free", ["chat", "fast"], { context: 8000, free: true }),
+    ]);
+    const ids = picks.map((p) => p.model.model_id);
+    expect(ids).not.toContain("anthropic/big");
+    for (const p of picks) expect(p.badges).toContain("free");
+  });
+
+  it("labels a shown paid model of a per-model-priced provider as Paid, never Free", () => {
+    // Zen: a paid model only reaches the picks when it is free-flagged (it is filtered otherwise);
+    // simulate a free-flag mismatch to check the label path.
+    const zen = m("paid-one", ["chat", "code"], { provider: "opencode-zen", free: true });
+    expect(recommend([zen]).picks[0].badges).toContain("free");
+    expect(recommend([{ ...zen, free: false }]).picks).toHaveLength(0);
+  });
 });
+

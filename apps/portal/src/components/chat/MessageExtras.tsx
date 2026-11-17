@@ -6,6 +6,12 @@ import { Button } from "@/components/ui/button";
 import { usd } from "@/lib/chat-format";
 import type { BlockedInfo } from "@/lib/router-types";
 import { type ChatKey, tChat } from "@/i18n/chat";
+import { ErrorNote } from "@/components/kit/ErrorNote";
+
+/** A failed reply: one plain sentence; the raw reason only in Pro mode (Regenerate is in the footer). */
+export function ReplyError({ code, detail }: { code?: string | null; detail?: string | null }) {
+  return <ErrorNote live code={code ?? (detail ? "error" : "unknown")} detail={detail} />;
+}
 
 /** Rare reply states, in their own chunk (see MessageItem). */
 export function JobHint({ id }: { id: number }) {
