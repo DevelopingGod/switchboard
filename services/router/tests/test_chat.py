@@ -119,7 +119,7 @@ async def test_send_streams_and_logs_everything(client, stack, session):
     assert chip["rule"] == "default" and chip["label"].startswith("Groq")
     assert chip["model"] == "groq/openai/gpt-oss-120b" and chip["tokens_in"] == 10 and chip["tokens_out"] == 5
     assert len(chip["reasons"]) == 3 and chip["runner_up"]
-    assert {s["target"] for s in chip["skipped"]} == {"model:general", "model:explore"}
+    assert {s["target"] for s in chip["skipped"]} == {"model:explore"}
 
     req = await session.get(Request, start["request_id"])
     assert (
@@ -169,6 +169,104 @@ async def test_429_falls_back_and_explains(client, stack, session):
     assert skip["code"] == "cooldown" and "cooling down" in skip["reason"]
     req = await session.get(Request, first(ev, "start")["request_id"])
     assert any(f["code"] == "rate_limited" for f in req.fallbacks_tried_json)
+
+
+@pytest.mark.parametrize("mode", ["402", "402-wrapped"])
+async def test_credit_limit_falls_back_with_a_clear_reason(client, stack, mode):
+    stack.script["fast"] = mode
+    ev = await turn(client, text="hello")
+    fb = first(ev, "fallback")
+    assert fb["target"] == "model:fast" and fb["code"] == "credit_limit"
+    assert "Credit limit reached" in fb["reason"] and ":free" in fb["reason"]
+    chip = first(ev, "done")["route"]
+    assert chip["target"] == "model:smart-free"
+    assert any("Credit limit reached" in s["reason"] for s in chip["skipped"] if s["code"] == "credit_limit")
+    # long cooldown: the next request skips it without calling it, and still says why
+    assert cooldowns.remaining("model:fast") > 600
+    stack.stream_calls.clear()
+    ev2 = await turn(client, text="again")
+    assert stack.streamed_models()[0] == "smart-free"
+    skip = next(s for s in first(ev2, "done")["route"]["skipped"] if s["target"] == "model:fast")
+    assert skip["code"] == "cooldown" and "Credit limit reached" in skip["reason"]
+
+
+async def test_429_is_still_a_rate_limit_not_a_credit_limit(client, stack):
+    stack.script["fast"] = "429"
+    assert first(await turn(client, text="hello"), "fallback")["code"] == "rate_limited"
+
+
+async def _cerebras(session):
+    await secrets.store_key(session, "cerebras", "csk-test-00000000000000000000000001")  # gitleaks:allow
+    session.add(
+        ModelCatalog(
+            provider="cerebras",
+            model_id="gpt-oss-120b",
+            tags_json=["chat", "fast"],
+            prices_json={},
+            privacy="no-training",
+            tag_source="curated",
+            free=True,
+            meta_json={},
+        )
+    )
+    await session.commit()
+    admin = LiteLLMAdmin()
+    await reconcile(session, admin)
+    await admin.aclose()
+
+
+async def test_cerebras_credits_are_tracked_and_routing_stops_at_zero(client, stack, session, hostprobe_down):
+    await _cerebras(session)
+    assert stack.deployments("cerebras") != []
+    row = next(
+        p for p in (await client.get("/connections")).json()["providers"] if p["provider"] == "cerebras"
+    )
+    assert row["credits"] == {"starting_usd": None}  # no balance entered yet: nothing is blocked
+
+    r = await client.put("/connections/cerebras/credits", json={"starting_usd": 1.0}, headers=ADMIN)
+    assert r.status_code == 200 and r.json()["credits"]["remaining_usd"] == 1.0
+    assert (
+        await client.put("/connections/groq/credits", json={"starting_usd": 1}, headers=ADMIN)
+    ).status_code == 400
+    assert (
+        await client.put("/connections/cerebras/credits", json={"starting_usd": -1}, headers=ADMIN)
+    ).status_code == 422
+
+    stack.usage_cost = 0.6  # list price per call
+    ev = await turn(client, text="hi", target="model:cerebras")
+    chip = first(ev, "done")["route"]
+    assert chip["provider"] == "cerebras" and chip["cost_usd"] == 0  # credits never touch the daily cap
+    row = next(
+        p for p in (await client.get("/connections")).json()["providers"] if p["provider"] == "cerebras"
+    )
+    assert row["credits"]["spent_usd"] == pytest.approx(0.6) and row["credits"][
+        "remaining_usd"
+    ] == pytest.approx(0.4)
+    assert not row["credits"]["exhausted"] and stack.deployments("cerebras") != []
+
+    await turn(client, text="again", target="model:cerebras")  # 1.2 of 1.0 spent: used up
+    row = next(
+        p for p in (await client.get("/connections")).json()["providers"] if p["provider"] == "cerebras"
+    )
+    assert row["credits"]["remaining_usd"] == 0 and row["credits"]["exhausted"]
+    assert stack.deployments("cerebras") == []  # LiteLLM can no longer pick it, even as a failover
+    assert not [d for d in stack.deployments("fast") if "cerebras" in d["litellm_params"]["model"]]
+
+    stack.stream_calls.clear()
+    ev = await turn(client, text="third", target="model:cerebras")
+    assert stack.stream_calls == []  # no call was made
+    err = first(ev, "error")
+    skip = next(s for s in err["skipped"] if s["target"] == "model:cerebras")
+    assert skip["code"] == "credits" and "used up" in skip["reason"] and "$1.00" in skip["reason"]
+    # auto routing keeps working through Groq
+    ev = await turn(client, text="and auto")
+    assert first(ev, "done")["route"]["provider"] == "groq"
+
+    # entering a new balance turns it back on
+    await client.put("/connections/cerebras/credits", json={"starting_usd": 5}, headers=ADMIN)
+    assert stack.deployments("cerebras") != []
+    ev = await turn(client, text="back", target="model:cerebras")
+    assert first(ev, "done")["route"]["provider"] == "cerebras"
 
 
 async def test_timeout_falls_back(client, stack):

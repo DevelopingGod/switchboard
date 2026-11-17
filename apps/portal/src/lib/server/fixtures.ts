@@ -92,11 +92,16 @@ const connections = (): ConnectionRow[] => [
     last_error: "Test call timed out after 30 s.",
     last_checked: "2026-11-17T08:00:00Z",
   }),
-  api("cerebras", "Cerebras", { free_limits: "~30 req/min, 14.4k req/day, 1M tokens/day" }),
+  api("cerebras", "Cerebras", {
+    free_limits: "One-time free credits (no renewing free tier); enter your starting balance",
+    notes: "Credits run out. The card shows what is left; routing stops at $0.",
+    credits: { starting_usd: null },
+  }),
   api("mistral", "Mistral (La Plateforme)", {
+    paid: true,
     privacy: "may-train",
-    free_limits: "Experiment plan: ~1 req/s, 500k tokens/min, 1B tokens/month",
-    notes: "Experiment plan may train on data unless opted out.",
+    free_limits: "None: the free plan cannot activate API keys (paid plan required)",
+    notes: "Paid plan required. Hidden from the free presets and the wizard. May train on data unless opted out.",
   }),
   api("openrouter", "OpenRouter", { privacy: "varies", free_limits: "`:free` models: 20 req/min, 50 req/day" }),
   api("opencode-zen", "OpenCode Zen", { privacy: "varies", free_limits: "Rotating free models; limits per model" }),
@@ -133,7 +138,8 @@ const connections = (): ConnectionRow[] => [
     bin_dir: "~/.local/bin",
     on_user_path: true,
   }),
-  cli("gemini-cli", "Gemini CLI", "gemini  (choose Login with Google)", {
+  cli("gemini-cli", "Gemini CLI", "gemini  (choose Use Gemini API key, not Google sign-in; create a key at aistudio.google.com/apikey)", {
+    notes: "Google sign-in no longer works for individuals. Shares the Gemini API free quota with smart-free, so CLI use eats into it.",
     privacy: "may-train",
     status: "logged_out",
     installed: true,
@@ -198,8 +204,8 @@ function store(): Store {
 }
 
 const GOALS: OnboardingResponse["goals"] = {
-  chat: [{ provider: "groq", paid: false }, { provider: "cerebras", paid: false }, { provider: "mistral", paid: false }],
-  writing: [{ provider: "gemini", paid: false }, { provider: "mistral", paid: false }],
+  chat: [{ provider: "groq", paid: false }, { provider: "cerebras", paid: false }],
+  writing: [{ provider: "gemini", paid: false }, { provider: "openrouter", paid: false }],
   code: [
     { provider: "claude-code", paid: true },
     { provider: "codex", paid: false },
@@ -302,6 +308,15 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     const count = s.catalog.filter((x) => x.provider === r.provider).length;
     Object.assign(r, { status: "connected", key_last4: key.slice(-4), last_error: null, models_available: count || 3 });
     return ok({ provider: r.provider, status: "connected", key_last4: key.slice(-4) });
+  }
+  m = p.match(/^\/connections\/([\w-]+)\/credits$/);
+  if (m && method === "PUT") {
+    const r = row(m[1]);
+    if (!r || !r.credits) return fail(400, `${m[1]} does not use credits`);
+    const start = Number(b.starting_usd);
+    if (!Number.isFinite(start) || start < 0) return fail(422, "Input should be greater than or equal to 0");
+    r.credits = { starting_usd: start, spent_usd: 0, remaining_usd: start, exhausted: start <= 0 };
+    return ok({ provider: r.provider, credits: r.credits });
   }
   m = p.match(/^\/connections\/([\w-]+)\/test$/);
   if (m && method === "POST") {

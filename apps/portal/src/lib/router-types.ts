@@ -2,6 +2,14 @@
 
 export type Privacy = "no-training" | "may-train" | "local" | "varies";
 
+export interface CreditsInfo {
+  /** null until the balance is entered; nothing is blocked before that. */
+  starting_usd: number | null;
+  spent_usd?: number;
+  remaining_usd?: number;
+  exhausted?: boolean;
+}
+
 export interface ConnectionRow {
   provider: string;
   name: string;
@@ -15,6 +23,8 @@ export interface ConnectionRow {
   last_checked: string | null;
   last_error: string | null;
   key_last4?: string | null;
+  /** One-time free credits (Cerebras): tracked against a balance you enter. Absent for other providers. */
+  credits?: CreditsInfo;
   models_available?: number;
   installed?: boolean | null;
   version?: string | null;

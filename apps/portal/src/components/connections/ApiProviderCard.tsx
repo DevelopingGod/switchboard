@@ -8,14 +8,15 @@ import { StatusBadge } from "@/components/kit/StatusBadge";
 import { CostBadge } from "@/components/kit/CostBadge";
 import { useToast } from "@/components/kit/Toast";
 import { Button } from "@/components/ui/button";
-import { removeKey, saveKey, testConnection } from "@/app/connections/actions";
+import { removeKey, saveCredits, saveKey, testConnection } from "@/app/connections/actions";
+import { usd } from "@/lib/chat-format";
 import type { CatalogModel, ConnectionRow } from "@/lib/router-types";
 import { t } from "@/i18n/strings";
 import { tConn } from "@/i18n/connections";
 import { PrivacyLine } from "./shared";
 import { RecommendedModels } from "./RecommendedModels";
 
-type Mode = "view" | "add" | "confirm-remove";
+type Mode = "view" | "add" | "confirm-remove" | "credits";
 type Busy = null | "save" | "test" | "remove";
 
 /** An API-key provider (or the local Ollama): paste key → check → store; test; remove. */
@@ -30,6 +31,8 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<Busy>(null);
   const [note, setNote] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [balance, setBalance] = React.useState("");
+  const credits = row.credits;
 
   const connected = row.status === "connected";
   const failing = row.status === "error";
@@ -60,6 +63,27 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     setBusy(null);
     const ok = r.ok && r.data.ok;
     setNote({ ok, text: ok ? tConn("card.testOk", { name: row.name }) : `${tConn("card.testFailed")}: ${r.ok ? (r.data.error ?? "") : r.error}` });
+    router.refresh();
+  };
+
+  const submitCredits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Number(balance.replace(/^\$/, "").trim());
+    if (balance.trim() === "" || !Number.isFinite(amount) || amount < 0) {
+      setError(tConn("card.creditsInvalid"));
+      return;
+    }
+    setBusy("save");
+    setError(null);
+    const r = await saveCredits(row.provider, amount);
+    setBusy(null);
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    setBalance("");
+    setMode("view");
+    push({ tone: "success", title: tConn("card.creditsSaved", { name: row.name }) });
     router.refresh();
   };
 
@@ -127,6 +151,36 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
         </p>
       )}
 
+      {credits && hasKey && (
+        <div className="surface-strong grid gap-2 p-3 text-sm">
+          <p className="label">{tConn("card.creditsTitle")}</p>
+          {credits.starting_usd == null ? (
+            <p className="text-ink-muted">{tConn("card.creditsNone")}</p>
+          ) : (
+            <>
+              <p className="font-semibold tabular-nums">
+                {tConn("card.creditsLeft", { left: usd(credits.remaining_usd ?? 0), start: usd(credits.starting_usd) })}
+              </p>
+              <meter
+                aria-label={tConn("card.creditsTitle")}
+                min={0}
+                max={credits.starting_usd || 1}
+                value={credits.remaining_usd ?? 0}
+                low={(credits.starting_usd || 1) * 0.2}
+                optimum={credits.starting_usd || 1}
+                className="h-2 w-full"
+              />
+              {credits.exhausted && (
+                <p role="status" className="flex items-start gap-1.5 text-err">
+                  <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  {tConn("card.creditsGone")}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {(hasKey || isLocal) && <RecommendedModels provider={row.provider} models={models} />}
 
       {mode === "add" && (
@@ -179,6 +233,53 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
         </form>
       )}
 
+      {mode === "credits" && (
+        <form onSubmit={submitCredits} className="grid gap-2">
+          <label htmlFor={`${ids}-credits`} className="label">
+            {tConn("card.creditsLabel")}
+          </label>
+          <input
+            id={`${ids}-credits`}
+            type="text"
+            inputMode="decimal"
+            name="starting-balance"
+            value={balance}
+            onChange={(e) => setBalance(e.target.value)}
+            autoComplete="off"
+            required
+            aria-describedby={`${ids}-credits-help ${error ? `${ids}-err` : ""}`}
+            aria-invalid={error ? true : undefined}
+            className="min-h-(--ctl) w-full rounded-control border border-hairline bg-glass-strong px-3 font-mono text-sm text-ink placeholder:text-ink-muted"
+          />
+          <p id={`${ids}-credits-help`} className="text-xs text-ink-muted">
+            {tConn("card.creditsHelp")}
+          </p>
+          {error && (
+            <p id={`${ids}-err`} role="alert" className="text-sm text-err">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" loading={busy === "save"} disabled={balance.trim() === ""}>
+              {busy === "save" ? tConn("card.creditsSaving") : tConn("card.creditsSave")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy === "save"}
+              onClick={() => {
+                setMode("view");
+                setBalance("");
+                setError(null);
+              }}
+            >
+              {tConn("card.cancel")}
+            </Button>
+          </div>
+        </form>
+      )}
+
       {mode === "confirm-remove" && (
         <div role="alertdialog" aria-label={tConn("card.removeKey")} className="grid gap-2 rounded-control border border-err bg-glass-strong p-3">
           <p className="text-sm">{tConn("card.confirmRemove")}</p>
@@ -208,6 +309,11 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
               <Button size="sm" variant="glass" loading={busy === "test"} onClick={test}>
                 {busy === "test" ? tConn("card.testing") : tConn("card.testConnection")}
               </Button>
+              {credits && (
+                <Button size="sm" variant="glass" onClick={() => setMode("credits")}>
+                  {credits.starting_usd == null ? tConn("card.creditsSet") : tConn("card.creditsChange")}
+                </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={() => setMode("add")}>
                 {tConn("card.replaceKey")}
               </Button>

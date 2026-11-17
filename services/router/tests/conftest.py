@@ -102,7 +102,8 @@ class FakeLiteLLM:
         self.broken = False  # simulate LiteLLM errors on writes
         self._n = 0
         # M2 streaming: every streamed request body, and per-model scripted behaviour:
-        #   "ok" (default) | "429" | "500" | "timeout" | "midstream" | "stop" | "think-tags"
+        #   "ok" (default) | "429" | "402" | "402-wrapped" | "500" | "timeout" | "midstream" | "stop"
+        #   | "think-tags"
         self.stream_calls: list[dict] = []
         self.script: dict[str, str] = {}
         self.usage_cost: float = 0.0012
@@ -210,6 +211,21 @@ class FakeLiteLLM:
             )
         if mode == "500":
             return httpx.Response(500, json={"error": {"message": "boom"}})
+        if mode == "402":  # OpenRouter-style: out of credit
+            return httpx.Response(
+                402,
+                json={
+                    "error": {
+                        "message": "This request requires more credits, or fewer max_tokens.",
+                        "code": 402,
+                    }
+                },
+            )
+        if mode == "402-wrapped":  # LiteLLM surfacing a provider 402 under another status
+            return httpx.Response(
+                500,
+                json={"error": {"message": "OpenrouterException - Error code: 402 - Insufficient credits"}},
+            )
         if mode == "timeout":
             raise httpx.ReadTimeout("timed out")
 

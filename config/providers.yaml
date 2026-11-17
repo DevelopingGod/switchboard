@@ -38,9 +38,14 @@ providers:
     catalog: openai
     litellm_prefix: cerebras
     env_key: CEREBRAS_API_KEY
-    free_tier: true
+    # One-time free credits, not a renewing free tier. Spend is tracked against a starting balance
+    # you enter on the card (list price of each call); routing stops when it reaches $0.
+    # Kept `kind: api_key` so key storage, catalog and LiteLLM registration work unchanged.
+    billing: credits
+    free_tier: true          # calls cost you $0, so they never count toward the daily cap
     privacy: no-training
-    free_limits: "~30 req/min, 14.4k req/day, 1M tokens/day"
+    free_limits: "One-time free credits (no renewing free tier); enter your starting balance"
+    notes: Credits run out. The card shows what is left; routing stops at $0.
 
   mistral:
     kind: api_key
@@ -49,9 +54,10 @@ providers:
     catalog: openai
     litellm_prefix: mistral
     env_key: MISTRAL_API_KEY
+    paid: true               # the free plan cannot activate API keys: a paid plan is required
     privacy: may-train
-    free_limits: "Experiment plan: ~1 req/s, 500k tokens/min, 1B tokens/month"
-    notes: Experiment plan may train on data unless opted out.
+    free_limits: "None: the free plan cannot activate API keys (paid plan required)"
+    notes: Paid plan required. Hidden from the free presets and the wizard. May train on data unless opted out.
 
   openrouter:
     kind: api_key
@@ -63,6 +69,7 @@ providers:
     free_tier: ":free"       # only model ids ending in ":free"
     privacy: varies
     free_limits: "`:free` models: 20 req/min, 50 req/day (1000/day after $10 credit)"
+    notes: Only `:free` models are used automatically. A paid model is used only when you pick it by hand.
 
   opencode-zen:
     kind: api_key
@@ -119,7 +126,9 @@ providers:
     name: Gemini CLI
     bin: gemini
     privacy: may-train
-    login_hint: "gemini  (choose Login with Google)"
+    # Google sign-in is no longer supported for individuals: use an API key.
+    login_hint: "gemini  (choose Use Gemini API key, not Google sign-in; create a key at aistudio.google.com/apikey)"
+    notes: Google sign-in no longer works for individuals. Shares the Gemini API free quota with smart-free, so CLI use eats into it.
 
   grok-build:
     kind: cli
@@ -140,8 +149,8 @@ providers:
 # First-run wizard (SPEC §8b): which providers each goal needs. Goal ids are labelled in the portal
 # (strings.ts); this file only decides the mapping. Providers marked `paid: true` are labelled so.
 goals:
-  chat: [groq, cerebras, mistral]
-  writing: [gemini, mistral]
+  chat: [groq, cerebras]
+  writing: [gemini, openrouter]
   code: [claude-code, codex, grok-build, opencode, opencode-zen]
   research: [gemini]
   images: [gemini, xai]

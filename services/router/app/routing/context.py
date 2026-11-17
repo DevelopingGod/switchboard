@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import credits
 from app.models import Connection, Cost, ModelCatalog, ModelStats, ProviderSecret, SystemMeta
 from app.registry import Registry, load_registry
 from app.routing.engine import CatalogEntry, Context
@@ -78,10 +79,12 @@ async def spent_today(session: AsyncSession) -> float:
 async def build_context(session: AsyncSession) -> Context:
     registry = load_registry()
     rules = load_rules().with_preset(await active_preset(session))
+    used_up = await credits.exhausted(session, registry)
     return Context(
         registry=registry,
         rules=rules,
-        connected=await connected_providers(session, registry),
+        connected=await connected_providers(session, registry) - used_up.keys(),
+        exhausted=used_up,
         catalog=await load_catalog(session),
         cooldowns=cooldowns,
         spent_today=await spent_today(session),

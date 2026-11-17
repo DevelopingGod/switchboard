@@ -1,5 +1,7 @@
 """Rules engine (SPEC §7.1): precedence, slash commands, intent, presets, health, budget, private."""
 
+from dataclasses import replace
+
 import pytest
 
 from app.registry import load_registry
@@ -88,9 +90,105 @@ def test_default_chain_skips_unconnected_with_reasons():
     dec = decide(RouteRequest("what's the capital of France?"), ctx())
     assert dec.rule_id == "default" and dec.matched_by == "default"
     assert targets(dec) == ["model:fast", "model:smart-free", "model:local"]
-    assert skipped(dec) == {"model:general": "not_connected", "model:explore": "not_connected"}
-    general = next(s for s in dec.skipped if s.target == "model:general")
-    assert "Mistral" in general.reason and "Connections" in general.reason
+    assert skipped(dec) == {"model:explore": "not_connected"}
+    explore = next(s for s in dec.skipped if s.target == "model:explore")
+    assert "OpenRouter" in explore.reason and "Connections" in explore.reason
+
+
+def test_mistral_is_paid_only_and_off_every_automatic_chain():
+    """Mistral's free plan cannot activate API keys: paid, never in a free chain, hidden from goals."""
+    reg = load_registry()
+    assert reg.providers["mistral"].paid
+    assert "mistral" not in {pid for ids in reg.goals.values() for pid in ids}
+    assert reg.goals["writing"] == ["gemini", "openrouter"]
+    c = ctx(connected=("groq", "gemini", "ollama", "mistral", "openrouter"))
+    for text in ("what's the capital of France?", "write a polished linkedin post about my launch"):
+        for preset in ("free", "balanced"):
+            dec = decide(RouteRequest(text), ctx(connected=c.connected, preset=preset))
+            assert "model:general" not in targets(dec), (text, preset)
+    # a manual pick of the paid alias still works in Balanced
+    assert targets(decide(RouteRequest("hi", target="model:general"), c)) == ["model:general"]
+
+
+def test_writing_goes_gemini_then_openrouter_free():
+    dec = decide(
+        RouteRequest("write a linkedin post about my launch"), ctx(connected=("groq", "gemini", "openrouter"))
+    )
+    assert dec.rule_id == "writing"
+    assert targets(dec)[:2] == ["model:smart-free", "model:explore"]
+
+
+OR_CATALOG = [
+    CatalogEntry(
+        20,
+        "openrouter",
+        "openai/gpt-oss-120b:free",
+        None,
+        ("chat", "reasoning"),
+        131072,
+        0.0,
+        0.0,
+        "varies",
+        900,
+    ),
+    CatalogEntry(
+        21,
+        "openrouter",
+        "anthropic/claude-sonnet-4",
+        None,
+        ("chat", "reasoning", "code"),
+        200000,
+        3.0,
+        15.0,
+        "varies",
+        100,
+    ),
+]
+
+
+def or_ctx(**kw) -> Context:
+    c = ctx(connected=("openrouter", "ollama"), **kw)
+    c.catalog = [*CATALOG, *OR_CATALOG]
+    return c
+
+
+def test_openrouter_paid_models_are_never_picked_automatically():
+    c = or_ctx(preset="best")
+    dec = decide(RouteRequest("explain monads"), c)  # best preset -> best:reasoning
+    picked = [t for t in targets(dec) if t.startswith("model:openrouter/")]
+    assert picked == ["model:openrouter/openai/gpt-oss-120b:free"]
+    # a rule or fallback naming a paid OpenRouter model is skipped with a clear reason, not used
+    dec = decide(RouteRequest("hi", target="auto"), c)
+    assert "model:openrouter/anthropic/claude-sonnet-4" not in targets(dec)
+
+
+def test_openrouter_paid_model_works_when_picked_by_hand():
+    dec = decide(RouteRequest("hi", target="model:openrouter/anthropic/claude-sonnet-4"), or_ctx())
+    assert targets(dec) == ["model:openrouter/anthropic/claude-sonnet-4"]
+
+
+def test_openrouter_paid_model_in_a_rule_chain_is_skipped_with_a_reason():
+    c = or_ctx()
+    paid_model = "model:openrouter/anthropic/claude-sonnet-4"
+    rules = tuple(
+        replace(r, fallbacks=(paid_model, *r.fallbacks)) if r.id == "default" else r for r in c.rules.rules
+    )
+    c.rules = replace(c.rules, rules=rules)
+    dec = decide(RouteRequest("hi"), c)
+    sk = next(s for s in dec.skipped if s.target == "model:openrouter/anthropic/claude-sonnet-4")
+    assert sk.code == "paid" and ":free" in sk.reason and "pick" in sk.reason
+
+
+def test_exhausted_credits_are_skipped_with_the_reason():
+    why = "Cerebras credits are used up ($0 left of $5.00); enter a new balance to use it again"
+    c = ctx(connected=("groq", "gemini", "ollama"))
+    c.exhausted = {"cerebras": why}
+    dec = decide(RouteRequest("hi", target="model:cerebras"), c)
+    assert dec.candidates == [] and skipped(dec) == {"model:cerebras": "credits"}
+    assert dec.skipped[0].reason == why
+    # `fast` still answers through Groq, and is labelled with Groq, not Cerebras
+    dec = decide(RouteRequest("hi"), c)
+    assert dec.candidates[0].target == "model:fast" and dec.candidates[0].label.startswith("Groq")
 
 
 @pytest.mark.parametrize(

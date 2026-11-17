@@ -28,6 +28,8 @@ class Provider:
     # Free tier: calls are recorded at $0 (the list price is kept as `list_price_usd`). True for the
     # whole provider, or a model-id suffix (OpenRouter ":free").
     free_tier: bool | str = False
+    # "credits": one-time free credits tracked against a user-entered balance (app/credits.py).
+    billing: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, compare=False)
 
     def is_free_tier(self, model_id: str) -> bool:
@@ -99,6 +101,7 @@ def load_registry(config_dir: Path | None = None) -> Registry:
             login_hint=p.get("login_hint"),
             paid=bool(p.get("paid", False)),
             free_tier=p.get("free_tier", False),
+            billing=p.get("billing"),
             raw=p,
         )
     aliases = [

@@ -25,7 +25,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import db, model_test, secrets
+from app import credits, db, model_test, secrets
 from app.chat.dispatch import (
     Delta,
     Exhausted,
@@ -39,7 +39,9 @@ from app.chat.dispatch import (
     Usage,
     dispatch,
 )
+from app.litellm_admin import LiteLLMAdmin
 from app.models import Cost, Message, Request, Thread
+from app.reconcile import reconcile
 from app.registry import Registry
 from app.routing.context import build_context
 from app.routing.engine import (
@@ -317,6 +319,8 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             active.pop(req.id, None)
             _threads_active.discard((req.id, prep.thread_id))
         meta = await _finalize(s, ctx, dec, req, asst, thread, st)
+        if st.credits_used_up:
+            await _drop_exhausted(s, client, st.credits_used_up)
         yield sse(
             "done", {"message_id": asst.id, "status": asst.status, "content": asst.content, "route": meta}
         )
@@ -341,6 +345,7 @@ class _TurnState:
         self.think_ms: int | None = None
         self.status = "ok"
         self.error: str | None = None
+        self.credits_used_up: str | None = None  # a credits provider whose balance this call emptied
 
     def ms(self) -> int:
         return int((time.perf_counter() - self.t0) * 1000)
@@ -380,6 +385,15 @@ class _TurnState:
             self.status, self.chosen = "failed", None
             self.error = "Every model in the chain failed or was skipped"
         return []
+
+
+async def _drop_exhausted(s: AsyncSession, client: httpx.AsyncClient, provider: str) -> None:
+    """A credits provider just hit $0: take its deployments out of LiteLLM so nothing routes there."""
+    try:
+        await reconcile(s, LiteLLMAdmin(client))
+        log.info("credits used up for %s; its LiteLLM deployments were removed", provider)
+    except Exception as e:  # the router-side check already blocks it; LiteLLM is re-synced on restart
+        log.warning("could not drop %s from LiteLLM (%s)", provider, secrets.redact(str(e))[:160])
 
 
 async def _record_failure(s: AsyncSession, ctx: Context, target: str, dec: Decision) -> None:
@@ -489,6 +503,10 @@ async def _finalize(
                 list_price_usd=list_price,
             )
         )
+        if credits.is_credits(p):
+            await s.flush()  # the new cost row counts toward the balance
+            if (cs := await credits.status(s, p.id)) and cs["exhausted"]:
+                st.credits_used_up = p.id
         req.target, req.model = st.chosen.target, st.served or st.chosen.litellm_model
         req.model_catalog_id = entry.id if entry else None
         ok = st.status == "ok"

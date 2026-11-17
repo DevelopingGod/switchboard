@@ -96,8 +96,8 @@ models=$(curl -fsS -m 5 -H "Authorization: Bearer $LITELLM_MASTER_KEY" "$LITELLM
 for alias in fast smart-free local private local-code; do
   [[ " $models " == *" $alias "* ]] || red "LiteLLM alias $alias" "not registered"
 done
-[[ -n "${CEREBRAS_API_KEY:-}$(curl -fsS -m 5 "$ROUTER/connections" 2>/dev/null | json '"x" if any(p["provider"]=="cerebras" and p["status"]=="connected" for p in d["providers"]) else ""')" \
-   && " $models " != *" cerebras "* ]] && red "LiteLLM alias cerebras" "Cerebras keyed but alias not registered"
+[[ -n "${CEREBRAS_API_KEY:-}$(curl -fsS -m 5 "$ROUTER/connections" 2>/dev/null | json '"x" if any(p["provider"]=="cerebras" and p["status"]=="connected" and not (p.get("credits") or {}).get("exhausted") for p in d["providers"]) else ""')" \
+   && " $models " != *" cerebras "* ]] && red "LiteLLM alias cerebras" "Cerebras keyed but alias not registered (an exhausted credit balance removes it on purpose)"
 [[ -n "$models" ]] && green "LiteLLM aliases" "$models"
 
 section "Ollama (Windows, via Docker)"

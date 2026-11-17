@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app import hostprobe_client, model_test, secrets
+from app import credits, hostprobe_client, model_test, secrets
 from app.catalog.fetchers import FetchError, fetch
 from app.catalog.job import get_connection, record_fetch
 from app.db import get_session
@@ -28,6 +28,10 @@ router = APIRouter(tags=["connections"])
 
 class KeyIn(BaseModel):
     api_key: SecretStr = Field(min_length=8, max_length=512)
+
+
+class CreditsIn(BaseModel):
+    starting_usd: float = Field(ge=0, le=100_000)
 
 
 class ModelTestIn(BaseModel):
@@ -131,6 +135,8 @@ async def list_connections(session: AsyncSession = Depends(get_session)) -> dict
         }
         if p.kind == "api_key":
             row["key_last4"] = last4.get(p.id)
+        if credits.is_credits(p):
+            row["credits"] = await credits.status(session, p.id) or {"starting_usd": None}
         if p.kind != "cli":
             row["models_available"] = counts.get(p.id, 0)
         else:
@@ -255,6 +261,29 @@ async def put_key(
         "catalog": counts,
         "litellm": changes,
     }
+
+
+@router.put("/connections/{provider_id}/credits", dependencies=[Depends(require_admin)])
+async def put_credits(
+    provider_id: str,
+    body: CreditsIn,
+    session: AsyncSession = Depends(get_session),
+    admin: LiteLLMAdmin = Depends(litellm),
+) -> dict[str, Any]:
+    """Enter (or reset) the starting credit balance; spend is counted from now. Re-syncs LiteLLM so
+    a provider that was cut off at $0 is routable again."""
+    p = _provider(provider_id)
+    if not credits.is_credits(p):
+        raise HTTPException(400, f"{provider_id} does not use credits")
+    await credits.set_balance(session, p.id, body.starting_usd)
+    await session.commit()
+    try:
+        await reconcile(session, admin)
+    except LiteLLMError:
+        raise HTTPException(
+            502, "balance saved, but updating LiteLLM failed; it will retry on restart"
+        ) from None
+    return {"provider": p.id, "credits": await credits.status(session, p.id)}
 
 
 @router.post("/connections/{provider_id}/test", dependencies=[Depends(require_admin)])
