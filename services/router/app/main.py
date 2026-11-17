@@ -1,4 +1,4 @@
-"""Switchboard Router API (SPEC §5). M1a: connections, model catalog, CLI detection."""
+"""Switchboard Router API (SPEC §5). Connections, model catalog, CLI detection and install, onboarding."""
 
 import asyncio
 import logging
@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db, secrets
-from app.api import catalog, connections, health
+from app.api import catalog, connections, health, onboarding
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
@@ -72,3 +72,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(connections.router)
 app.include_router(catalog.router)
+app.include_router(onboarding.router)

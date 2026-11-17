@@ -1,14 +1,12 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { Bot } from "lucide-react";
+import { ProviderCard } from "@/components/kit/ProviderCard";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { PillTabs } from "@/components/kit/PillTabs";
 import { Dial } from "@/components/kit/Dial";
-import { StatCard } from "@/components/kit/StatCard";
-import { RouteChip } from "@/components/kit/RouteChip";
-import { ProviderCard } from "@/components/kit/ProviderCard";
-import { JobCard } from "@/components/kit/JobCard";
 import { CostBadge } from "@/components/kit/CostBadge";
 import { ExplainPopover } from "@/components/kit/ExplainPopover";
 import { Composer } from "@/components/kit/Composer";
@@ -17,7 +15,15 @@ import { Skeleton } from "@/components/kit/Skeleton";
 import { EmptyState } from "@/components/kit/EmptyState";
 import { StatusBadge } from "@/components/kit/StatusBadge";
 import { Logo } from "@/components/kit/Logo";
-import { ColumnsArt } from "@/components/kit/ColumnsArt";
+// Gallery-only components load on demand so the gallery stays under the first-load JS budget.
+const StatCard = dynamic(() => import("@/components/kit/StatCard").then((m) => m.StatCard));
+const RouteChip = dynamic(() => import("@/components/kit/RouteChip").then((m) => m.RouteChip));
+const JobCard = dynamic(() => import("@/components/kit/JobCard").then((m) => m.JobCard));
+// Below the fold and only used here (and in the wizard): keeps it out of the gallery's first-load JS.
+const ColumnsArt = dynamic(() => import("@/components/kit/ColumnsArt").then((m) => m.ColumnsArt));
+// Only used here and in the install dialog: keep it (and LoginSteps) out of the gallery's first-load JS.
+const InstallProgress = dynamic(() => import("@/components/connections/InstallProgress").then((m) => m.InstallProgress));
+const LoginSteps = dynamic(() => import("@/components/connections/LoginSteps").then((m) => m.LoginSteps));
 import { Button } from "@/components/ui/button";
 import { strings, t } from "@/i18n/strings";
 
@@ -48,6 +54,7 @@ const grid = "grid gap-(--gap) sm:grid-cols-2 xl:grid-cols-3";
 const stateLabel = (s: S) => t(`dev.${s}`);
 
 export function Gallery() {
+  const g = strings.dev.gallery;
   const [tab, setTab] = React.useState("day");
   const [autonomy, setAutonomy] = React.useState(1);
   const [budget, setBudget] = React.useState(62);
@@ -60,120 +67,120 @@ export function Gallery() {
         <p className="max-w-2xl text-lg text-ink-muted">{t("dev.intro")}</p>
       </header>
 
-      <Section id="brand" title="Logo and artwork">
+      <Section id="brand" title={g.sections.brand}>
         <div className={grid}>
-          <Cell label="Logo"><GlassPanel tone="strong"><Logo /></GlassPanel></Cell>
+          <Cell label={g.logo}><GlassPanel tone="strong"><Logo /></GlassPanel></Cell>
           <Cell label={t("dev.columnsCaption")}><GlassPanel><ColumnsArt className="text-ink" /></GlassPanel></Cell>
         </div>
       </Section>
 
-      <Section id="glass-panel" title="GlassPanel">
+      <Section id="glass-panel" title={g.sections.glassPanel}>
         <div className={grid}>
-          <Cell label="glass (container, blur 1)"><GlassPanel className="min-h-28"><p className="label">Container</p></GlassPanel></Cell>
-          <Cell label="strong (text surface)"><GlassPanel tone="strong" className="min-h-28"><p>Body text lives on a near-opaque surface.</p></GlassPanel></Cell>
-          <Cell label="solid (code, diffs, logs)">
-            <GlassPanel tone="solid" className="min-h-28"><pre>{`$ ${t("dev.sampleCode")}\n✓ 12 passed`}</pre></GlassPanel>
+          <Cell label={g.glassCaption}><GlassPanel className="min-h-28"><p className="label">{g.container}</p></GlassPanel></Cell>
+          <Cell label={g.strongCaption}><GlassPanel tone="strong" className="min-h-28"><p>{g.strongBody}</p></GlassPanel></Cell>
+          <Cell label={g.solidCaption}>
+            <GlassPanel tone="solid" className="min-h-28"><pre>{`$ ${t("dev.sampleCode")}\n${g.sampleOutput}`}</pre></GlassPanel>
           </Cell>
-          <Cell label="3 nested glass layers → 3rd drops its blur">
-            <GlassPanel blur={2}><GlassPanel><GlassPanel className="min-h-12"><p className="label">Layer 3</p></GlassPanel></GlassPanel></GlassPanel>
+          <Cell label={g.nestedCaption}>
+            <GlassPanel blur={2}><GlassPanel><GlassPanel className="min-h-12"><p className="label">{g.layer3}</p></GlassPanel></GlassPanel></GlassPanel>
           </Cell>
         </div>
       </Section>
 
-      <Section id="pill-tabs" title="PillTabs">
+      <Section id="pill-tabs" title={g.sections.pillTabs}>
         <div className={grid}>
           <Cell label={t("dev.interactive")}>
-            <PillTabs label="Demo" value={tab} onChange={setTab} items={[{ id: "day", label: "Day" }, { id: "week", label: "Week" }, { id: "month", label: "Month" }]} />
+            <PillTabs label={g.tabsLabel} value={tab} onChange={setTab} items={[{ id: "day", label: g.day }, { id: "week", label: g.week }, { id: "month", label: g.month }]} />
           </Cell>
           <Cell label={t("dev.disabled")}>
-            <PillTabs label="Demo disabled" value="day" items={[{ id: "day", label: "Day" }, { id: "week", label: "Week", disabled: true }]} />
+            <PillTabs label={g.tabsDisabledLabel} value="day" items={[{ id: "day", label: g.day }, { id: "week", label: g.week, disabled: true }]} />
           </Cell>
         </div>
       </Section>
 
-      <Section id="dial" title="Dial">
+      <Section id="dial" title={g.sections.dial}>
         <div className="flex flex-wrap items-start gap-8">
-          <Cell label="Autonomy (interactive)">
+          <Cell label={g.autonomyCaption}>
             <GlassPanel tone="strong" className="grid justify-items-center gap-2">
               <Dial size={140} stops={strings.autonomy.levels} value={autonomy} onChange={setAutonomy} label={t("composer.autonomy")} valueText={t("autonomy.valueText", { level: autonomy, name: strings.autonomy.levels[autonomy] })} />
               <p className="font-semibold">{strings.autonomy.levels[autonomy]}</p>
             </GlassPanel>
           </Cell>
-          <Cell label="Budget (interactive)">
-            <GlassPanel tone="strong"><Dial size={140} value={budget} onChange={setBudget} step={5} label="Daily budget" valueText={`${budget}% used`}><span className="stat-value text-3xl!">{budget}%</span></Dial></GlassPanel>
+          <Cell label={g.budgetCaption}>
+            <GlassPanel tone="strong"><Dial size={140} value={budget} onChange={setBudget} step={5} label={g.dailyBudget} valueText={t("dev.gallery.budgetUsed", { pct: budget })}><span className="stat-value text-3xl!">{budget}%</span></Dial></GlassPanel>
           </Cell>
-          <Cell label={`${t("dev.readOnly")} quota`}>
-            <GlassPanel tone="strong"><Dial size={140} value={38} label="Quota left" valueText="38%"><span className="stat-value text-3xl!">38%</span></Dial></GlassPanel>
+          <Cell label={`${t("dev.readOnly")} ${g.quota}`}>
+            <GlassPanel tone="strong"><Dial size={140} value={38} label={g.quotaLeft} valueText="38%"><span className="stat-value text-3xl!">38%</span></Dial></GlassPanel>
           </Cell>
-          <Cell label={t("dev.loading")}><GlassPanel tone="strong"><Dial size={140} value={0} label="Loading" state="loading" /></GlassPanel></Cell>
-          <Cell label={t("dev.error")}><GlassPanel tone="strong"><Dial size={140} value={20} label="Quota" state="error" /></GlassPanel></Cell>
-          <Cell label={t("dev.disabled")}><GlassPanel tone="strong"><Dial size={140} value={70} label="Budget" state="disabled" onChange={() => {}} /></GlassPanel></Cell>
+          <Cell label={t("dev.loading")}><GlassPanel tone="strong"><Dial size={140} value={0} label={g.loadingDial} state="loading" /></GlassPanel></Cell>
+          <Cell label={t("dev.error")}><GlassPanel tone="strong"><Dial size={140} value={20} label={g.quotaDial} state="error" /></GlassPanel></Cell>
+          <Cell label={t("dev.disabled")}><GlassPanel tone="strong"><Dial size={140} value={70} label={g.budgetDial} state="disabled" onChange={() => {}} /></GlassPanel></Cell>
         </div>
       </Section>
 
-      <Section id="stat-card" title="StatCard">
+      <Section id="stat-card" title={g.sections.statCard}>
         <div className={grid}>
           {allStates.map((s) => (
             <Cell key={s} label={stateLabel(s)}>
               <StatCard
-                label="Spend today"
-                value="$1.42"
-                hint={t("stat.vsLast", { delta: "−12%" })}
+                label={g.spendToday}
+                value={g.spendValue}
+                hint={t("stat.vsLast", { delta: g.spendDelta })}
                 state={s}
                 onRetry={() => {}}
-                visual={<Dial size={84} value={62} label="Budget used" valueText="62%"><span className="text-sm font-bold">62%</span></Dial>}
+                visual={<Dial size={84} value={62} label={g.budgetUsedLabel} valueText="62%"><span className="text-sm font-bold">62%</span></Dial>}
               />
             </Cell>
           ))}
         </div>
       </Section>
 
-      <Section id="route-chip" title="RouteChip">
+      <Section id="route-chip" title={g.sections.routeChip}>
         <div className="flex flex-wrap items-start gap-6">
           {allStates.map((s) => (
-            <Cell key={s} label={stateLabel(s)}><RouteChip target="Claude Code" rule="refactor-large" state={s} onClick={() => {}} /></Cell>
+            <Cell key={s} label={stateLabel(s)}><RouteChip target={g.routeTarget} rule={g.routeRule} state={s} onClick={() => {}} /></Cell>
           ))}
         </div>
       </Section>
 
-      <Section id="provider-card" title="ProviderCard">
+      <Section id="provider-card" title={g.sections.providerCard}>
         <div className={grid}>
           {allStates.map((s) => (
             <Cell key={s} label={stateLabel(s)}>
-              <ProviderCard name="Gemini CLI" kind="cli" status="healthy" free quotaLeft={72} lastError={s === "error" ? "401 from upstream: re-login needed" : undefined} state={s} />
+              <ProviderCard name={g.providerCli} kind="cli" status="healthy" free quotaLeft={72} lastError={s === "error" ? g.providerError : undefined} state={s} />
             </Cell>
           ))}
-          <Cell label="Warning · paid API"><ProviderCard name="Groq" kind="api" status="warning" quotaLeft={9} trainsOnData /></Cell>
-          <Cell label="Offline · local"><ProviderCard name="Ollama" kind="local" status="offline" free /></Cell>
+          <Cell label={g.warningCaption}><ProviderCard name={g.providerApi} kind="api" status="warning" quotaLeft={9} trainsOnData /></Cell>
+          <Cell label={g.offlineCaption}><ProviderCard name={g.providerLocal} kind="local" status="offline" free /></Cell>
         </div>
       </Section>
 
-      <Section id="job-card" title="JobCard">
+      <Section id="job-card" title={g.sections.jobCard}>
         <div className={grid}>
           {allStates.map((s) => (
             <Cell key={s} label={stateLabel(s)}>
-              <JobCard title="Fix failing tests in repo X" agent="Claude Code" status="running" progress={64} elapsed="3m" route={{ target: "claude-code", rule: "code-fix" }} cost={{ kind: "estimate", amount: "$0.18" }} state={s} />
+              <JobCard title={g.jobFix} agent={g.routeTarget} status="running" progress={64} elapsed={g.jobElapsed} route={{ target: "claude-code", rule: "code-fix" }} cost={{ kind: "estimate", amount: g.jobEstimate }} state={s} />
             </Cell>
           ))}
-          <Cell label={t("status.needsApproval")}><JobCard title="Push branch fix/tests" agent="Codex" status="needsApproval" cost={{ kind: "free" }} /></Cell>
-          <Cell label={t("status.queued")}><JobCard title="Write release notes" agent="Gemini CLI" status="queued" /></Cell>
-          <Cell label={t("status.done")}><JobCard title="Summarise PR #12" agent="OpenCode" status="done" cost={{ kind: "paid", amount: "$0.04" }} /></Cell>
+          <Cell label={t("status.needsApproval")}><JobCard title={g.jobPush} agent={g.agentCodex} status="needsApproval" cost={{ kind: "free" }} /></Cell>
+          <Cell label={t("status.queued")}><JobCard title={g.jobNotes} agent={g.providerCli} status="queued" /></Cell>
+          <Cell label={t("status.done")}><JobCard title={g.jobSummary} agent={g.agentOpenCode} status="done" cost={{ kind: "paid", amount: g.jobPaid }} /></Cell>
         </div>
       </Section>
 
-      <Section id="cost-badge" title="CostBadge">
+      <Section id="cost-badge" title={g.sections.costBadge}>
         <div className="flex flex-wrap items-start gap-6">
-          <Cell label="free"><CostBadge kind="free" /></Cell>
-          <Cell label="paid"><CostBadge kind="paid" amount="$0.04" /></Cell>
-          <Cell label="estimate"><CostBadge kind="estimate" amount="$1.20" /></Cell>
-          <Cell label="unknown"><CostBadge kind="unknown" /></Cell>
+          <Cell label={g.costFree}><CostBadge kind="free" /></Cell>
+          <Cell label={g.costPaid}><CostBadge kind="paid" amount={g.jobPaid} /></Cell>
+          <Cell label={g.costEstimate}><CostBadge kind="estimate" amount={g.costEstimateAmount} /></Cell>
+          <Cell label={g.costUnknown}><CostBadge kind="unknown" /></Cell>
           <Cell label={t("dev.loading")}><CostBadge kind="paid" state="loading" /></Cell>
           <Cell label={t("dev.error")}><CostBadge kind="paid" state="error" /></Cell>
-          <Cell label={t("dev.disabled")}><CostBadge kind="paid" amount="$0.04" state="disabled" /></Cell>
+          <Cell label={t("dev.disabled")}><CostBadge kind="paid" amount={g.jobPaid} state="disabled" /></Cell>
         </div>
       </Section>
 
-      <Section id="status-badge" title="StatusBadge">
+      <Section id="status-badge" title={g.sections.statusBadge}>
         <GlassPanel tone="strong" className="flex flex-wrap gap-6">
           {(["healthy", "warning", "error", "offline", "queued", "running", "needsApproval", "done", "failed"] as const).map((s) => (
             <StatusBadge key={s} status={s} />
@@ -181,41 +188,87 @@ export function Gallery() {
         </GlassPanel>
       </Section>
 
-      <Section id="explain-popover" title="ExplainPopover">
+      <Section id="explain-popover" title={g.sections.explainPopover}>
         <div className="flex flex-wrap items-center gap-6">
           <Cell label={t("dev.default")}>
             <GlassPanel tone="strong" className="flex items-center gap-1 py-2">
-              <span className="font-semibold">Fallbacks</span>
-              <ExplainPopover topic="Fallbacks" title="What are fallbacks?" learnMoreHref="#fallbacks">
-                If the first model is rate-limited, Switchboard tries the next one in the chain. You see which one answered.
+              <span className="font-semibold">{g.fallbacks}</span>
+              <ExplainPopover topic={g.fallbacks} title={g.fallbacksTitle} learnMoreHref="#fallbacks">
+                {g.fallbacksBody}
               </ExplainPopover>
             </GlassPanel>
           </Cell>
           <Cell label={t("dev.disabled")}>
             <GlassPanel tone="strong" className="flex items-center gap-1 py-2">
-              <span className="font-semibold">Fallbacks</span>
-              <ExplainPopover topic="Fallbacks" disabled>unused</ExplainPopover>
+              <span className="font-semibold">{g.fallbacks}</span>
+              <ExplainPopover topic={g.fallbacks} disabled>{g.unused}</ExplainPopover>
             </GlassPanel>
           </Cell>
         </div>
       </Section>
 
-      <Section id="composer" title="Composer">
+      <Section id="composer" title={g.sections.composer}>
         <div className="grid gap-(--gap) xl:grid-cols-2">
           {allStates.map((s) => (
             <Cell key={s} label={stateLabel(s)}>
-              <Composer state={s} defaultValue={s === "empty" ? "" : "Add dark-mode tests to the settings page"} disabledReason={t("home.readOnlyNote")} />
+              <Composer state={s} defaultValue={s === "empty" ? "" : g.composerText} disabledReason={t("home.readOnlyNote")} />
             </Cell>
           ))}
         </div>
       </Section>
 
-      <Section id="toast" title="Toast">
+      <Section id="install-progress" title={g.sections.installProgress}>
+        <div className="grid gap-(--gap) xl:grid-cols-3">
+          <Cell label={g.installRunning}>
+            <GlassPanel tone="strong">
+              <InstallProgress
+                name="OpenCode"
+                version="1.19.6"
+                phase="running"
+                entries={[
+                  { t: "Downloading opencode 1.19.6", r: false, p: null },
+                  { t: `${"#".repeat(45)}${" ".repeat(27)} 62.0%`, r: true, p: 62 },
+                ]}
+              />
+            </GlassPanel>
+          </Cell>
+          <Cell label={g.installSuccess}>
+            <GlassPanel tone="strong">
+              <InstallProgress
+                name="OpenCode"
+                version="1.19.6"
+                phase="ok"
+                entries={g.installLog.split("\n").map((t) => ({ t, r: false, p: null }))}
+                next={
+                  <LoginSteps
+                    command="opencode auth login"
+                    binPath="~/.opencode/bin/opencode"
+                    binDir="~/.opencode/bin"
+                    onUserPath={false}
+                  />
+                }
+              />
+            </GlassPanel>
+          </Cell>
+          <Cell label={g.installFailure}>
+            <GlassPanel tone="strong">
+              <InstallProgress
+                name="OpenCode"
+                version="1.19.6"
+                phase="failed"
+                entries={g.installFailLog.split("\n").map((t) => ({ t, r: false, p: null }))}
+              />
+            </GlassPanel>
+          </Cell>
+        </div>
+      </Section>
+
+      <Section id="toast" title={g.sections.toast}>
         <div className={grid}>
-          <Cell label="info"><ToastView tone="info" title={t("dev.toastTitle")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
-          <Cell label="success"><ToastView tone="success" title={t("dev.toastTitle")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
-          <Cell label="warning"><ToastView tone="warning" title={t("toast.warning")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
-          <Cell label="error"><ToastView tone="error" title={t("state.error")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastInfo}><ToastView tone="info" title={t("dev.toastTitle")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastSuccess}><ToastView tone="success" title={t("dev.toastTitle")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastWarning}><ToastView tone="warning" title={t("toast.warning")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
+          <Cell label={g.toastError}><ToastView tone="error" title={t("state.error")} body={t("dev.toastBody")} onClose={() => {}} /></Cell>
         </div>
         <div>
           <Button variant="glass" onClick={() => push({ tone: "success", title: t("dev.toastTitle"), body: t("dev.toastBody") })}>
@@ -224,7 +277,7 @@ export function Gallery() {
         </div>
       </Section>
 
-      <Section id="skeleton" title="Skeleton">
+      <Section id="skeleton" title={g.sections.skeleton}>
         <GlassPanel tone="strong" className="grid max-w-md gap-3">
           <Skeleton className="h-6 w-1/2" />
           <Skeleton className="h-4" />
@@ -232,7 +285,7 @@ export function Gallery() {
         </GlassPanel>
       </Section>
 
-      <Section id="empty-state" title="EmptyState">
+      <Section id="empty-state" title={g.sections.emptyState}>
         <div className={grid}>
           {(["default", "loading", "error", "disabled"] as const).map((s) => (
             <Cell key={s} label={stateLabel(s)}>

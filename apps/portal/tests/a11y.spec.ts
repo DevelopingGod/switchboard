@@ -3,10 +3,13 @@ import AxeBuilder from "@axe-core/playwright";
 import { ready } from "./helpers";
 
 const schemes = ["light", "dark"] as const;
-const pages = ["/", "/dev/components", "/chat", "/settings"];
+const pages = ["/", "/dev/components", "/chat", "/settings", "/connections", "/welcome?step=1", "/welcome?step=2", "/welcome?step=3", "/welcome?step=4", "/welcome?step=5"];
 
-async function audit(page: Page, label: string) {
-  const results = await new AxeBuilder({ page })
+/** `scope`: audit only this part of the page (a modal: the page behind it is inert and dimmed on purpose). */
+async function audit(page: Page, label: string, scope?: string) {
+  const builder = new AxeBuilder({ page });
+  if (scope) builder.include(scope);
+  const results = await builder
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
     .analyze();
   const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
@@ -45,6 +48,22 @@ for (const scheme of schemes) {
       await page.keyboard.press("Control+k");
       await expect(page.getByRole("dialog")).toBeVisible();
       await audit(page, `palette ${scheme}`);
+    });
+
+    test("connections · key form open", async ({ page }) => {
+      await page.goto("/connections");
+      await ready(page);
+      await page.getByRole("article", { name: "Cerebras" }).getByRole("button", { name: "Add key" }).click();
+      await expect(page.getByLabel("Cerebras API key")).toBeVisible();
+      await audit(page, `key form ${scheme}`);
+    });
+
+    test("connections · install review dialog open", async ({ page }) => {
+      await page.goto("/connections");
+      await ready(page);
+      await page.getByRole("article", { name: "Grok Build" }).getByRole("button", { name: "Install" }).click();
+      await expect(page.getByRole("dialog").getByText("Never uses sudo.")).toBeVisible();
+      await audit(page, `install dialog ${scheme}`, '[role="dialog"]');
     });
 
     test("appearance menu and explain popover open", async ({ page }) => {

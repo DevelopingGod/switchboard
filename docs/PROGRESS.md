@@ -8,10 +8,10 @@
 | Milestone | Status | Branch / PR | Model used | Notes |
 |---|---|---|---|---|
 | M0 Infra | ✅ Merged | m0 / #1 | Opus 5.5, medium | doctor.sh green; fast + local verified |
-| M0.5 Design system | 🔎 In review | m05 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
-| M1 Connections + wizard | ⏳ Next | — | Sonnet 5.5, medium | Carry-over items listed below |
-| M1a Router backend | 🔎 In review | m1a | Opus 5.5 | Split from M1; see M1a outcome |
-| M1b Connections UI + wizard | ⏳ Next | — | Sonnet 5.5 | UI on the M1a API; see carry-over to M1b |
+| M0.5 Design system | ✅ Merged | m05 / #2 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
+| M1 Connections + wizard | 🔨 Split into M1a + M1b | — | Sonnet 5.5, medium | Done when M1b merges; carry-over items listed below |
+| M1a Router backend | ✅ Merged | m1a / #4 | Opus 5.5 | Split from M1; see M1a outcome |
+| M1b Connections UI + wizard | 🔎 In review | m1b | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
 | M2 Chat + Router | ⏳ | — | Opus 5.5, high | |
 | M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
@@ -115,3 +115,36 @@
 - Gemini `gemini-3.5-flash` hung on direct `generateContent` on 2026-11-17 (provider-side); `smart-free` served via `local`. Re-check, or pin another Flash model, before M2.
 - Recommended-model badges and "Use for…" (SPEC §6.4 UI) read `/catalog`; scores/recommender stay in M3. `model_stats` only has `task_type="test"` rows so far.
 - `GROQ_API_KEY`/`GEMINI_API_KEY` can now be removed from `deploy/.env` (doctor shows yellow until then).
+
+## M1b outcome
+
+- Guide: [docs/m1b.md](m1b.md). The portal talks to the router only from the Next.js server (server components, server actions, one SSE route handler). `ROUTER_ADMIN_TOKEN` lives in `apps/portal/.env.local` (written by `setup-wsl.sh`, checked by `doctor.sh`) and never reaches the browser; `npm run test:bundle` proves it (build with a sentinel token, grep client output and served pages; negative control verified).
+- **Connections** (`/connections`, real `/connections` + `/catalog` data): add/test/replace/remove key with inline confirm, status, last error, last 4, free limits, privacy label, paid label; up to three recommended models per card with Best for code / Fastest / Largest context / Free badges from catalog tags (`lib/recommend.ts`, unit-tested) and a per-model Test. Live smoke test on this machine: Groq connection test and a 338 ms model test through the portal.
+- **CLI install** (new hostprobe endpoints, via router): plan → you read the source URL, docs link, pinned version, installer SHA-256, exact commands and side effects → confirm → streamed log → card flips. Methods are each vendor's current recommended Linux install (claude/codex/grok/opencode installer scripts, gemini via npm), pinned, downloaded to a file and run from it, never `curl | bash`, never sudo (shim + root refusal), single-use plans, one install at a time. All five plans were fetched against the real stack (hashes match the scripts reviewed); nothing was installed, because the confirm click is yours. **Login** is a copyable terminal command plus **Check again** (fresh probe).
+- **Wizard** (`/welcome`): name + Simple/Pro → goals (incl. Writing/content) → connect only needed providers → preset → finish with a "Try it" placeholder; skippable, resumable on any device (state in `system_meta`, `GET/PUT /onboarding`); first run redirects `/` to the wizard. Goal → provider mapping is in `config/providers.yaml` (`goals:`); `xai` added as a paid API-key provider; claude-code, grok-build and xai are labelled paid.
+- **Home:** four quick-start chips fill the composer (route in M2). **Carry-overs done:** Dial loading is a shimmering ring; ColumnsArt redrawn with theme-token fills; gallery user-facing text moved to `strings.ts`; `cacheComponents` re-evaluated and left **off** (reasons in `next.config.ts` and docs/m1b.md); dev/start bind `127.0.0.1`.
+- **Gemini:** swept the catalog with `scripts/gemini-sweep.py` (details in docs/m1b.md). The old pin `gemini-3.5-flash` answered 0/3 (timeout, 503s). `smart-free` is now pinned to `gemini-3.1-flash-lite` (3/3, ~1.2 s, not a preview; `gemini-3-flash-preview` also went 3/3 if you want a stronger model), with `num_retries: 0` so fallback to local takes one 30 s timeout instead of two. Verified live. Three samples per model: a spot check.
+- Checks: router 45 pytest (15 new), hostprobe 36 unittest (21 new; 52 after the follow-up below), ruff clean; portal 24 unit (33 after the follow-up), 96 Playwright (99 after) (axe serious/critical none on `/connections`, every wizard step, key form and install dialog, both themes; visual baselines regenerated, 46 now); Lighthouse (mobile profile) perf 98–99, a11y 100, best-practices 100 on gallery, Home, Connections and a wizard step in both themes; first-load JS 190–195 KB gzip on product routes (`/dev/components` 199.9 KB, at the edge of the 200 KB budget).
+- Screenshots (fixture data, no real key suffixes): `docs/screens/connections-{day,dusk}.webp` and `welcome-{1..5}-{day,dusk}.webp`.
+
+## M1b follow-up: login-status verification, install log UX, PATH
+
+- **Login-status commands (A):** OpenCode 1.19.6 (installed through the portal) is the only CLI installed in WSL, so the only one verified. Real `opencode auth list` prints `1 credentials` / `0 credentials` with ANSI codes and box-drawing characters even under `NO_COLOR=1`; the existing parser is correct and now has tests built from the recorded bytes (docs/m1a.md table updated). claude, codex and gemini exist only as Windows copies and grok isn't installed, so `claude auth status`, `codex login status` (already confirmed via `--help`), the gemini and grok credential-file paths stay unverified until each is installed in WSL.
+- **Install log (B):** root cause of one-line-per-redraw: Python text mode turned every `\r` into `\n`. hostprobe now reads bytes and emits `{t, r, p}` entries (redraws replace in place, ANSI stripped, percent parsed, redraws throttled). The dialog shows stages (Downloading → Installing → Verifying → Done), one progress bar, and the raw log in a collapsed Details section; success shows "OpenCode 1.19.6 installed", the button changes from Stop install to Done, the card refreshes and **Log in next** appears; failure shows an error summary and the last 20 lines. Tests use a recorded real `curl -#` capture. Gallery section `install-progress` (running / success / failure) gives the visual baselines; Connections, toast and skeleton baselines regenerated (login layout and a new gallery section above them).
+- **PATH (C):** hostprobe reports `bin_path`, `bin_dir` and `on_user_path` (one fixed `bash -lic` call, home-relative paths). When a new terminal can't find the binary, the dialog and cards show a one-line PATH fix with Copy, then the login command, then the login command by full path. Not built: appending to `~/.bashrc` from the portal with a confirmation (another hostprobe write action); the copyable line is the only path. Your OpenCode reports on-path because `~/.bashrc` line 122 already adds it.
+- Checks: hostprobe 52 unittest, router 45 pytest, ruff clean; portal 33 unit, 99 Playwright (axe, both themes; 48 visual baselines, stable over repeated runs), eslint clean; Lighthouse perf 97-100 / a11y 99-100 / best-practices 100; first-load JS 190-195 KB on product routes, `/dev/components` 199.4 KB (gallery-only kit components are now lazy-loaded to stay under the cap; it is still the closest to the 200 KB budget). The install-dialog axe test audits the dialog itself, because axe scores the page behind the dimmed modal overlay as low-contrast (the page is audited un-dimmed elsewhere).
+- Still open: verify the other CLIs' status commands as they're installed (see "Carry-over to M2").
+
+## Carry-over to M2
+
+- Presets, goals and the name are stored but unused: the rules engine applies the preset; the chips and composer route.
+- "Try it" is a placeholder; "Use for…" and `model_stats` scoring stay in M3.
+- Add Cerebras / Mistral / OpenRouter / Zen / xAI keys through the UI to light up `fast` order 2, `general`, `explore`, `code-free`, then check live fetchers against the recorded shapes (still open from M1a).
+- Verify each CLI's real login-status command after your installs (M1b item 7): `claude auth status`, `gemini`, `grok`, `opencode auth list` are still marked "Not yet" in docs/m1a.md; update hostprobe, its tests and that table.
+- `GROQ_API_KEY`/`GEMINI_API_KEY` can be removed from `deploy/.env` (doctor stays yellow until then).
+
+## Carry-over to M7
+
+- **The portal has no user auth yet.** It holds the router admin token server-side and exposes every admin action to anyone who can reach port 3000, so it is bound to `127.0.0.1` only (doctor checks). Login is required before any remote access (Tailscale or otherwise).
+- Visual baselines are Linux Chromium only (unchanged); CI must use the same browser build.
+- The gallery's first-load JS is 199.9 KB: any further growth in shared code needs a trim or an explicit budget decision.

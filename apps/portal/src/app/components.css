@@ -86,6 +86,19 @@
 }
 @keyframes shimmer { to { transform: translateX(100%); } }
 
+/* Loading Dial: a light arc orbits the ring (pathLength 100). Static under reduced motion. */
+.dial-orbit {
+  opacity: 0.9;
+  animation: dial-orbit 1.6s linear infinite;
+}
+@keyframes dial-orbit {
+  from { stroke-dashoffset: 22; }
+  to { stroke-dashoffset: -78; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dial-orbit { animation: none; stroke-dashoffset: -30; }
+}
+
 .breathe { animation: breathe var(--breathe) ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { transform: scale(1); opacity: 1; }

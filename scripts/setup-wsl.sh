@@ -82,6 +82,17 @@ fill_secret HOSTPROBE_TOKEN "$(openssl rand -hex 32)"
 set -a; . "$ENV_FILE"; set +a
 say "Back up SWITCHBOARD_SECRET_KEY and LITELLM_SALT_KEY (docs/m1a.md, Backups): stored keys can't be decrypted without them."
 
+# --- 4b. Portal env (M1b). The portal runs outside Docker, so it gets its own server-side file with
+# just the two values it needs. Never overwritten; never read by the browser (docs/m1b.md).
+PORTAL_ENV="$ROOT/apps/portal/.env.local"
+if [[ ! -f "$PORTAL_ENV" ]]; then
+  printf 'ROUTER_URL=http://127.0.0.1:%s\nROUTER_ADMIN_TOKEN=%s\n' "${ROUTER_PORT:-8100}" "$ROUTER_ADMIN_TOKEN" >"$PORTAL_ENV"
+  chmod 600 "$PORTAL_ENV"
+  say "Created apps/portal/.env.local (ROUTER_URL, ROUTER_ADMIN_TOKEN)"
+elif ! grep -qx "ROUTER_ADMIN_TOKEN=$ROUTER_ADMIN_TOKEN" "$PORTAL_ENV"; then
+  warn "apps/portal/.env.local has a different ROUTER_ADMIN_TOKEN than deploy/.env; fix it by hand (not overwritten)."
+fi
+
 # --- 5. hostprobe (native systemd user service; CLI detection for the router) --
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"

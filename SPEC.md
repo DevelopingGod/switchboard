@@ -309,9 +309,9 @@ Users must always know **what** they are using, **why** it was picked, and **wha
 
 **First-run wizard (≤ 5 minutes, skippable, resumable)**
 1. *Welcome*: one sentence on what Switchboard does; choose mode **Simple** (default) or **Pro**.
-2. *What do you want to do?* checkboxes: chat, code, research, images, video, private work.
+2. *What do you want to do?* checkboxes: chat, writing/content, code, research, images, video, private work. The goal → provider mapping lives in `config/providers.yaml` (`goals:`).
 3. *Connect*: only the providers needed for the chosen goals. Each card answers in plain words: what it is · free or paid · limits · whether data may be used for training · one-click login/test.
-4. *Pick a preset*: **Free only** / **Balanced** (free + your subscriptions) / **Best quality**. Presets write `rules.yaml`; editable later.
+4. *Pick a preset*: **Free only** / **Balanced** (free + your subscriptions) / **Best quality**. Presets write `rules.yaml`; editable later. (M1b saves the choice in the Router DB, `system_meta` key `onboarding`; the M2 rules engine applies it.)
 5. *Try it*: three sample tasks (a chat, an image, a small code job) that show routing, cost and approvals live.
 
 **Always-on explanations**

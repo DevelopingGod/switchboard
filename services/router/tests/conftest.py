@@ -34,6 +34,7 @@ for k in (
     "MISTRAL_API_KEY",
     "OPENROUTER_API_KEY",
     "OPENCODE_ZEN_API_KEY",
+    "XAI_API_KEY",
 ):
     os.environ.pop(k, None)
 
@@ -200,6 +201,9 @@ def hostprobe_up(mock_http):
                     "logged_in": True,
                     "windows_only": False,
                     "login_method": "codex login status",
+                    "bin_path": "~/.local/bin/codex",
+                    "bin_dir": "~/.local/bin",
+                    "on_user_path": False,
                 },
                 "gemini": {"installed": True, "version": "0.40.0", "logged_in": False, "windows_only": False},
                 "grok": {"installed": False, "version": None, "logged_in": None, "windows_only": False},

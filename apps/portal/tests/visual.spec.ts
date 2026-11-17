@@ -15,6 +15,7 @@ const sections = [
   "status-badge",
   "explain-popover",
   "composer",
+  "install-progress",
   "toast",
   "skeleton",
   "empty-state",
@@ -38,6 +39,20 @@ for (const scheme of ["light", "dark"] as const) {
       await ready(page);
       await expect(page).toHaveScreenshot(`shell-home-${scheme}.png`);
     });
+
+    test("connections", async ({ page }) => {
+      await page.goto("/connections");
+      await ready(page);
+      await expect(page).toHaveScreenshot(`connections-${scheme}.png`, { fullPage: true });
+    });
+
+    for (const n of [1, 2, 3, 4, 5]) {
+      test(`wizard · step ${n}`, async ({ page }) => {
+        await page.goto(`/welcome?step=${n}`);
+        await ready(page);
+        await expect(page).toHaveScreenshot(`wizard-${n}-${scheme}.png`, { fullPage: true });
+      });
+    }
 
     test("app shell · command palette", async ({ page }) => {
       await page.goto("/");

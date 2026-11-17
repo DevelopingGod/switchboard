@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Switchboard health check. GREEN/RED = components of shipped milestones (M0, M1a); YELLOW = later
+# Switchboard health check. GREEN/RED = components of shipped milestones (M0, M1a, M1b); YELLOW = later
 # milestones or advisory. Exits non-zero if anything is RED.
 set -uo pipefail
 
@@ -211,6 +211,25 @@ done < <(echo "$clis" | python3 -c '
 import json, sys
 for k, c in json.load(sys.stdin)["clis"].items():
     print("|".join([k, c["status"], c.get("version") or "?"]))' 2>/dev/null)
+
+section "Portal (M1b)"
+PORTAL_ENV="$ROOT/apps/portal/.env.local"
+if [[ ! -f "$PORTAL_ENV" ]]; then
+  red "portal env" "apps/portal/.env.local missing — run scripts/setup-wsl.sh"
+elif grep -qx "ROUTER_ADMIN_TOKEN=${ROUTER_ADMIN_TOKEN:-}" "$PORTAL_ENV" && [[ -n "${ROUTER_ADMIN_TOKEN:-}" ]]; then
+  green "portal env" "ROUTER_ADMIN_TOKEN matches deploy/.env (server-side only)"
+else
+  red "portal env" "ROUTER_ADMIN_TOKEN in apps/portal/.env.local differs from deploy/.env"
+fi
+# The portal holds the admin token and has no login yet (carry-over to M7): it must stay on loopback.
+bound=$(ss -ltnH 'sport = :3000' 2>/dev/null | awk '{print $4}')
+if [[ -z "$bound" ]]; then
+  yellow "portal :3000" "not running — cd apps/portal && npm run dev (binds 127.0.0.1)"
+elif grep -qE '^(0\.0\.0\.0|\*|\[::\]|::):3000$' <<<"$bound"; then
+  red "portal :3000" "listening on all interfaces ($(echo $bound)) — start it with next dev/start -H 127.0.0.1 (npm run dev does)"
+else
+  green "portal :3000" "bound to $(echo $bound) only"
+fi
 
 echo
 if (( RED == 0 )); then printf '\033[32mAll checks green.\033[0m\n'

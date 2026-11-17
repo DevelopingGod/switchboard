@@ -41,10 +41,10 @@ const specs: Record<Status, Spec> = {
 };
 
 /** Status is always icon + text + color, never color alone. Live states get a breathing dot. */
-export function StatusBadge({ status, className }: { status: Status; className?: string }) {
+export function StatusBadge({ status, label, className }: { status: Status; label?: string; className?: string }) {
   const { icon: Icon, color, breathing } = specs[status];
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold", color, className)}>
+    <span className={cn("inline-flex shrink-0 items-center gap-1.5 text-[0.8125rem] font-semibold whitespace-nowrap", color, className)}>
       {breathing ? (
         <span aria-hidden className="relative grid size-4 place-items-center">
           <span className="breathe absolute size-2.5 rounded-full bg-current opacity-30" />
@@ -53,7 +53,7 @@ export function StatusBadge({ status, className }: { status: Status; className?:
       ) : (
         <Icon aria-hidden className="size-4" strokeWidth={2.25} />
       )}
-      <span>{t(`status.${status}` as StringKey)}</span>
+      <span>{label ?? t(`status.${status}` as StringKey)}</span>
     </span>
   );
 }

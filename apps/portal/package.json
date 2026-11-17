@@ -6,10 +6,10 @@
     "gen:tokens": "tsx scripts/gen-tokens.mts",
     "gen:sky": "tsx scripts/gen-sky.mts",
     "predev": "npm run gen:tokens",
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "prebuild": "npm run gen:tokens",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -18,7 +18,8 @@
     "test:visual:update": "playwright test tests/visual.spec.ts --update-snapshots",
     "screens": "tsx scripts/screens.mts",
     "lighthouse": "tsx scripts/lighthouse.mts",
-    "budget": "tsx scripts/js-budget.mts"
+    "budget": "tsx scripts/js-budget.mts",
+    "test:bundle": "tsx scripts/check-bundle-secrets.mts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",
@@ -34,7 +35,8 @@
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
