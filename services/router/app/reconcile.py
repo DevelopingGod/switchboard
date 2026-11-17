@@ -27,6 +27,8 @@ def deployment_spec(d: AliasDeployment, registry: Registry) -> tuple[dict[str, A
     if d.timeout:
         params["timeout"] = d.timeout
         params["stream_timeout"] = d.timeout
+    if d.num_retries is not None:
+        params["num_retries"] = d.num_retries
     if d.order:
         params["order"] = d.order
     info = {"sb_key": d.key, "provider": p.id, "privacy": p.privacy}

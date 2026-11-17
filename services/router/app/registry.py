@@ -24,6 +24,7 @@ class Provider:
     notes: str | None = None
     bin: str | None = None
     login_hint: str | None = None
+    paid: bool = False
     raw: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
@@ -34,6 +35,7 @@ class AliasDeployment:
     model: str
     order: int | None = None
     timeout: int | None = None
+    num_retries: int | None = None  # overrides router_settings.num_retries for this deployment
 
     @property
     def key(self) -> str:
@@ -45,6 +47,7 @@ class AliasDeployment:
 class Registry:
     providers: dict[str, Provider]
     aliases: list[AliasDeployment]
+    goals: dict[str, list[str]] = field(default_factory=dict)
 
     def api_providers(self) -> list[Provider]:
         return [p for p in self.providers.values() if p.kind == "api_key"]
@@ -77,6 +80,7 @@ def load_registry(config_dir: Path | None = None) -> Registry:
             notes=p.get("notes"),
             bin=p.get("bin"),
             login_hint=p.get("login_hint"),
+            paid=bool(p.get("paid", False)),
             raw=p,
         )
     aliases = [
@@ -86,6 +90,7 @@ def load_registry(config_dir: Path | None = None) -> Registry:
             model=str(d["model"]),
             order=d.get("order"),
             timeout=d.get("timeout"),
+            num_retries=d.get("num_retries"),
         )
         for alias, deployments in (data.get("aliases") or {}).items()
         for d in deployments
@@ -93,7 +98,11 @@ def load_registry(config_dir: Path | None = None) -> Registry:
     unknown = {a.provider for a in aliases} - providers.keys()
     if unknown:
         raise ValueError(f"aliases reference unknown providers: {sorted(unknown)}")
-    return Registry(providers=providers, aliases=aliases)
+    goals = {g: list(ids) for g, ids in (data.get("goals") or {}).items()}
+    bad = {pid for ids in goals.values() for pid in ids} - providers.keys()
+    if bad:
+        raise ValueError(f"goals reference unknown providers: {sorted(bad)}")
+    return Registry(providers=providers, aliases=aliases, goals=goals)
 
 
 @dataclass(frozen=True)

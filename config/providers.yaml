@@ -72,6 +72,18 @@ providers:
     free_limits: "Rotating free models (e.g. Big Pickle, *-free); limits per model"
     notes: Some free models may use your data to improve the model.
 
+  xai:
+    kind: api_key
+    name: xAI (Grok API)
+    base_url: https://api.x.ai/v1
+    catalog: openai          # GET {base_url}/models, Bearer auth
+    litellm_prefix: xai
+    env_key: XAI_API_KEY
+    paid: true
+    privacy: varies
+    free_limits: "Paid, pay per token / image / second. No free tier."
+    notes: Optional. Text, plus Imagine image and video generation (M5).
+
   ollama:
     kind: local
     name: Ollama (local)
@@ -86,6 +98,7 @@ providers:
     name: Claude Code
     bin: claude
     privacy: varies
+    paid: true
     login_hint: "claude  (then /login in the browser)"
     notes: Claude Pro subscription; official CLI only.
 
@@ -108,6 +121,7 @@ providers:
     name: Grok Build
     bin: grok
     privacy: varies
+    paid: true
     login_hint: grok auth login
     notes: Beta. Headless use may bill an xAI API key — verify before routing jobs (SPEC §12).
 
@@ -117,6 +131,17 @@ providers:
     bin: opencode
     privacy: varies
     login_hint: opencode auth login
+
+# First-run wizard (SPEC §8b): which providers each goal needs. Goal ids are labelled in the portal
+# (strings.ts); this file only decides the mapping. Providers marked `paid: true` are labelled so.
+goals:
+  chat: [groq, cerebras, mistral]
+  writing: [gemini, mistral]
+  code: [claude-code, codex, grok-build, opencode, opencode-zen]
+  research: [gemini]
+  images: [gemini, xai]
+  video: [xai]
+  private: [ollama]
 
 # LiteLLM aliases (SPEC §6.2). The router reconciles these into LiteLLM's DB (the single source of
 # truth for routable models, see docs/m1a.md). A deployment is registered only when its provider

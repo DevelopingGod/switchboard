@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -165,10 +166,21 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.get(base + "/cli", token="wrong" * 8)[0], 401)
         self.assertEqual(self.get(base + "/health")[0], 200)
 
-    def test_only_get_cli_and_health(self):
+    def test_unknown_paths_and_methods(self):
         base, _ = self.start()
         self.assertEqual(self.get(base + "/run?cmd=ls")[0], 404)
-        self.assertEqual(self.get(base + "/cli", method="POST")[0], 405)
+        self.assertEqual(self.get(base + "/cli", method="POST")[0], 404)
+        self.assertEqual(self.get(base + "/install/rm/plan", method="POST")[0], 404)  # not in INSTALLS
+        self.assertEqual(self.get(base + "/cli", method="PUT")[0], 405)
+        self.assertEqual(self.get(base + "/cli", method="DELETE")[0], 405)
+
+    def test_fresh_bypasses_cache_but_spends_a_probe(self):
+        base, calls = self.start()
+        self.get(base + "/cli")
+        self.get(base + "/cli")
+        self.assertEqual(len(calls), 1)
+        self.get(base + "/cli?fresh=1")
+        self.assertEqual(len(calls), 2)
 
     def test_cache_and_probe_rate_limit(self):
         base, calls = self.start(probe_limit=(1, 3600.0))
@@ -186,6 +198,212 @@ class ServerTests(unittest.TestCase):
     def test_short_token_rejected(self):
         with self.assertRaises(ValueError):
             hostprobe.Probe("short")
+
+
+SCRIPT_OK = (
+    b"#!/bin/sh\necho installing $1\necho \"token sk-abcdefghijklmnopqrstuv\"\nprintf 'a\\rb\\n'\nexit 0\n"
+)
+SCRIPT_FAIL = b"#!/bin/sh\necho boom >&2\nexit 3\n"
+SCRIPT_SLOW = b"#!/bin/sh\necho start\nsleep 30\n"
+SCRIPT_SUDO = b"#!/bin/sh\nsudo true && echo ROOT_OK\nexit 0\n"
+
+
+def spec(**kw):
+    base = {
+        "method": "script",
+        "source": "https://example.test/install.sh",
+        "version": "1.2.3",
+        "docs": "https://example.test/docs",
+        "effects": ("installs a thing",),
+        "interpreter": "sh",
+        "args": ("1.2.3",),
+        "hosts": ("example.test",),
+    }
+    return hostprobe.InstallSpec(**{**base, **kw})
+
+
+class InstallerTests(unittest.TestCase):
+    def installer(self, body=SCRIPT_OK, **kw):
+        done = []
+        specs = {"opencode": spec(), "gemini": spec(method="npm", source="@g/cli", version="0.1.0", args=())}
+        inst = hostprobe.Installer(
+            specs=specs,
+            fetch=lambda url, hosts: body,
+            path_fn=lambda: ["/usr/bin", "/bin"],
+            on_success=lambda: done.append(1),
+            **kw,
+        )
+        return inst, done
+
+    def wait(self, job, state=None):
+        end = time.monotonic() + 10
+        while job.state == "running" and time.monotonic() < end:
+            time.sleep(0.02)
+        return job
+
+    def test_plan_shows_commands_hash_and_source(self):
+        inst, _ = self.installer()
+        p = inst.plan("opencode")
+        self.assertEqual(p["source"], "https://example.test/install.sh")
+        self.assertEqual(len(p["sha256"]), 64)
+        self.assertFalse(p["sudo"])
+        self.assertIn("sh install.sh 1.2.3", p["commands"][1])
+        self.assertTrue(p["plan_id"])
+
+    def test_run_streams_cleaned_log_and_succeeds(self):
+        inst, done = self.installer()
+        plan = inst.plan("opencode")
+        job = self.wait(inst.job(inst.start("opencode", plan["plan_id"])["id"]))
+        self.assertEqual((job.state, job.exit_code), ("ok", 0))
+        self.assertEqual(done, [1])
+        self.assertIn("installing 1.2.3", job.lines)
+        self.assertIn("token [redacted]", job.lines)
+        self.assertIn("b", job.lines)  # carriage-return rewrite collapsed to its last segment
+
+    def test_failure_is_reported(self):
+        inst, done = self.installer(SCRIPT_FAIL)
+        job = self.wait(inst.job(inst.start("opencode", inst.plan("opencode")["plan_id"])["id"]))
+        self.assertEqual((job.state, job.exit_code), ("failed", 3))
+        self.assertEqual(done, [])
+
+    def test_plan_is_single_use_and_bound_to_its_cli(self):
+        inst, _ = self.installer()
+        plan_id = inst.plan("opencode")["plan_id"]
+        with self.assertRaises(hostprobe.InstallError) as e:
+            inst.start("gemini", plan_id)  # another CLI's plan id
+        self.assertEqual(e.exception.status, 410)
+        inst2, _ = self.installer()
+        plan_id = inst2.plan("opencode")["plan_id"]
+        self.wait(inst2.job(inst2.start("opencode", plan_id)["id"]))
+        with self.assertRaises(hostprobe.InstallError) as e:
+            inst2.start("opencode", plan_id)
+        self.assertEqual(e.exception.status, 410)
+
+    def test_expired_plan_rejected(self):
+        inst, _ = self.installer()
+        plan_id = inst.plan("opencode")["plan_id"]
+        with mock.patch.object(hostprobe.time, "monotonic", return_value=time.monotonic() + 10_000):
+            with self.assertRaises(hostprobe.InstallError) as e:
+                inst.start("opencode", plan_id)
+        self.assertEqual(e.exception.status, 410)
+
+    def test_one_install_at_a_time_and_cancel(self):
+        inst, _ = self.installer(SCRIPT_SLOW)
+        first = inst.start("opencode", inst.plan("opencode")["plan_id"])
+        with self.assertRaises(hostprobe.InstallError) as e:
+            inst.start("opencode", inst.plan("opencode")["plan_id"])
+        self.assertEqual(e.exception.status, 409)
+        inst.cancel(first["id"])
+        job = self.wait(inst.job(first["id"]))
+        self.assertEqual(job.state, "cancelled")
+
+    def test_timeout_stops_the_install(self):
+        inst, done = self.installer(SCRIPT_SLOW, timeout_s=0.3)
+        job = self.wait(inst.job(inst.start("opencode", inst.plan("opencode")["plan_id"])["id"]))
+        self.assertEqual(job.state, "timeout")
+        self.assertEqual(done, [])
+
+    def test_sudo_is_blocked(self):
+        inst, _ = self.installer(SCRIPT_SUDO)
+        job = self.wait(inst.job(inst.start("opencode", inst.plan("opencode")["plan_id"])["id"]))
+        self.assertNotIn("ROOT_OK", job.lines)
+        self.assertTrue(any("sudo is not allowed" in line for line in job.lines))
+
+    def test_refuses_to_run_as_root(self):
+        inst, _ = self.installer()
+        plan_id = inst.plan("opencode")["plan_id"]
+        with mock.patch.object(hostprobe.os, "geteuid", return_value=0):
+            with self.assertRaises(hostprobe.InstallError) as e:
+                inst.start("opencode", plan_id)
+        self.assertEqual(e.exception.status, 403)
+
+    def test_npm_refuses_global_prefix_outside_home(self):
+        inst, _ = self.installer()
+        with (
+            mock.patch.object(hostprobe, "which", return_value="/usr/bin/npm"),
+            mock.patch.object(hostprobe, "run", return_value=(0, "/usr\n")),
+        ):
+            with self.assertRaises(hostprobe.InstallError) as e:
+                inst.plan("gemini")
+        self.assertIn("home directory", e.exception.message)
+
+    def test_plan_rate_limited(self):
+        inst, _ = self.installer(plan_limit=(1, 3600.0))
+        inst.plan("opencode")
+        with self.assertRaises(hostprobe.InstallError) as e:
+            inst.plan("opencode")
+        self.assertEqual(e.exception.status, 429)
+
+
+class InstallTableTests(unittest.TestCase):
+    """The real allowlist: never sudo, never unsafe-perm, https from a known host, pinned versions."""
+
+    def test_table_is_safe(self):
+        self.assertEqual(set(hostprobe.INSTALLS), set(hostprobe.CLIS))
+        for name, s in hostprobe.INSTALLS.items():
+            words = [s.source, s.interpreter, *s.args, *(f"{k}={v}" for k, v in s.env)]
+            for w in words:
+                self.assertNotIn("sudo", w, name)
+                self.assertNotIn("unsafe-perm", w, name)
+            self.assertRegex(s.version, r"^\d+\.\d+\.\d+$", name)
+            self.assertTrue(s.docs.startswith("https://"), name)
+            if s.method == "script":
+                self.assertTrue(s.source.startswith("https://"), name)
+                self.assertIn(urllib.parse.urlparse(s.source).hostname, s.hosts, name)
+                self.assertIn(
+                    s.version, " ".join([*s.args, *(v for _, v in s.env)]), f"{name}: version not passed"
+                )
+            else:
+                self.assertEqual(s.method, "npm", name)
+
+    def test_fetch_rejects_other_hosts_and_non_scripts(self):
+        with self.assertRaises(hostprobe.InstallError):
+            hostprobe.fetch_script("http://claude.ai/install.sh", ("claude.ai",))
+        with self.assertRaises(hostprobe.InstallError):
+            hostprobe.fetch_script("https://evil.test/x.sh", ("claude.ai",))
+
+
+class InstallEndpointTests(ServerTests):
+    def test_plan_run_events_over_http(self):
+        inst = hostprobe.Installer(
+            specs={"opencode": spec()}, fetch=lambda u, h: SCRIPT_OK, path_fn=lambda: ["/usr/bin", "/bin"]
+        )
+        probe = hostprobe.Probe(TOKEN, probe_fn=lambda: {}, installer=inst)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), hostprobe.make_handler(probe))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+
+        def post(path, body=None, token=TOKEN):
+            req = urllib.request.Request(
+                base + path,
+                data=json.dumps(body or {}).encode(),
+                method="POST",
+                headers={"X-Probe-Token": token},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    return r.status, json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                return e.code, json.loads(e.read())
+
+        with mock.patch.dict(hostprobe.INSTALLS, {"opencode": spec()}):
+            self.assertEqual(post("/install/opencode/plan", token="x" * 32)[0], 401)
+            code, plan = post("/install/opencode/plan")
+            self.assertEqual(code, 200)
+            self.assertEqual(post("/install/opencode/run", {"plan_id": 5})[0], 400)
+            self.assertEqual(post("/install/opencode/run", {"plan_id": "nope"})[0], 410)
+            code, job = post("/install/opencode/run", {"plan_id": plan["plan_id"]})
+            self.assertEqual(code, 202)
+            req = urllib.request.Request(
+                f"{base}/install/jobs/{job['id']}/events", headers={"X-Probe-Token": TOKEN}
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                body = r.read().decode()
+        self.assertIn("event: log", body)
+        self.assertIn("installing 1.2.3", body)
+        self.assertIn('event: exit\ndata: {"state": "ok", "exit_code": 0}', body)
 
 
 class EnvFileTests(unittest.TestCase):

@@ -6,9 +6,11 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from app import hostprobe_client, model_test, secrets
 from app.catalog.fetchers import FetchError, fetch
@@ -110,6 +112,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)) -> dict
             "name": p.name,
             "kind": p.kind,
             "privacy": p.privacy,
+            "paid": p.paid,
             "free_limits": p.free_limits,
             "notes": p.notes,
             "status": c.status if c else "unknown",
@@ -127,9 +130,8 @@ async def list_connections(session: AsyncSession = Depends(get_session)) -> dict
     return {"providers": out, "hostprobe": "up" if reachable else "down"}
 
 
-@router.get("/connections/cli")
-async def cli_status() -> dict[str, Any]:
-    reachable, data, error = await hostprobe_client.probe()
+async def _cli_status(fresh: bool = False) -> dict[str, Any]:
+    reachable, data, error = await hostprobe_client.probe("/cli?fresh=1" if fresh else "/cli")
     return {
         "hostprobe": "up" if reachable else "down",
         "error": error,
@@ -137,9 +139,78 @@ async def cli_status() -> dict[str, Any]:
     }
 
 
+@router.get("/connections/cli")
+async def cli_status() -> dict[str, Any]:
+    return await _cli_status()
+
+
 @router.post("/connections/cli/refresh", dependencies=[Depends(require_admin)])
 async def cli_refresh() -> dict[str, Any]:
-    return await cli_status()
+    """The "Check again" button: bypasses hostprobe's 30 s cache (still rate limited there)."""
+    return await _cli_status(fresh=True)
+
+
+class InstallRunIn(BaseModel):
+    plan_id: str = Field(min_length=8, max_length=128)
+
+
+def _cli_bin(provider_id: str) -> str:
+    return _provider(provider_id, ("cli",)).bin or ""
+
+
+def _raise_probe(status: int, body: dict[str, Any]) -> dict[str, Any]:
+    if status >= 400:
+        raise HTTPException(status, str(body.get("error", "hostprobe error"))[:300])
+    return body
+
+
+@router.post("/connections/cli/{provider_id}/install-plan", dependencies=[Depends(require_admin)])
+async def install_plan(provider_id: str) -> dict[str, Any]:
+    """Step 1: the exact commands, source and hash for the user to read. Nothing is installed yet."""
+    return _raise_probe(*await hostprobe_client.call("POST", f"/install/{_cli_bin(provider_id)}/plan"))
+
+
+@router.post("/connections/cli/{provider_id}/install", dependencies=[Depends(require_admin)])
+async def install_run(provider_id: str, body: InstallRunIn) -> dict[str, Any]:
+    """Step 2: run the plan the user confirmed (single use). Returns a job to stream."""
+    status, data = await hostprobe_client.call(
+        "POST", f"/install/{_cli_bin(provider_id)}/run", {"plan_id": body.plan_id}
+    )
+    return _raise_probe(status, data)
+
+
+@router.get("/connections/cli/jobs/{job_id}/events", dependencies=[Depends(require_admin)])
+async def install_events(job_id: str, start: int = 0) -> StreamingResponse:
+    if not job_id.replace("-", "").replace("_", "").isalnum():
+        raise HTTPException(404, "unknown job")
+    try:
+        client, resp = await hostprobe_client.open_stream(
+            f"/install/jobs/{job_id}/events?from={max(start, 0)}"
+        )
+    except httpx.HTTPError:
+        raise HTTPException(503, "hostprobe unreachable") from None
+    if resp.status_code != 200:
+        await resp.aread()
+        await client.aclose()
+        raise HTTPException(resp.status_code, "install job not found")
+
+    async def close() -> None:
+        await resp.aclose()
+        await client.aclose()
+
+    return StreamingResponse(
+        resp.aiter_raw(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        background=BackgroundTask(close),
+    )
+
+
+@router.post("/connections/cli/jobs/{job_id}/cancel", dependencies=[Depends(require_admin)])
+async def install_cancel(job_id: str) -> dict[str, Any]:
+    if not job_id.replace("-", "").replace("_", "").isalnum():
+        raise HTTPException(404, "unknown job")
+    return _raise_probe(*await hostprobe_client.call("POST", f"/install/jobs/{job_id}/cancel"))
 
 
 @router.put("/connections/{provider_id}/key", dependencies=[Depends(require_admin)])
