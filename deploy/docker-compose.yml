@@ -1,0 +1,57 @@
+# Switchboard infra (M0): Postgres + LiteLLM.
+# Paperclip runs natively in WSL (see scripts/setup-wsl.sh); Ollama runs on Windows.
+# Everything is bound to 127.0.0.1 (SPEC §13.1).
+
+name: switchboard
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-17.6}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-switchboard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: switchboard
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d switchboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  litellm:
+    image: ghcr.io/berriai/litellm:${LITELLM_VERSION:-v1.108.8}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["--config", "/app/config/litellm.yaml", "--port", "4000"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-switchboard}:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in deploy/.env}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?set LITELLM_SALT_KEY in deploy/.env}
+      STORE_MODEL_IN_DB: "True"
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      # Mount the directory, not the file: editors replace files atomically and a
+      # single-file bind mount keeps pointing at the old inode.
+      - ../config:/app/config:ro
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  pgdata:

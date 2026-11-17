@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Block commits that contain secrets. Enabled by scripts/setup-wsl.sh (core.hooksPath=.githooks).
+set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"   # setup-wsl.sh installs gitleaks here
+
+if ! command -v gitleaks >/dev/null; then
+  echo "pre-commit: gitleaks not installed — run scripts/setup-wsl.sh (or bypass once with --no-verify)." >&2
+  exit 1
+fi
+exec gitleaks git --pre-commit --staged --redact --no-banner

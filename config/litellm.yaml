@@ -1,0 +1,48 @@
+# LiteLLM proxy config (SPEC §6.2). M0 aliases: fast, smart-free, local, private.
+# Model IDs are verified against each provider's /models list; update here if they rotate.
+
+model_list:
+  - model_name: fast
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      privacy: no-training   # Groq states no training on API data
+
+  - model_name: smart-free
+    litellm_params:
+      # Pinned: gemini-flash-latest (-> 3.8) hung on generateContent at M0 (2026-11-17).
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+    model_info:
+      privacy: may-train     # AI Studio free tier may train outside EEA/UK/CH
+
+  - model_name: local
+    litellm_params:
+      model: ollama_chat/qwen3:4b
+      api_base: os.environ/OLLAMA_API_BASE
+    model_info:
+      privacy: local
+
+  - model_name: private
+    litellm_params:
+      model: ollama_chat/qwen3:4b
+      api_base: os.environ/OLLAMA_API_BASE
+    model_info:
+      privacy: local
+
+router_settings:
+  # fast: Groq -> Gemini. Cerebras is added in M1. local/private never fall back.
+  fallbacks:
+    - fast: ["smart-free"]
+  num_retries: 1
+  allowed_fails: 2
+  cooldown_time: 60
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 120
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
