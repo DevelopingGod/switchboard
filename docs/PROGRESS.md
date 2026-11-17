@@ -11,8 +11,8 @@
 | M0.5 Design system | ✅ Merged | m05 / #2 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
 | M1 Connections + wizard | 🔨 Split into M1a + M1b | — | Sonnet 5.5, medium | Done when M1b merges; carry-over items listed below |
 | M1a Router backend | ✅ Merged | m1a / #4 | Opus 5.5 | Split from M1; see M1a outcome |
-| M1b Connections UI + wizard | 🔎 In review | m1b | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
-| M2 Chat + Router | ⏳ | — | Opus 5.5, high | |
+| M1b Connections UI + wizard | ✅ Merged | m1b / #5 | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
+| M2 Chat + Router | 🔎 In review | m2 | Opus 5.5, high | Rules engine, streaming chat, fallbacks with reasons, caps, private; see M2 outcome |
 | M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
@@ -148,3 +148,56 @@
 - **The portal has no user auth yet.** It holds the router admin token server-side and exposes every admin action to anyone who can reach port 3000, so it is bound to `127.0.0.1` only (doctor checks). Login is required before any remote access (Tailscale or otherwise).
 - Visual baselines are Linux Chromium only (unchanged); CI must use the same browser build.
 - The gallery's first-load JS is 199.9 KB: any further growth in shared code needs a trim or an explicit budget decision.
+
+## M2 outcome
+
+Guide: [docs/m2.md](m2.md). Screens: `docs/screens/chat-{day,dusk}.webp`, `chat-why-*` ("Why this?" on a fallback reply) and `chat-private-*` (private reply with the thinking expanded).
+
+- **Rules engine** (`services/router/app/routing`):
+  - `config/rules.yaml` holds the SPEC §7.2 + §8d rules, `slash:` commands, `presets:` (Free only / Balanced / Best quality, chosen by the wizard's saved preset) and `daily_cap_usd`.
+  - Pipeline: manual pick > slash > private > keyword intent (until M3) > default. Targets can be an alias, a specific catalog model (`model:groq/openai/gpt-oss-20b`, through one `<provider>/*` LiteLLM wildcard per connected provider) or `best:<capability>` (simple: free first, then fastest, plus a runner-up).
+  - Every skip is recorded with a reason: not connected, cooling down, preset, budget, private, agent (M4), Studio (M5).
+- **Chat API** (`app/chat`):
+  - Threads and messages (Alembic `0002`). SSE through LiteLLM with `disable_fallbacks`; the router walks the rule's fallbacks itself. A 429 or timeout before the first token moves to the next target and starts a cooldown. Stop, regenerate and edit-last are supported.
+  - Each request writes `requests` (rule, target, the deployment that answered, fallbacks tried with reasons, latency, time to first token; prompt hash only), `costs` (tokens and cost from the LiteLLM usage chunk) and `model_stats` per task type. Thumbs feedback goes to `model_stats`.
+- **Your three review changes:**
+  1. **Free-tier cost:** `costs.cost_usd = 0` for free-tier providers. The price goes into `list_price_usd`, and caps use `cost_usd` only (tested: a Gemini or Groq call with a $0.90 LiteLLM cost never counts).
+  2. **Auto titles:** from the local model (`llama3.2:3b`; qwen3 reasons inside its answer even with thinking off), falling back to the first words. Rename stays available.
+  3. **Thinking:** streamed as a collapsible "Thinking… / Thought for N s" line and never stored.
+- **Caps and private:**
+  - Per-request and daily caps block before any call, with a clear message. Per-request also limits `max_tokens`.
+  - Private is enforced in code: every deployment must be local, there is no cloud fallback, and threads are sticky-private. The test captures every LiteLLM call to prove it.
+- **Portal `/chat`:**
+  - Thread list, streaming Markdown with highlighted code and Copy code, RouteChip → "Why this?" popover (rule, model, top 3 reasons, runner-up, skipped and why, tokens, context, cost, latency), thumbs, regenerate, edit, stop.
+  - Studio notices for image and video, and a disabled "Run as job (M4)" button for job-like requests.
+  - The composer has a target picker (aliases and models by provider with badges), slash hints and Enter to send.
+  - The Home composer and the quick-start chips now send real messages; the chips are complete sample tasks.
+  - The SSE proxy `/api/chat/stream` checks Host, exact Origin, Sec-Fetch-Site and a JSON content type.
+- **JS budget:** `/chat` 196.6 KB. Every other route got lighter: `/` 189.0 (was 194.4), the gallery 194.9 (was 199.4), the baseline 176.7 (was 179.7).
+  - Feature strings moved to their own modules in `src/i18n/` (SPEC §8c updated).
+  - A native switch replaced the Radix Switch.
+  - Markdown, highlighting, the popover, the picker and the rare reply states are lazy chunks that show stand-ins until they load.
+- **Live on this machine:**
+  - `fast`, `smart-free`, `local` and a specific model all answered. Every slash command routed as expected.
+  - A forced 429 on `fast` and a real timeout on `smart-free` each fell back, with the reason in the chip. `requests`/`costs` rows carry tokens and cost, and the portal works end to end.
+  - The budget block could not be shown live, because every keyed provider here is free tier. Tests cover it.
+- **Also:**
+  - `doctor.sh` checks that `rules.yaml` parses and warns if fault injection is on.
+  - The bundle check now stops its server's whole process group (a leftover `next` held port 3213).
+  - The mobile bottom bar moved to the near-opaque surface (Lighthouse caught 2.9:1 labels over dark code panels).
+- **Checks:**
+  - Router: 107 pytest (62 new), ruff clean.
+  - Portal: 45 vitest, 123 Playwright (axe in both themes incl. popover, picker and a live private reply; 52 visual baselines), eslint and tsc clean.
+  - Lighthouse `/chat` 94–95 / 100 / 100; others ≥ 99 / 99 / 100. Budget and bundle checks pass.
+
+## Carry-over to M3
+
+- Swap the keyword heuristics for Arch-Router (`routing/heuristics.py` is the only caller). `POST /route/dry-run` already returns the full decision for the Rules tester.
+- Rules UI: DB overrides and versioning on top of `config/rules.yaml` (read-only mount today; the presets are overlays).
+- `best:<capability>` scoring from `model_stats`: per task type there are latency samples (time to first token), failures and thumbs, written since M2.
+- Cooldowns are in memory: they reset on router restart and aren't shared. Persist them if the router ever runs more than one worker.
+- Auto-summarize long threads. For now history is trimmed newest-first to `max_context_tokens` (8000), and the chip shows the context size.
+- Verify LiteLLM failover between deployments of the same alias while `disable_fallbacks` is set, once Cerebras is keyed (`fast` order 2).
+- **JS budget headroom:** the Dial's `useSpring` pulls Motion's animation engine (7.6 KB gzip) into `/`, `/chat` and the gallery. A CSS-transition Dial would free it.
+- **Still open from M1b (yours):** add the Cerebras, Mistral, OpenRouter, Zen and xAI keys to light up `general`, `explore`, `code-free` and a paid model (also needed to see a budget block live); verify the CLI login commands after your installs; remove `GROQ_API_KEY`/`GEMINI_API_KEY` from `deploy/.env`.
+

@@ -210,6 +210,8 @@ rules:
 
 Per-user overrides stored in DB; admin rules are the base. Rule edits are versioned (keep history, allow rollback).
 
+Implemented in M2 as `config/rules.yaml` (docs/m2.md). It adds `defaults.daily_cap_usd`, `max_context_tokens`, `max_output_tokens`, a `slash:` map (command → rule), `presets:` (free / balanced / best overlays and a paid policy), `when: { command: … }` and `job: true`. Until M4, `agent:` targets are skipped with a reason, and the chat models at the end of a rule's fallbacks answer in chat. DB overrides and versioning come with the Rules UI (M3).
+
 ### 7.3 Autonomy levels (one scale, mapped per agent)
 
 | Level | Meaning | Maps to (verify exact flags per CLI version) |
@@ -357,7 +359,7 @@ Users must always know **what** they are using, **why** it was picked, and **wha
 
 **States.** Every component has loading (soft shimmer), empty, error and disabled states. **Status is never conveyed by color alone**: icon + text + color.
 
-**Copy.** All UI strings live in `apps/portal/src/i18n/strings.ts`.
+**Copy.** All UI strings live in `apps/portal/src/i18n/`: core text in `strings.ts`, feature text in its own module next to it (`chat.ts`, `connections.ts`, `wizard.ts`, `dev.ts`) so each route ships only its own strings (M2, JS budget).
 
 **"Non context heavy" (performance and tokens)**
 - UI: initial JS < 200 KB gzip per route (checked by `npm run budget`), heavy overlays (palette, popovers) load on demand, Lighthouse performance / accessibility / best-practices >= 90.
@@ -437,8 +439,10 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `connections(id, provider, kind[cli|api_key|local], status, last_checked, last_error, meta_json)` — secrets **not** stored here; API keys live in LiteLLM / encrypted secret store
 - `rules(id, version, yaml, created_by, created_at, active)`
 - `user_overrides(user_id, rule_id, json)`
-- `requests(id, user_id, kind[chat|media|job], prompt_hash, rule_id, target, fallbacks_tried_json, temperature, autonomy, private, status, latency_ms, created_at)`
-- `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd)`
+- `requests(id, user_id, kind[chat|media|job], prompt_hash, rule_id, target, fallbacks_tried_json, temperature, autonomy, private, status, latency_ms, created_at, thread_id, intent, model, model_catalog_id, ttft_ms, error, decision_json)`: the M2 columns record the deployment that answered and the full decision
+- `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd, list_price_usd)`: `cost_usd` counts toward caps (free-tier calls are $0); `list_price_usd` keeps the provider's price as "value" (M2)
+- `threads(id uuid, title, title_source[none|words|local|user], private, created_at, updated_at)`: `private` is sticky (M2)
+- `messages(id, thread_id, role, content, status[streaming|done|stopped|error|notice|blocked], request_id, private, feedback, meta_json, created_at)`: reasoning text is never stored; `meta_json` holds the "Why this?" data (M2)
 - `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`
 - `media(request_id, type, provider, file_path, cost_usd)`
 - `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)` (see §6.4)
