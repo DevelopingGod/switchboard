@@ -1,11 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useReducedMotion, useSpring, useTransform } from "motion/react";
-import * as m from "motion/react-m";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { shared } from "@/design/design-tokens";
 import { LoadingLabel } from "./Skeleton";
 import { t } from "@/i18n/strings";
 
@@ -58,12 +55,6 @@ export function Dial({
   const frac = hi === lo ? 0 : (clamped - lo) / (hi - lo);
 
   const interactive = !!onChange && state !== "disabled" && state !== "loading";
-  const reduce = useReducedMotion();
-  const f = useSpring(frac, shared.spring);
-  React.useEffect(() => {
-    if (reduce) f.jump(frac);
-    else f.set(frac);
-  }, [frac, reduce, f]);
 
   const stroke = Math.max(6, size * 0.085);
   const c = size / 2;
@@ -71,8 +62,10 @@ export function Dial({
   const [x0, y0] = pt(c, r, START);
   const [x1, y1] = pt(c, r, START + SWEEP);
   const arc = `M ${x0} ${y0} A ${r} ${r} 0 1 1 ${x1} ${y1}`;
-  const dotX = useTransform(f, (v) => pt(c, r, START + SWEEP * v)[0]);
-  const dotY = useTransform(f, (v) => pt(c, r, START + SWEEP * v)[1]);
+  // CSS transitions, not a Motion spring (M1.5): the arc is a dash offset on a normalised path and
+  // the handle rotates around the centre, so neither needs Motion's engine in first-load JS (~7.6 KB).
+  // The global reduced-motion rules turn both transitions off.
+  const motionStyle = { transitionDuration: "var(--d-slow)", transitionTimingFunction: "var(--ease)" } as const;
 
   const ref = React.useRef<SVGSVGElement>(null);
   const dragging = React.useRef(false);
@@ -175,22 +168,35 @@ export function Dial({
             const [sx, sy] = pt(c, r, START + (SWEEP * i) / (stops.length - 1));
             return <circle key={i} cx={sx} cy={sy} r={stroke * 0.22} fill="var(--ink-muted)" opacity={0.7} />;
           })}
-        <m.path
+        <path
           d={arc}
           fill="none"
           stroke={arcColor}
           strokeWidth={stroke}
           strokeLinecap="round"
-          style={{ pathLength: f }}
+          pathLength={1}
+          strokeDasharray="1 1"
+          strokeDashoffset={1 - frac}
+          opacity={frac > 0 ? 1 : 0}
+          style={{ ...motionStyle, transitionProperty: "stroke-dashoffset" }}
         />
-        <m.circle
-          cx={dotX}
-          cy={dotY}
-          r={stroke * 0.95}
-          fill={arcColor}
-          stroke="var(--glass-strong)"
-          strokeWidth={Math.max(2, stroke * 0.3)}
-        />
+        <g
+          style={{
+            ...motionStyle,
+            transitionProperty: "transform",
+            transformOrigin: `${c}px ${c}px`,
+            transform: `rotate(${SWEEP * frac}deg)`,
+          }}
+        >
+          <circle
+            cx={x0}
+            cy={y0}
+            r={stroke * 0.95}
+            fill={arcColor}
+            stroke="var(--glass-strong)"
+            strokeWidth={Math.max(2, stroke * 0.3)}
+          />
+        </g>
       </svg>
       <div aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center text-center">
         {isErr ? (
