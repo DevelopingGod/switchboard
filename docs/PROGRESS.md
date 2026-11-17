@@ -8,7 +8,7 @@
 | Milestone | Status | Branch / PR | Model used | Notes |
 |---|---|---|---|---|
 | M0 Infra | ✅ Merged | m0 / #1 | Opus 5.5, medium | doctor.sh green; fast + local verified |
-| M0.5 Design system | 🔄 In progress | m05 | Sonnet 5.5, medium | Plan approved with 4 changes (below) |
+| M0.5 Design system | 🔎 In review | m05 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
 | M1 Connections + wizard | ⏳ Next | — | Sonnet 5.5, medium | Carry-over items listed below |
 | M2 Chat + Router | ⏳ | — | Opus 5.5, high | |
 | M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
@@ -47,6 +47,27 @@
 - `fast` = groq/openai/gpt-oss-120b. `smart-free` = gemini/gemini-3.5-flash (`gemini-flash-latest` → 3.8 hung; pinned).
 - Added: .gitattributes (LF), gitleaks pre-commit (.githooks, checksum-verified install), doctor checks (Node source, clock drift, ports), docs/TROUBLESHOOTING.md.
 - Fixed: LiteLLM config mount (mount folder, not file); Node-source false red.
+
+## M0.5 outcome
+
+- `apps/portal` (Next.js 16, TS, Tailwind 4, Radix-based shadcn-style primitives, Motion, Lucide); **npm**. Guide: [docs/m05.md](m05.md). Screens: [docs/screens](screens/).
+- SPEC §8c rewritten for the "dreamy sky" direction. `design-tokens.ts` is the single source (generated CSS vars; unit test for drift and AA contrast on every text/surface pair and sky stop).
+- Kit: GlassPanel, PillTabs, Dial, StatCard, RouteChip, ProviderCard, JobCard, CostBadge, ExplainPopover, Composer, Toast, Skeleton, EmptyState (+ StatusBadge, Segmented, Logo, ColumnsArt), each with loading/empty/error/disabled states. Shell: top pill nav, mobile bottom bar, ⌘K, Simple/Pro, Comfortable/Compact, Appearance menu (theme, solid surfaces, sky image), stub screens, Home composer.
+- Checks: axe no serious/critical (17 tests, both themes, palette/popovers/mobile); Lighthouse (mobile profile) perf 95–99, a11y 100, best-practices 100; initial JS 176–197 KB gzip per route (budget 200); 34 visual baselines; 12 unit + 9 shell tests (reduced-transparency/motion, ≤ 2 blur layers, Dial keyboard).
+- Deviation from decision 7: accent-on-light text uses `#4b50c4` (not `#5a5fc9`), the value that passes AA with margin on every sky stop. Primary pill uses `#8B8FE8` with dark ink.
+- Sky image is procedurally generated (gradients + fractal-noise clouds via sharp), ~6 KB AVIF each; swap for a CC0 photo if a more realistic sky is wanted. Logo mark + wordmark SVG: `public/logo.svg`, `app/icon.svg`.
+
+## Carry-over from M0.5
+
+- M1 wizard sets `name` (`usePrefs().name`, defaults to "there") and may use `ColumnsArt` on onboarding/login; those screens don't exist yet. Other screens are `ScreenStub` placeholders.
+- Mobile is read-only by design (composer disabled with a reason).
+- Ports: Paperclip 3100; portal dev 3000, portal test server 3210.
+- Next 16: scaffold `AGENTS.md` says read `node_modules/next/dist/docs/` before framework work. `cacheComponents` is off (no server data yet); revisit in M1.
+- Turbopack flattens `@layer` blocks written in `globals.css`; custom component CSS lives in `components.css` imported with `layer(components)`.
+- Visual baselines are Linux Chromium only; M7 CI must use the same browser build.
+- Lighthouse under WSL must run from a scratch cwd (script does this); otherwise `C:\Users\…` profile dirs appear in the repo.
+- Gallery section titles and sample data are inline dev fixtures, not in `strings.ts`.
+- Playwright needed `sudo npx playwright install-deps chromium` (done on this machine).
 
 ## Carry-over to M1
 
