@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|
 | [x] | Groq | console.groq.com/keys | `fast` (quick chat, titles fallback) | Per-model RPM + daily request caps | No training on API data |
 | [x] | Google AI Studio (Gemini) | aistudio.google.com/apikey | `smart-free` (long context, research, writing) | Cut in 2026; per-model RPM/RPD; image quota inconsistent | **May train** (outside EEA/UK/CH) |
-| [ ] | Cerebras | cloud.cerebras.ai | 2nd `fast` behind Groq | **One-time free credits, not a renewing tier.** After adding the key, click **Set balance** on its card and enter the starting amount from the Cerebras console; the card shows what is left and routing stops at $0 | Check console |
+| [–] | ~~Cerebras~~ (skipped, optional) | cloud.cerebras.ai | Would be the 2nd `fast` behind Groq | **Skipped by the owner: sign-up requires bank details.** Optional: `fast` simply has no order-2 backup, and doctor shows it grey (no warning). If you add it later: one-time free credits, so click **Set balance** on its card | Check console |
 | [ ] | ~~Mistral~~ (paid only) | console.mistral.ai | `general` (manual pick only) | **The free plan cannot activate API keys.** Skip unless you buy a paid plan; hidden from the free presets and the wizard | **May train** unless opted out (Admin → toggle) |
 | [ ] | OpenRouter | openrouter.ai/keys | `explore` + writing fallback (`:free` models only) | ~50 req/day on `:free`; ~1,000/day after a one-time $10 credit. Paid models are used **only if you pick one by hand**; a 402 / credit-limit answer shows as "Credit limit reached" in Why this? | Varies per model |
 | [ ] | OpenCode Zen | opencode.ai/auth | `code-free` (free coding models) | Free models rotate | Some free models may use data |

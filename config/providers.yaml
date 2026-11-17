@@ -42,6 +42,10 @@ providers:
     # you enter on the card (list price of each call); routing stops when it reaches $0.
     # Kept `kind: api_key` so key storage, catalog and LiteLLM registration work unchanged.
     billing: credits
+    # Skipped by the owner: signing up requires bank details. Optional: `fast` just has no order-2
+    # backup. doctor.sh shows optional providers without a key in grey (no warning).
+    optional: true
+    skip_note: "skipped by owner: requires bank details; optional"
     free_tier: true          # calls cost you $0, so they never count toward the daily cap
     privacy: no-training
     free_limits: "One-time free credits (no renewing free tier); enter your starting balance"
