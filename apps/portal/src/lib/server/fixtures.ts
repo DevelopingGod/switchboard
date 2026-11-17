@@ -1,0 +1,392 @@
+import "server-only";
+import type {
+  CatalogModel,
+  ConnectionRow,
+  InstallPlan,
+  OnboardingResponse,
+  OnboardingState,
+} from "../router-types";
+import type { Result } from "./router";
+
+/**
+ * A tiny in-memory stand-in for the Router API (PORTAL_DATA=fixture). It exists so axe, visual
+ * baselines, screenshots and the bundle test run without the Docker stack or any real key.
+ * State lives on globalThis so it survives route-module reloads; restarting the server resets it.
+ * Nothing here looks like a real credential.
+ */
+
+const ok = <T>(data: unknown): Result<T> => ({ ok: true, data: data as T });
+const fail = <T>(status: number, error: string): Result<T> => ({ ok: false, status, error });
+
+const api = (
+  provider: string,
+  name: string,
+  over: Partial<ConnectionRow> = {},
+): ConnectionRow => ({
+  provider,
+  name,
+  kind: "api_key",
+  privacy: "no-training",
+  paid: false,
+  free_limits: null,
+  notes: null,
+  status: "no_key",
+  last_checked: null,
+  last_error: null,
+  key_last4: null,
+  models_available: 0,
+  ...over,
+});
+
+const cli = (provider: string, name: string, login_hint: string, over: Partial<ConnectionRow> = {}): ConnectionRow => ({
+  provider,
+  name,
+  kind: "cli",
+  privacy: "varies",
+  paid: false,
+  free_limits: null,
+  notes: null,
+  status: "not_installed",
+  last_checked: null,
+  last_error: null,
+  installed: false,
+  version: null,
+  logged_in: null,
+  windows_only: false,
+  login_method: null,
+  login_hint,
+  ...over,
+});
+
+const model = (provider: string, model_id: string, tags: string[], context: number | null, over: Partial<CatalogModel> = {}): CatalogModel => ({
+  provider,
+  model_id,
+  display_name: null,
+  tags,
+  tag_source: tags.length ? "curated" : "none",
+  context,
+  max_output: null,
+  free: true,
+  privacy: "no-training",
+  status: "available",
+  test: null,
+  ...over,
+});
+
+const connections = (): ConnectionRow[] => [
+  api("groq", "Groq", {
+    status: "connected",
+    key_last4: "1234",
+    models_available: 4,
+    free_limits: "~30 req/min, 1k–14.4k req/day per model",
+    notes: "Groq states no training on API data.",
+    last_checked: "2026-11-17T08:00:00Z",
+  }),
+  api("gemini", "Google AI Studio (Gemini)", {
+    status: "error",
+    key_last4: "5678",
+    models_available: 4,
+    privacy: "may-train",
+    free_limits: "Flash: ~10 req/min, ~250 req/day; Flash-Lite higher",
+    notes: "Free tier may train on data outside EEA/UK/CH.",
+    last_error: "Test call timed out after 30 s.",
+    last_checked: "2026-11-17T08:00:00Z",
+  }),
+  api("cerebras", "Cerebras", { free_limits: "~30 req/min, 14.4k req/day, 1M tokens/day" }),
+  api("mistral", "Mistral (La Plateforme)", {
+    privacy: "may-train",
+    free_limits: "Experiment plan: ~1 req/s, 500k tokens/min, 1B tokens/month",
+    notes: "Experiment plan may train on data unless opted out.",
+  }),
+  api("openrouter", "OpenRouter", { privacy: "varies", free_limits: "`:free` models: 20 req/min, 50 req/day" }),
+  api("opencode-zen", "OpenCode Zen", { privacy: "varies", free_limits: "Rotating free models; limits per model" }),
+  api("xai", "xAI (Grok API)", {
+    paid: true,
+    privacy: "varies",
+    free_limits: "Paid, pay per token / image / second. No free tier.",
+    notes: "Optional. Text, plus Imagine image and video generation (M5).",
+  }),
+  {
+    ...api("ollama", "Ollama (local)", {
+      kind: "local",
+      privacy: "local",
+      status: "connected",
+      models_available: 3,
+      free_limits: "Unlimited (your GPU: ≤ ~4B params at Q4)",
+      last_checked: "2026-11-17T08:00:00Z",
+    }),
+    key_last4: undefined,
+  },
+  cli("claude-code", "Claude Code", "claude  (then /login in the browser)", {
+    paid: true,
+    status: "windows_only",
+    windows_only: true,
+    notes: "Claude Pro subscription; official CLI only.",
+  }),
+  cli("codex", "Codex CLI", "codex login", {
+    status: "logged_in",
+    installed: true,
+    version: "0.169.0",
+    logged_in: true,
+    login_method: "codex login status",
+  }),
+  cli("gemini-cli", "Gemini CLI", "gemini  (choose Login with Google)", {
+    privacy: "may-train",
+    status: "logged_out",
+    installed: true,
+    version: "0.68.0",
+    logged_in: false,
+    login_method: "credential file present (stat only)",
+  }),
+  cli("grok-build", "Grok Build", "grok auth login", {
+    paid: true,
+    notes: "Beta. Headless use may bill an xAI API key. Verify before routing jobs (SPEC §12).",
+  }),
+  cli("opencode", "OpenCode", "opencode auth login"),
+];
+
+const catalog = (): CatalogModel[] => [
+  model("groq", "openai/gpt-oss-120b", ["chat", "code", "reasoning", "fast"], 131072, { display_name: "GPT-OSS 120B", test: { samples: 3, error_rate: 0, p50_ms: 420, p95_ms: 610, last_ok: true } }),
+  model("groq", "openai/gpt-oss-20b", ["chat", "reasoning", "fast", "small"], 131072, { display_name: "GPT-OSS 20B" }),
+  model("groq", "llama-3.3-70b-versatile", ["chat"], 131072, { display_name: "Llama 3.3 70B" }),
+  model("groq", "whisper-large-v3", ["audio"], null, { display_name: "Whisper Large v3" }),
+  model("gemini", "gemini-3.5-flash", ["chat", "vision", "long-context", "fast"], 1048576, { privacy: "may-train", display_name: "Gemini 3.5 Flash" }),
+  model("gemini", "gemini-3.5-pro", ["chat", "code", "reasoning", "vision", "long-context"], 2097152, { privacy: "may-train", display_name: "Gemini 3.5 Pro" }),
+  model("gemini", "gemini-3.5-flash-lite", ["chat", "long-context", "fast", "small"], 1048576, { privacy: "may-train", display_name: "Gemini 3.5 Flash-Lite" }),
+  model("gemini", "gemini-experimental-x", [], 32768, { privacy: "may-train" }),
+  model("ollama", "qwen3:4b", ["chat", "reasoning"], 40960, { privacy: "local", display_name: "Qwen3 4B" }),
+  model("ollama", "qwen2.5-coder:3b", ["chat", "code"], 32768, { privacy: "local", display_name: "Qwen2.5 Coder 3B" }),
+  model("ollama", "llama3.2:3b", ["chat", "fast", "small"], 131072, { privacy: "local", display_name: "Llama 3.2 3B" }),
+];
+
+interface Job {
+  cli: string;
+  planId: string;
+  cancelled: boolean;
+}
+
+interface Store {
+  rows: ConnectionRow[];
+  catalog: CatalogModel[];
+  onboarding: OnboardingState | null;
+  plans: Map<string, string>;
+  jobs: Map<string, Job>;
+}
+
+const g = globalThis as unknown as { __sbFixture?: Store };
+
+function store(): Store {
+  if (!g.__sbFixture) {
+    const done = process.env.PORTAL_FIXTURE_ONBOARDING !== "none";
+    g.__sbFixture = {
+      rows: connections(),
+      catalog: catalog(),
+      onboarding: done
+        ? { step: "finish", name: "Sam", goals: ["chat", "code"], preset: "balanced", skipped: false, completed_at: "2026-11-17T08:00:00Z" }
+        : null,
+      plans: new Map(),
+      jobs: new Map(),
+    };
+  }
+  return g.__sbFixture;
+}
+
+const GOALS: OnboardingResponse["goals"] = {
+  chat: [{ provider: "groq", paid: false }, { provider: "cerebras", paid: false }, { provider: "mistral", paid: false }],
+  writing: [{ provider: "gemini", paid: false }, { provider: "mistral", paid: false }],
+  code: [
+    { provider: "claude-code", paid: true },
+    { provider: "codex", paid: false },
+    { provider: "grok-build", paid: true },
+    { provider: "opencode", paid: false },
+    { provider: "opencode-zen", paid: false },
+  ],
+  research: [{ provider: "gemini", paid: false }],
+  images: [{ provider: "gemini", paid: false }, { provider: "xai", paid: true }],
+  video: [{ provider: "xai", paid: true }],
+  private: [{ provider: "ollama", paid: false }],
+};
+
+const SOURCES: Record<string, { source: string; docs: string; version: string; commands: string[]; env?: Record<string, string>; effects: string[]; npm?: boolean }> = {
+  claude: {
+    source: "https://claude.ai/install.sh",
+    docs: "https://code.claude.com/docs/en/setup",
+    version: "2.1.311",
+    commands: ["download https://claude.ai/install.sh (sha256 0123456789abcdef…, 9704 bytes)", "bash install.sh 2.1.311"],
+    effects: ["Installs the claude binary under ~/.local/bin and data under ~/.claude. Version: stable channel."],
+  },
+  codex: {
+    source: "https://chatgpt.com/codex/install.sh",
+    docs: "https://developers.openai.com/codex/cli",
+    version: "0.169.0",
+    commands: ["download https://chatgpt.com/codex/install.sh (sha256 0123456789abcdef…, 43647 bytes)", "CODEX_RELEASE=0.169.0 CODEX_NON_INTERACTIVE=1 sh install.sh"],
+    env: { CODEX_RELEASE: "0.169.0", CODEX_NON_INTERACTIVE: "1" },
+    effects: ["Installs codex under ~/.local/bin and data under ~/.codex.", "May add a PATH line to your shell profile (~/.bashrc or ~/.profile)."],
+  },
+  gemini: {
+    source: "https://www.npmjs.com/package/@google/gemini-cli",
+    docs: "https://github.com/google-gemini/gemini-cli",
+    version: "0.68.0",
+    commands: ["npm install -g @google/gemini-cli@0.68.0"],
+    effects: ["Installs the gemini command into your Node (nvm) global prefix. Needs Node 20 or newer."],
+    npm: true,
+  },
+  grok: {
+    source: "https://x.ai/cli/install.sh",
+    docs: "https://x.ai/cli",
+    version: "1.0.88",
+    commands: ["download https://x.ai/cli/install.sh (sha256 0123456789abcdef…, 30506 bytes)", "bash install.sh 1.0.88"],
+    effects: ["Installs grok under ~/.grok/bin.", "May add a PATH line to your shell profile (~/.bashrc).", "Beta. A SuperGrok subscription or xAI API key is needed to log in."],
+  },
+  opencode: {
+    source: "https://opencode.ai/install",
+    docs: "https://opencode.ai/docs",
+    version: "1.19.6",
+    commands: ["download https://opencode.ai/install (sha256 0123456789abcdef…, 15443 bytes)", "bash install.sh --version 1.19.6 --no-modify-path"],
+    effects: ["Installs opencode under ~/.opencode/bin. Your shell profile is not changed."],
+  },
+};
+
+const BIN: Record<string, string> = { "claude-code": "claude", codex: "codex", "gemini-cli": "gemini", "grok-build": "grok", opencode: "opencode" };
+
+function latency(id: string) {
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 900;
+  return 280 + h;
+}
+
+function cliBody(s: Store) {
+  const rows = Object.fromEntries(s.rows.filter((r) => r.kind === "cli").map((r) => [r.provider, r]));
+  return { hostprobe: "up", error: null, clis: rows };
+}
+
+export function handle<T>(method: string, path: string, body: unknown): Result<T> {
+  const s = store();
+  const url = new URL(path, "http://fixture");
+  const p = url.pathname;
+  const b = (body ?? {}) as Record<string, unknown>;
+  const row = (id: string) => s.rows.find((r) => r.provider === id);
+
+  if (method === "GET" && p === "/connections") return ok({ providers: s.rows, hostprobe: "up" });
+  if (method === "GET" && p === "/catalog") {
+    const provider = url.searchParams.get("provider");
+    return ok({ count: 0, models: s.catalog.filter((m) => !provider || m.provider === provider) });
+  }
+  if (method === "GET" && p === "/onboarding") return ok({ state: s.onboarding, goals: GOALS });
+  if (method === "PUT" && p === "/onboarding") {
+    const { completed, ...rest } = b as Record<string, unknown> & { completed?: boolean };
+    const cur: OnboardingState = s.onboarding ?? { step: "welcome", name: "", goals: [], preset: null, skipped: false, completed_at: null };
+    const next = { ...cur, ...rest } as OnboardingState;
+    if (completed === true) Object.assign(next, { completed_at: new Date().toISOString(), skipped: false });
+    s.onboarding = next;
+    return ok({ state: next });
+  }
+
+  let m = p.match(/^\/connections\/([\w-]+)\/key$/);
+  if (m && (method === "PUT" || method === "DELETE")) {
+    const r = row(m[1]);
+    if (!r || r.kind !== "api_key") return fail(404, `unknown provider ${m[1]}`);
+    if (method === "DELETE") {
+      Object.assign(r, { status: "no_key", key_last4: null, last_error: null, models_available: 0 });
+      return ok({ provider: r.provider, removed: true, status: "no_key" });
+    }
+    const key = String(b.api_key ?? "").trim();
+    if (key.length < 8) return fail(422, "String should have at least 8 characters");
+    if (key.toLowerCase().startsWith("bad")) return fail(400, "key test failed: the provider rejected this key (HTTP 401)");
+    const count = s.catalog.filter((x) => x.provider === r.provider).length;
+    Object.assign(r, { status: "connected", key_last4: key.slice(-4), last_error: null, models_available: count || 3 });
+    return ok({ provider: r.provider, status: "connected", key_last4: key.slice(-4) });
+  }
+  m = p.match(/^\/connections\/([\w-]+)\/test$/);
+  if (m && method === "POST") {
+    const r = row(m[1]);
+    if (!r) return fail(404, `unknown provider ${m[1]}`);
+    if (r.kind === "api_key" && !r.key_last4) return fail(400, `no key stored for ${r.provider}`);
+    if (r.provider === "gemini") return ok({ provider: r.provider, ok: false, error: "Test call timed out after 30 s." });
+    Object.assign(r, { status: "connected", last_error: null });
+    return ok({ provider: r.provider, ok: true });
+  }
+  if (method === "POST" && p === "/models/test") {
+    const id = String(b.model_id ?? "");
+    const bad = id.includes("experimental") || b.provider === "gemini";
+    return ok({ provider: b.provider, model_id: id, ok: !bad, latency_ms: latency(id), error: bad ? "No answer within 30 s." : null });
+  }
+
+  if (method === "POST" && p === "/connections/cli/refresh") return ok(cliBody(s));
+  m = p.match(/^\/connections\/cli\/([\w-]+)\/install-plan$/);
+  if (m && method === "POST") {
+    const r = row(m[1]);
+    if (!r || r.kind !== "cli") return fail(m ? 404 : 400, `unknown provider ${m[1]}`);
+    const spec = SOURCES[BIN[r.provider]];
+    const plan_id = `fixture-plan-${r.provider}`;
+    s.plans.set(plan_id, r.provider);
+    const plan: InstallPlan = {
+      cli: BIN[r.provider],
+      plan_id,
+      method: spec.npm ? "npm" : "script",
+      source: spec.source,
+      docs: spec.docs,
+      version: spec.version,
+      sha256: spec.npm ? undefined : "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      size: spec.npm ? undefined : 15443,
+      commands: spec.commands,
+      env: spec.env ?? {},
+      effects: spec.effects,
+      sudo: false,
+      expires_in: 300,
+    };
+    return ok(plan);
+  }
+  m = p.match(/^\/connections\/cli\/([\w-]+)\/install$/);
+  if (m && method === "POST") {
+    const provider = s.plans.get(String(b.plan_id));
+    if (!provider || provider !== m[1]) return fail(410, "the plan expired or was already used; review it again");
+    s.plans.delete(String(b.plan_id));
+    const id = `fixture-job-${provider}`;
+    s.jobs.set(id, { cli: provider, planId: String(b.plan_id), cancelled: false });
+    return ok({ id, cli: BIN[provider], state: "running", exit_code: null });
+  }
+  m = p.match(/^\/connections\/cli\/jobs\/([\w-]+)\/cancel$/);
+  if (m && method === "POST") {
+    const job = s.jobs.get(m[1]);
+    if (!job) return fail(404, "unknown job");
+    job.cancelled = true;
+    return ok({ id: m[1], state: "cancelled" });
+  }
+  return fail(404, `fixture: no route for ${method} ${p}`);
+}
+
+const LOG = (version: string, bin: string) => [
+  `Downloading ${bin} ${version}…`,
+  "Verifying checksum… ok",
+  `Installing ${bin} ${version}`,
+  "Done.",
+];
+
+/** Canned SSE for an install job; flips the CLI to installed when it finishes. */
+export function stream(path: string): Response {
+  const s = store();
+  const m = path.match(/\/connections\/cli\/jobs\/([\w-]+)\/events/);
+  const job = m && s.jobs.get(m[1]);
+  if (!job) return new Response("install job not found", { status: 404 });
+  const bin = BIN[job.cli];
+  const enc = new TextEncoder();
+  const body = new ReadableStream({
+    async start(c) {
+      let n = 0;
+      for (const line of LOG(SOURCES[bin].version, bin)) {
+        if (job.cancelled) break;
+        await new Promise((r) => setTimeout(r, 120));
+        c.enqueue(enc.encode(`id: ${++n}\nevent: log\ndata: ${JSON.stringify(line)}\n\n`));
+      }
+      const state = job.cancelled ? "cancelled" : "ok";
+      if (state === "ok") {
+        const r = s.rows.find((x) => x.provider === job.cli);
+        if (r) Object.assign(r, { status: "logged_out", installed: true, windows_only: false, version: SOURCES[bin].version, logged_in: false });
+      }
+      c.enqueue(enc.encode(`event: exit\ndata: ${JSON.stringify({ state, exit_code: state === "ok" ? 0 : null })}\n\n`));
+      c.close();
+    },
+  });
+  return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform" } });
+}

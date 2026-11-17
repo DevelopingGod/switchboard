@@ -6,7 +6,7 @@ import * as m from "motion/react-m";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { shared } from "@/design/design-tokens";
-import { Skeleton, LoadingLabel } from "./Skeleton";
+import { LoadingLabel } from "./Skeleton";
 import { t } from "@/i18n/strings";
 
 const START = 135; // degrees, SVG space (0° = +x, clockwise)
@@ -113,9 +113,22 @@ export function Dial({
   };
 
   if (state === "loading") {
+    // A shimmering ring, not a grey disc: the track plus a light arc orbiting it.
     return (
-      <div className={cn("relative grid place-items-center", className)} style={{ width: size, height: size }} aria-busy>
-        <Skeleton className="rounded-full" style={{ width: size, height: size }} />
+      <div className={cn("relative inline-grid place-items-center", className)} style={{ width: size, height: size }} aria-busy>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="overflow-visible">
+          <path d={arc} fill="none" stroke="var(--track)" strokeWidth={stroke} strokeLinecap="round" />
+          <path
+            d={arc}
+            pathLength={100}
+            className="dial-orbit"
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray="22 78"
+          />
+        </svg>
         <LoadingLabel />
       </div>
     );

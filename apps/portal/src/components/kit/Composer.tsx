@@ -22,6 +22,10 @@ export interface ComposerSend {
 export interface ComposerProps {
   onSend?: (msg: ComposerSend) => void;
   defaultValue?: string;
+  /** Controlled text (quick-start chips fill it). Omit to let the composer manage its own text. */
+  value?: string;
+  onValueChange?: (text: string) => void;
+  inputRef?: React.Ref<HTMLTextAreaElement>;
   /** "empty" shows the teaching hint; "disabled" is read-only and needs `disabledReason`. */
   state?: "default" | "loading" | "empty" | "error" | "disabled";
   disabledReason?: string;
@@ -33,13 +37,21 @@ export interface ComposerProps {
 export function Composer({
   onSend,
   defaultValue = "",
+  value,
+  onValueChange,
+  inputRef,
   state = "default",
   disabledReason,
   errorMessage,
   className,
 }: ComposerProps) {
   const { mode } = usePrefs();
-  const [text, setText] = React.useState(defaultValue);
+  const [inner, setInner] = React.useState(defaultValue);
+  const text = value ?? inner;
+  const setText = (v: string) => {
+    setInner(v);
+    onValueChange?.(v);
+  };
   const [autonomy, setAutonomy] = React.useState(1);
   const [priv, setPriv] = React.useState(false);
   const [temp, setTemp] = React.useState(0.7);
@@ -76,6 +88,7 @@ export function Composer({
         ) : null}
         <textarea
           id={`${ids}-msg`}
+          ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           readOnly={locked}
