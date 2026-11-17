@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { Bot } from "lucide-react";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { PillTabs } from "@/components/kit/PillTabs";
@@ -17,7 +18,8 @@ import { Skeleton } from "@/components/kit/Skeleton";
 import { EmptyState } from "@/components/kit/EmptyState";
 import { StatusBadge } from "@/components/kit/StatusBadge";
 import { Logo } from "@/components/kit/Logo";
-import { ColumnsArt } from "@/components/kit/ColumnsArt";
+// Below the fold and only used here (and in the wizard): keeps it out of the gallery's first-load JS.
+const ColumnsArt = dynamic(() => import("@/components/kit/ColumnsArt").then((m) => m.ColumnsArt));
 import { Button } from "@/components/ui/button";
 import { strings, t } from "@/i18n/strings";
 

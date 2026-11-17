@@ -1,6 +1,6 @@
 /**
- * Lighthouse gate for /dev/components (and the home shell) in both themes.
- * Needs a production server: `npm run build && npx next start -p 3210`.
+ * Lighthouse gate for the gallery, Home, Connections and the wizard in both themes.
+ * Needs a production server on fixture data: `npm run build && PORTAL_DATA=fixture npx next start -H 127.0.0.1 -p 3210`.
  * Categories: performance, accessibility, best-practices (SEO intentionally excluded). Threshold 90.
  */
 import { execFileSync } from "node:child_process";
@@ -8,9 +8,18 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-const BASE = process.env.PORTAL_URL ?? "http://localhost:3210";
+const BASE = process.env.PORTAL_URL ?? "http://127.0.0.1:3210";
 const THRESHOLD = 90;
-const targets = ["/dev/components", "/dev/components?theme=dark", "/", "/?theme=dark"];
+const targets = [
+  "/dev/components",
+  "/dev/components?theme=dark",
+  "/",
+  "/?theme=dark",
+  "/connections",
+  "/connections?theme=dark",
+  "/welcome?step=3",
+  "/welcome?step=3&theme=dark",
+];
 const chrome =
   process.env.CHROME_PATH ?? join(homedir(), ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome");
 

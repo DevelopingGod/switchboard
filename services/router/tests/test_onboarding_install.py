@@ -66,6 +66,11 @@ def test_num_retries_is_passed_per_deployment():
     assert "num_retries" not in params
 
 
+def test_smart_free_does_not_retry_before_falling_back_to_local():
+    smart = [d for d in load_registry().aliases if d.alias == "smart-free"]
+    assert smart and all(d.num_retries == 0 and d.timeout == 30 for d in smart)
+
+
 async def test_install_plan_run_and_cancel_are_proxied(client, mock_http, hostprobe_up):
     plan = {"plan_id": "p" * 24, "commands": ["download x", "bash install.sh"], "sudo": False}
     route = mock_http.post(f"{PROBE}/install/opencode/plan").respond(200, json=plan)

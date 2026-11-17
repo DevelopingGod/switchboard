@@ -153,9 +153,12 @@ aliases:
   cerebras:
     - { provider: cerebras, model: gpt-oss-120b, timeout: 25 }
   smart-free:
-    # Pinned: gemini-flash-latest (-> 3.8) hung on generateContent at M0 (2026-11-17).
-    # 30 s: with num_retries=1 a hung Gemini call reaches the `local` fallback in ~60 s.
-    - { provider: gemini, model: gemini-3.5-flash, timeout: 30 }
+    # Pinned after a sweep of every chat-capable Gemini model (2026-11-17, scripts/gemini-sweep.py,
+    # docs/m1b.md): gemini-3.5-flash (the old pin) answered 0/3 (timeout, then 503 "overloaded");
+    # gemini-3.1-flash-lite answered 3/3 at ~1.2 s and is not a preview model. Stronger alternative
+    # that also went 3/3: gemini-3-flash-preview (a preview, so it may be retired).
+    # num_retries 0 + 30 s: a failing Gemini call reaches the `local` fallback after one timeout.
+    - { provider: gemini, model: gemini-3.1-flash-lite, timeout: 30, num_retries: 0 }
   general:
     - { provider: mistral, model: mistral-small-latest, timeout: 60 }
   explore:

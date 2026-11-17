@@ -50,7 +50,7 @@ Each managed deployment carries a hash of its spec. If `providers.yaml` changes 
 |---|---|---|---|
 | `fast` | Groq `openai/gpt-oss-120b` (1) → Cerebras `gpt-oss-120b` (2, only if keyed) | 25 s | `smart-free` |
 | `cerebras` | Cerebras `gpt-oss-120b` (only if keyed) | 25 s | — |
-| `smart-free` | Gemini `gemini-3.5-flash` | 30 s | `local` |
+| `smart-free` | Gemini `gemini-3.1-flash-lite` (pinned in M1b after a model sweep, see [m1b.md](m1b.md)), `num_retries: 0` | 30 s | `local` |
 | `general` | Mistral `mistral-small-latest` (if keyed) | 60 s | — |
 | `explore` | OpenRouter `openai/gpt-oss-120b:free` (if keyed) | 60 s | — |
 | `code-free` | OpenCode Zen `big-pickle` (if keyed) | 90 s | — |
@@ -136,12 +136,12 @@ curl -s -X POST -H "$A" $R/catalog/refresh
 
 The router runs in Docker and can't execute WSL binaries, so a small stdlib-only service in WSL does it. Rules (M1a review):
 
-- **Allowlist only.** The argv for each CLI (`--version` plus one auth-status command) is hard-coded in `services/hostprobe/hostprobe.py`. No request data reaches a command, and nothing runs through a shell. The only endpoints are `GET /cli` and `GET /health`.
+- **Allowlist only.** The argv for each CLI (`--version` plus one auth-status command) is hard-coded in `services/hostprobe/hostprobe.py`. No request data reaches a command, and nothing runs through a shell. M1a had only `GET /cli` and `GET /health`; M1b adds the install endpoints ([docs/m1b.md](m1b.md)).
 - **Minimal output.** It returns `installed`, `version`, `logged_in`, `windows_only` and `login_method`. Command output is reduced to a version string or a boolean, then discarded. Credential files are checked with `stat` only; they are never opened.
 - **Auth and limits.** Every request needs `X-Probe-Token`, compared in constant time. The token is in `deploy/.env`; hostprobe reads only that one variable from the file. It listens on `127.0.0.1` only. Each command has a 5 s timeout. Results are cached for 30 s. Rate limits: 6 probes/min, 60 requests/min.
 - **Resolution.** Binaries are looked up on a clean Linux PATH (nvm bin, `~/.local/bin`, `~/.npm-global/bin`, `~/.bun/bin`, `~/.opencode/bin`, `~/.grok/bin`, `/usr/local/bin`, `/usr/bin`), never under `/mnt/*`. A CLI found only as a Windows install is reported as `windows_only`.
 - **Router side.** If hostprobe is down, the router stays healthy and CLI rows show `unknown`.
-- Login and install actions come later (M1b/M4.5) as separate allowlisted, user-confirmed endpoints.
+- Install (M1b) is a separate, allowlisted, user-confirmed action with its own endpoints; see [docs/m1b.md](m1b.md). Login never runs here: interactive OAuth stays in the user's terminal.
 
 | CLI | Version | Logged-in check | Verified |
 |---|---|---|---|
