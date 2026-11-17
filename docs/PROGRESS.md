@@ -1,47 +1,92 @@
-# Progress
+# Switchboard — Progress & Decisions Log
 
-Read this and SPEC.md before starting any work. Update it at the end of every milestone, in the same PR (status table, outcomes, carry-overs).
+> Single source of project memory. Update at the end of every milestone (Claude Code: append, never rewrite history).
+> Read this + SPEC.md at the start of any new chat or session.
 
 ## Status
 
-| # | Milestone | Status | PR |
-|---|---|---|---|
-| M0 | Infra: Postgres, LiteLLM, Ollama, Paperclip, doctor | Done | [#1](https://github.com/DevelopingGod/switchboard/pull/1) |
-| M0.5 | Design system + app shell | In review | m05 |
-| M1 | Connections screen + API + first-run wizard | Not started | |
-| M2 | Chat + Router (rules only) | Not started | |
-| M3 | Rules UI + Arch-Router classifier | Not started | |
-| M4 | Jobs via Paperclip | Not started | |
-| M4.5 | Workflow packs | Not started | |
-| M5 | Studio (image + video) | Not started | |
-| M5.5 | Content Studio | Not started | |
-| M6 | Metrics dashboard | Not started | |
-| M7 | OSS packaging | Not started | |
+| Milestone | Status | Branch / PR | Model used | Notes |
+|---|---|---|---|---|
+| M0 Infra | ✅ Merged | m0 / #1 | Opus 5.5, medium | doctor.sh green; fast + local verified |
+| M0.5 Design system | 🔎 In review | m05 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
+| M1 Connections + wizard | ⏳ Next | — | Sonnet 5.5, medium | Carry-over items listed below |
+| M2 Chat + Router | ⏳ | — | Opus 5.5, high | |
+| M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
+| M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
+| M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
+| M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
+| M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
+| M6 Metrics | ⏳ | — | Opus 5.5, medium | |
+| M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
 
-## Outcomes
+**MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
 
-### M0: Infrastructure (done)
-Postgres 17 and LiteLLM in Docker, Ollama on Windows reached through `host.docker.internal`, Paperclip native in WSL on `127.0.0.1:3100`, `scripts/doctor.sh`, gitleaks pre-commit hook. Details: [docs/m0.md](m0.md).
+## Environment (as of M0)
 
-### M0.5: Design system and app shell (in review)
-- `apps/portal`: Next.js 16 + TypeScript + Tailwind 4 + Radix-based shadcn-style primitives + Motion + Lucide. Package manager is **npm**.
-- Direction changed from SPEC's original dark glass to "dreamy sky": Day sky / Dusk themes, one periwinkle accent, Plus Jakarta Sans + Geist. SPEC §8c rewritten to match.
-- `design-tokens.ts` is the single source for both themes; CSS variables are generated from it. AA contrast is a unit test over every text/surface pair and sky stop.
-- Kit: GlassPanel, PillTabs, Dial, StatCard, RouteChip, ProviderCard, JobCard, CostBadge, ExplainPopover, Composer, Toast, Skeleton, EmptyState (+ StatusBadge, Segmented, Logo, ColumnsArt). Every component has loading / empty / error / disabled states.
-- Shell: top pill navigation, mobile bottom bar, ⌘K palette, Simple/Pro switch, Comfortable/Compact density, Appearance menu (theme, solid surfaces, sky image), stub screens for Chat, Studio, Jobs, Connections, Metrics, Settings, and Home with the composer.
-- Verification: axe has no serious or critical issues (17 tests: 4 pages x 2 themes, variants, palette, popovers, mobile); Lighthouse (mobile profile) performance 95-98, accessibility 100, best-practices 100 on `/` and `/dev/components` in both themes; initial JS 176-197 KB gzip per route; 34 visual baselines; 12 token/contrast unit tests; 9 shell behavior tests (reduced-transparency and reduced-motion, <= 2 blur layers, Dial keyboard).
-- Screenshots: [docs/screens](screens/). Guide: [docs/m05.md](m05.md).
+- Windows 11, 32 GB RAM, RTX 3050 4 GB. WSL2 Ubuntu 24.04 (13 GB to WSL). Docker Desktop 29.9.2, WSL integration on.
+- Repo: `~/switchboard` in WSL (never under /mnt/c or /mnt/d). Remote: github.com/DevelopingGod/switchboard (public).
+- Node 24 via nvm (Linux). Windows Node at /mnt/d/NodeJS must not come first on PATH. Use **npm**, not the Windows pnpm.
+- Ollama on Windows, reached from Docker at host.docker.internal:11434. Models: qwen3:4b (local/private), llama3.2:3b (fallback), qwen2.5-coder:3b (future local-code). 7B/14B excluded from routing defaults.
+- Paperclip 2026.1106.0, native in WSL, loopback service on 127.0.0.1:3100, embedded Postgres.
+- LiteLLM v1.108.8 on 127.0.0.1:4000; Postgres 17.6 (DBs: switchboard, litellm).
+- Claude Code: desktop app, Code tab, WSL → Ubuntu environment. WSL sessions lack terminal, file pane, plugins, connectors, @-suggestions.
 
-## Carry-overs
+## Key decisions
 
-- **M1 wizard** must set `name` (read via `usePrefs().name`, currently defaults to "there") and may use `ColumnsArt` for onboarding/login. Login/onboarding screens do not exist yet.
-- **Stub screens** (Chat, Studio, Jobs, Connections, Metrics, Settings) are `ScreenStub` placeholders; each later milestone replaces its own.
-- **Mobile is read-only** by design (composer disabled with an explanation); revisit if write access on phones is wanted.
-- **Ports**: Paperclip owns 3100. Portal dev uses 3000, portal test server 3210.
-- **Next.js 16 differences**: the scaffold's `AGENTS.md` says to read `node_modules/next/dist/docs/` before framework work. `cacheComponents` is turned off (client-driven shell, no server data yet); revisit when M1 adds server data fetching.
-- **Turbopack CSS layers**: keep custom component CSS in `components.css` (imported with `layer(components)`); `@layer` blocks inside `globals.css` get flattened.
-- **Visual baselines are Linux Chromium only.** Regenerate on the same platform; CI in M7 must use the same browser build.
-- **Lighthouse under WSL** must run from a scratch cwd (script handles it); the Windows `TEMP` leak otherwise creates `C:\Users\...` directories in the repo.
-- **Sky image** is procedurally generated (not AI/photo); swap in a CC0 photo later if a more realistic look is wanted (keep < 150 KB AVIF).
-- **Gallery copy** (section titles, sample data) is inline fixture text, not in `strings.ts`.
-- **WSL environment quirks** from M0 still apply (NAT/Ollama via Docker, Windows `npm`/`pnpm` on PATH shadow Linux ones, source `~/.nvm/nvm.sh` in tool shells, mount directories not single files in Docker). M1 needs Linux installs of the agent CLIs because Paperclip runs in WSL.
+1. **Architecture:** own portal (Next.js) + Router API (FastAPI) on top of reused Paperclip (agents/jobs/approvals/budgets) and LiteLLM (API-key models, media, spend). Don't rebuild those.
+2. **Subscriptions only via official CLIs** (Claude Code, Codex, Gemini CLI, Grok Build). Never pass subscription OAuth tokens to other tools/gateways (Anthropic ToS; ban risk). Skip OmniRoute/9Router-style subscription passthrough.
+3. **Paid:** Claude Pro (have). SuperGrok $30 planned at M4 (verify headless/automated use billing first). ChatGPT Plus optional.
+4. **Workflow packs** (OpenSpec, gstack, Spec Kit, Superpowers, BMAD, graphify…) are never pre-installed; installed on demand via `packs/<id>/pack.yaml` manifests (SPEC §8a).
+5. **Media:** no reliable free video API; confirm-before-spend + media caps. Images try free Gemini quota, then Grok Imagine.
+6. **Privacy:** Gemini free tier and Mistral may train on data (user is in India, outside EEA). Private toggle → local Ollama only.
+7. **Design direction (M0.5):** "dreamy sky" inspired by a Dribbble mindfulness landing page (Moola by Kris Anfalova) — original assets only. Day sky (light) / Dusk (dark), periwinkle accent (#8B8FE8 family, #5a5fc9 for text on light), white pill top nav, signature Dial (quotas, budgets, autonomy), huge tight headings, Plus Jakarta Sans + Geist + Geist Mono, glass for containers only, code on solid panels, ≤ 2 blur layers, reduced-motion/transparency fallbacks, Comfortable/Compact density, columns motif only on onboarding/login.
+8. **Process:** one milestone per branch + PR; Plan mode first; new session per milestone; stop for review after each. Prompts and reviews come from the planning chat.
+
+## M0 outcome
+
+- `fast` = groq/openai/gpt-oss-120b. `smart-free` = gemini/gemini-3.5-flash (`gemini-flash-latest` → 3.8 hung; pinned).
+- Added: .gitattributes (LF), gitleaks pre-commit (.githooks, checksum-verified install), doctor checks (Node source, clock drift, ports), docs/TROUBLESHOOTING.md.
+- Fixed: LiteLLM config mount (mount folder, not file); Node-source false red.
+
+## M0.5 outcome
+
+- `apps/portal` (Next.js 16, TS, Tailwind 4, Radix-based shadcn-style primitives, Motion, Lucide); **npm**. Guide: [docs/m05.md](m05.md). Screens: [docs/screens](screens/).
+- SPEC §8c rewritten for the "dreamy sky" direction. `design-tokens.ts` is the single source (generated CSS vars; unit test for drift and AA contrast on every text/surface pair and sky stop).
+- Kit: GlassPanel, PillTabs, Dial, StatCard, RouteChip, ProviderCard, JobCard, CostBadge, ExplainPopover, Composer, Toast, Skeleton, EmptyState (+ StatusBadge, Segmented, Logo, ColumnsArt), each with loading/empty/error/disabled states. Shell: top pill nav, mobile bottom bar, ⌘K, Simple/Pro, Comfortable/Compact, Appearance menu (theme, solid surfaces, sky image), stub screens, Home composer.
+- Checks: axe no serious/critical (17 tests, both themes, palette/popovers/mobile); Lighthouse (mobile profile) perf 95–99, a11y 100, best-practices 100; initial JS 176–197 KB gzip per route (budget 200); 34 visual baselines; 12 unit + 9 shell tests (reduced-transparency/motion, ≤ 2 blur layers, Dial keyboard).
+- Deviation from decision 7: accent-on-light text uses `#4b50c4` (not `#5a5fc9`), the value that passes AA with margin on every sky stop. Primary pill uses `#8B8FE8` with dark ink.
+- Sky image is procedurally generated (gradients + fractal-noise clouds via sharp), ~6 KB AVIF each; swap for a CC0 photo if a more realistic sky is wanted. Logo mark + wordmark SVG: `public/logo.svg`, `app/icon.svg`.
+
+## Carry-over from M0.5
+
+- M1 wizard sets `name` (`usePrefs().name`, defaults to "there") and may use `ColumnsArt` on onboarding/login; those screens don't exist yet. Other screens are `ScreenStub` placeholders.
+- Mobile is read-only by design (composer disabled with a reason).
+- Ports: Paperclip 3100; portal dev 3000, portal test server 3210.
+- Next 16: scaffold `AGENTS.md` says read `node_modules/next/dist/docs/` before framework work. `cacheComponents` is off (no server data yet); revisit in M1.
+- Turbopack flattens `@layer` blocks written in `globals.css`; custom component CSS lives in `components.css` imported with `layer(components)`.
+- Visual baselines are Linux Chromium only; M7 CI must use the same browser build.
+- Lighthouse under WSL must run from a scratch cwd (script does this); otherwise `C:\Users\…` profile dirs appear in the repo.
+- Gallery section titles and sample data are inline dev fixtures, not in `strings.ts`.
+- Playwright needed `sudo npx playwright install-deps chromium` (done on this machine).
+
+## Carry-over to M1
+
+- Per-model timeout ~20–30 s for `fast` (global request_timeout is 120 s → slow fallback).
+- `smart-free` fallback → `local`.
+- Single source of truth for models: LiteLLM YAML vs DB (`STORE_MODEL_IN_DB=True`) — pick one for the Connections screen.
+- Add Cerebras key + alias; add `local-code` (qwen2.5-coder:3b).
+- Linux installs of claude, codex, gemini, grok, opencode inside WSL; `sudo apt install wslu` for browser logins.
+- Arch-Router model pull deferred to M3.
+
+## M0.5 approved changes
+
+1. Full-page screenshots of / and /dev/components in both themes in docs/screens/, embedded in PR.
+2. CSS sky default + optional original sky image (AVIF < 150 KB) behind a "Sky image" toggle.
+3. Lighthouse: performance, accessibility, best-practices ≥ 90 (no SEO).
+4. Original logo mark + "Switchboard" wordmark (SVG) for top bar and favicon.
+
+## Open questions / to verify
+
+- Paperclip REST endpoints for issues, runs, costs, approvals (M4).
+- Grok Build headless billing; Codex Free access at build time.
+- LiteLLM support for xAI Imagine image/video.
