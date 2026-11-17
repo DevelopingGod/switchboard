@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { urls } from "../playwright.config";
 import { ready } from "./helpers";
 
 test("theme follows the system by default", async ({ browser }) => {
   for (const scheme of ["light", "dark"] as const) {
     const ctx = await browser.newContext({ colorScheme: scheme });
     const page = await ctx.newPage();
-    await page.goto("http://localhost:3210/");
+    await page.goto(urls.main + "/");
     await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
     await ctx.close();
   }
@@ -96,4 +97,24 @@ test("max two stacked blur layers", async ({ page }) => {
     return max;
   });
   expect(deepest).toBeLessThanOrEqual(2);
+});
+
+test("quick-start chips fill the composer and focus it", async ({ page }) => {
+  await page.goto("/");
+  await ready(page);
+  const chips = page.getByRole("list", { name: "Quick starts" });
+  await expect(chips.getByRole("button")).toHaveText(["Write a LinkedIn post", "Fix failing tests", "Make an image", "Research a topic"]);
+  await chips.getByRole("button", { name: "Make an image" }).click();
+  const box = page.getByLabel("Message");
+  await expect(box).toHaveValue("Make an image of ");
+  await expect(box).toBeFocused();
+  await chips.getByRole("button", { name: "Research a topic" }).click();
+  await expect(box).toHaveValue("Research "); // a chip replaces the text, it does not append
+});
+
+test("the loading Dial is a ring, not a grey disc", async ({ page }) => {
+  await page.goto("/dev/components");
+  await ready(page);
+  const loading = page.getByTestId("cmp-dial").locator("[aria-busy] svg path.dial-orbit");
+  await expect(loading).toHaveCount(1);
 });

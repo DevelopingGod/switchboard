@@ -164,18 +164,18 @@ export default function InstallDialog({ provider, name, onClose }: { provider: s
             </dl>
 
             <section aria-labelledby="install-commands" className="grid gap-1.5">
-              <h4 id="install-commands" className="label">
+              <h3 id="install-commands" className="label">
                 {t("install.commands")}
-              </h4>
+              </h3>
               <pre className="solid-panel overflow-x-auto p-3" tabIndex={0} aria-label={t("install.commands")}>
                 {plan.commands.map((c) => `$ ${c}`).join("\n")}
               </pre>
             </section>
 
             <section aria-labelledby="install-effects" className="grid gap-1.5">
-              <h4 id="install-effects" className="label">
+              <h3 id="install-effects" className="label">
                 {t("install.effects")}
-              </h4>
+              </h3>
               <ul className="grid list-disc gap-1 pl-5 text-sm">
                 {plan.effects.map((e) => (
                   <li key={e}>{e}</li>

@@ -10,21 +10,25 @@ import { cn } from "@/lib/cn";
 export function ColumnsArt({ className }: { className?: string }) {
   const id = React.useId();
   const centres = [52, 126, 200, 274, 348];
-  const stop = (offset: number, color: string, opacity: number) => (
+  const stop = (offset: number, color: string, opacity = 1) => (
     <stop offset={offset} style={{ stopColor: color, stopOpacity: opacity }} />
   );
+  // Stone tones are mixed from the theme's own tokens: pale periwinkle in Day sky, lifted indigo in Dusk.
+  const hi = "color-mix(in srgb, var(--accent) 22%, var(--glass-strong))";
+  const mid = "color-mix(in srgb, var(--accent) 38%, var(--glass-strong))";
+  const lo = "color-mix(in srgb, var(--accent) 58%, var(--glass-strong))";
   return (
     <svg viewBox="0 0 400 244" aria-hidden className={cn("w-full max-w-md", className)} fill="none">
       <defs>
-        {/* Light from the upper left: bright edge, soft body, accent-tinted shadow side. */}
+        {/* Light from the upper left: pale edge, soft body, deeper shadow side. */}
         <linearGradient id={`${id}-shaft`} x1="0" y1="0" x2="1" y2="0">
-          {stop(0, "var(--glass-strong)", 1)}
-          {stop(0.45, "var(--glass-strong)", 0.7)}
-          {stop(1, "var(--accent)", 0.55)}
+          {stop(0, hi)}
+          {stop(0.5, mid)}
+          {stop(1, lo)}
         </linearGradient>
         <linearGradient id={`${id}-stone`} x1="0" y1="0" x2="0" y2="1">
-          {stop(0, "var(--glass-strong)", 1)}
-          {stop(1, "var(--accent)", 0.3)}
+          {stop(0, hi)}
+          {stop(1, mid)}
         </linearGradient>
         <radialGradient id={`${id}-shadow`} cx="0.5" cy="0.5" r="0.5">
           {stop(0, "var(--accent)", 0.35)}

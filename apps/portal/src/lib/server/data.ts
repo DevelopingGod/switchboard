@@ -1,4 +1,5 @@
 import "server-only";
+import { connection } from "next/server";
 import { routerGet, type Result } from "./router";
 import type { CatalogModel, CatalogResponse, ConnectionRow, ConnectionsResponse, OnboardingResponse } from "../router-types";
 
@@ -10,6 +11,7 @@ export interface ConnectionsData {
 
 /** /connections + /catalog in parallel, with models grouped by provider. */
 export async function loadConnections(): Promise<Result<ConnectionsData>> {
+  await connection(); // router data is live: never prerender it at build time (also true for fixtures)
   const [c, m] = await Promise.all([routerGet<ConnectionsResponse>("/connections"), routerGet<CatalogResponse>("/catalog")]);
   if (!c.ok) return c;
   const modelsByProvider: Record<string, CatalogModel[]> = {};
@@ -18,4 +20,7 @@ export async function loadConnections(): Promise<Result<ConnectionsData>> {
   return { ok: true, data: { rows: c.data.providers, modelsByProvider, hostprobe: c.data.hostprobe } };
 }
 
-export const loadOnboarding = () => routerGet<OnboardingResponse>("/onboarding");
+export async function loadOnboarding(): Promise<Result<OnboardingResponse>> {
+  await connection();
+  return routerGet<OnboardingResponse>("/onboarding");
+}
