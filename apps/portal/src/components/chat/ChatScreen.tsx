@@ -391,6 +391,7 @@ export function ChatScreen({
           )}
         <Composer
           compact
+          phoneReadOnly={t("home.readOnlyNote")}
           state={phone ? "disabled" : sendError ? "error" : "default"}
           disabledReason={t("home.readOnlyNote")}
           errorMessage={sendError ?? undefined}

@@ -30,6 +30,9 @@ export interface ComposerProps {
   /** "empty" shows the teaching hint; "disabled" is read-only and needs `disabledReason`. */
   state?: "default" | "loading" | "empty" | "error" | "disabled";
   disabledReason?: string;
+  /** Phones are read-only (SPEC §8c): this note is in the server HTML and shown below `sm` by CSS,
+   * so it is there before hydration and nothing shifts when the composer locks itself. */
+  phoneReadOnly?: string;
   errorMessage?: string;
   className?: string;
   /** Replaces the static "Target: Auto" label (Chat passes the lazy target picker). */
@@ -57,6 +60,7 @@ export function Composer({
   inputRef,
   state = "default",
   disabledReason,
+  phoneReadOnly,
   errorMessage,
   className,
   targetSlot,
@@ -192,6 +196,12 @@ export function Composer({
           </ul>
         )}
         <p id={`${ids}-note`} className={cn("text-sm", !compact && "min-h-5")}>
+          {phoneReadOnly && (
+            <span className="flex items-center gap-1.5 text-ink-muted sm:hidden">
+              <Lock aria-hidden className="size-4" /> {phoneReadOnly}
+            </span>
+          )}
+          <span className={cn("contents", phoneReadOnly && "max-sm:hidden")}>
           {disabled ? (
             <span className="flex items-center gap-1.5 text-ink-muted">
               <Lock aria-hidden className="size-4" /> {disabledReason ?? t("composer.disabledDefault")}
@@ -205,6 +215,7 @@ export function Composer({
           ) : busy ? (
             <LoadingLabel />
           ) : null}
+          </span>
         </p>
       </div>
 

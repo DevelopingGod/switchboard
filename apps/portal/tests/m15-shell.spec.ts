@@ -176,6 +176,19 @@ test.describe("splash and loading", () => {
     });
   }
 
+  for (const path of ["/", "/chat?t=6f1c2a10-0000-4000-8000-000000000001"]) {
+    test(`CLS < 0.05 on a throttled phone: ${path.slice(0, 6)}`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: { width: 412, height: 823 }, isMobile: true, hasTouch: true });
+      const page = await ctx.newPage();
+      const cdp = await ctx.newCDPSession(page);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+      await page.goto("http://127.0.0.1:3210" + path + (path.includes("?") ? "&" : "?") + "nosplash");
+      await page.waitForLoadState("networkidle");
+      expect(await cls(page)).toBeLessThan(0.05);
+      await ctx.close();
+    });
+  }
+
   test("client navigation animates the page in (transform/opacity only)", async ({ page }) => {
     await page.goto("/jobs?nosplash");
     await ready(page);

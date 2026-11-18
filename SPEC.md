@@ -355,7 +355,17 @@ Users must always know **what** they are using, **why** it was picked, and **wha
 - **Comfortable / Compact** density toggle. Responsive: desktop, tablet, phone (phone is read-only).
 - The columns motif (original artwork) appears only on onboarding and login.
 
-**Motion.** 150-250 ms, spring easing, 90 s cloud drift, 3 s "breathing" status dots. Motion (`motion/react`) with `LazyMotion` so animation features load after first paint.
+**Motion.** 150-300 ms for every UI transition (tokens: fast 150, base 200, slow 250, enter 220, exit 150, stagger 30 ms; `ease`, `easeOut`, `easeIn`; spring presets), 90 s cloud drift, 3 s "breathing" status dots. Transform and opacity only; nothing scroll-linked. Page transitions animate client navigations only (never the first paint); lists stagger at most 8 items and never start fully transparent; cards lift 1 px on hover; buttons press to 0.97; toasts spring; streamed Markdown blocks fade in once. Everything stops under `prefers-reduced-motion` **or** Settings → Appearance → Motion: Reduce (`html[data-motion]`). Motion (`motion/react`) with `LazyMotion` so animation features load after first paint; simple transitions are CSS (the Dial too, M1.5).
+
+**Ambient cursor (M1.5).** The native cursor and the text I-beam are never hidden or replaced. A soft periwinkle glow follows the pointer behind the content, and the edge of the glass card under it lights up. Desktop with a fine pointer only; off on touch, under reduced motion and via Settings → Appearance. CSS variables + one requestAnimationFrame per frame, no React renders.
+
+**Tooltips (M1.5).** One tooltip, driven by `data-tip` (or `data-tip-truncated` for cut-off text). Only on icon-only buttons and jargon terms, at most one short sentence. Opens after ~500 ms of hover, closes after 100 ms, shows on keyboard navigation, Esc closes it, one at a time, collision-aware, never on touch.
+
+**Scrollbars (M1.5).** Thin and themed; thumbs hidden at rest and shown on hover, focus or while scrolling (gutter reserved, so nothing shifts). No horizontal scrolling in lists or panels; long titles use a single-line ellipsis with the full title in the tooltip.
+
+**Chrome (M1.5).** A slim glass footer (health dots → Status view, today's spend and value saved, quota, version, links; an icon row on phones), a CSS-only first-load splash (≤ 1.2 s, never blocks input, once per session, none under reduced motion), route skeletons sized like the page (CLS < 0.05), and a keyboard shortcuts sheet on `?` built from the same registry as the handlers.
+
+**Errors (M1.5).** Never show raw JSON or HTTP text on cards or in chat: one plain sentence and at most one action, from a stable error code; the raw detail only in Pro mode under "Details".
 
 **States.** Every component has loading (soft shimmer), empty, error and disabled states. **Status is never conveyed by color alone**: icon + text + color.
 
@@ -487,6 +497,7 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M1a | Router backend (§5, §6.4, §9, §13): `services/router` (FastAPI) + hostprobe, connections API, model catalog, LiteLLM reconcile | `doctor.sh` green incl. router; catalog shows live, tagged models for every keyed provider; add/test/remove key via API; CLI detection correct; tests pass |
 | M1b | Connections UI + first-run wizard (§8b) + quick-start chips on top of the M1a API | Can add/test API keys from UI; CLI cards show installed/logged-in; provider cards show tagged recommended models; wizard completes end to end |
 | M2 | Chat + Router (rules only, no classifier yet) | Manual pick and slash commands work; fallback on 429 verified; decision chip shown |
+| M1.5 | Design polish + self-healing (§8b, §8c), built after M2: shell (footer, splash, shortcuts, transitions), chat sidebar and reading column, Settings, motion v2, ambient cursor, one tooltip; idempotent LiteLLM sync, plain-language errors, Status view | Every UI item in §8c below works in both themes; axe clean; Lighthouse ≥ 90; JS ≤ 200 KB per route; CLS < 0.05; LiteLLM restart or a lost deployment resyncs with no user action |
 | M3 | Rules UI + Arch-Router classifier | Dry-run tester; ≥ 85% correct on a 50-prompt labelled set in `tests/routing.jsonl`; `best:<capability>` targets resolve via the recommender, the "Why this?" chip shows model + top reasons, and feedback updates `model_stats` |
 | M4 | Jobs via Paperclip | "Fix tests in repo X" creates a Paperclip issue for the right agent; live status, approve/reject, diff view |
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |

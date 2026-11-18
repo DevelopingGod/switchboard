@@ -6,6 +6,19 @@ export async function ready(page: Page) {
   await page.waitForLoadState("networkidle");
 }
 
+/** Waits until the page height stops changing (lazy chunks that arrive late under load). */
+export async function settled(page: Page) {
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const h = document.documentElement.scrollHeight;
+        setTimeout(() => resolve(document.documentElement.scrollHeight === h), 300);
+      }),
+    undefined,
+    { polling: 100, timeout: 10_000 },
+  );
+}
+
 /** Sticky chrome would overlay tall element screenshots. */
 export async function unstick(page: Page) {
   await page.addStyleTag({ content: "header{position:static!important}" });

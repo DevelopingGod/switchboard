@@ -21,6 +21,10 @@ const targets = [
   "/welcome?step=3&theme=dark",
   "/chat?t=6f1c2a10-0000-4000-8000-000000000001",
   "/chat?t=6f1c2a10-0000-4000-8000-000000000001&theme=dark",
+  "/settings",
+  "/settings?theme=dark",
+  "/status",
+  "/status?theme=dark",
 ];
 const chrome =
   process.env.CHROME_PATH ?? join(homedir(), ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome");

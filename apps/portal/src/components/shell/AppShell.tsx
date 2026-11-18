@@ -109,7 +109,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <TopNav onOpenPalette={actions.openPalette} />
             {/* min-h: the footer always starts below the fold, so a short loading skeleton swapping for the
                 page cannot move it (layout shift). */}
-            <main id="main" className="mx-auto min-h-[calc(100dvh-5rem)] w-full max-w-[88rem] px-3 pt-8 pb-10 sm:px-5">
+            <main id="main" className="mx-auto min-h-dvh w-full max-w-[88rem] px-3 pt-8 pb-10 sm:px-5">
               {children}
             </main>
             <AppFooter />

@@ -12,9 +12,9 @@
 | M1 Connections + wizard | 🔨 Split into M1a + M1b | — | Sonnet 5.5, medium | Done when M1b merges; carry-over items listed below |
 | M1a Router backend | ✅ Merged | m1a / #4 | Opus 5.5 | Split from M1; see M1a outcome |
 | M1b Connections UI + wizard | ✅ Merged | m1b / #5 | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
-| M2 Chat + Router | 🔎 In review | m2 / #6 | Opus 5.5, high | Rules engine, streaming chat, fallbacks with reasons, caps, private; see M2 outcome |
-| Provider fixes | 🔎 In review | provider-fixes / #7 | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
-| M1.5 Design polish + self-healing | 🔨 In progress | m15 (pushed, no PR yet) | Opus 5.5 | Done: doctor fix, self-healing, router API, foundations, Dial; WIP: shell. See "M1.5 (in progress)" |
+| M2 Chat + Router | ✅ Merged | m2 / #6 | Opus 5.5, high | Rules engine, streaming chat, fallbacks with reasons, caps, private; see M2 outcome |
+| Provider fixes | ✅ Merged | provider-fixes / #7 | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
+| M1.5 Design polish + self-healing | 🔎 In review | m15 / PR pending | Opus 5.5 | doctor never hangs; self-healing LiteLLM sync + plain errors + Status view; footer, splash, shortcuts, chat sidebar/column, Why fix, Settings, motion v2, ambient cursor, one tooltip; see M1.5 outcome |
 | M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
@@ -217,63 +217,46 @@ Small follow-up between M2 and M3. No new milestone scope.
 - **Checks:** router 117 pytest (was 107; new: credits lifecycle end to end, 402 and wrapped 402, OpenRouter paid/free, Mistral off every chain), ruff clean; hostprobe 53 unittest; portal tsc, eslint, 45 vitest and 123 → 125 Playwright pass; visual baselines regenerated only for `connections` and `wizard-3` in both themes (Mistral paid label, Cerebras and Gemini CLI text, Mistral gone from the wizard step).
 - **Not done / for you:** nothing was run against real Cerebras or OpenRouter (no keys here); the 402 body shapes are from OpenRouter's documented format and a LiteLLM-wrapped variant, so check the first real 402. Router container needs a rebuild to pick this up (`docker compose … up -d --build router`).
 
-## M1.5 (in progress)
+## M1.5 outcome
 
-Branch `m15` (pushed, no PR yet). Plan: `~/.claude/plans/please-revert-any-changes-effervescent-walrus.md`. Commit order: 0 → 0b → A → B → C → D → E → F → G.
+Branch `m15`. Guide: [docs/m15.md](m15.md). Screens: `docs/screens/{chat,chat-hover,chat-why,settings,status,footer,tooltip,shortcuts,splash}-{day,dusk}.webp`, plus every earlier screen regenerated. The work paused once (WIP handoff on 2026-11-17) and resumed on 2026-11-18. Commits in order: 0 doctor, 0b self-healing (router, portal), A router API, B foundations, Dial, C shell, D chat, E settings, F motion and cursor, G checks and docs.
 
-**Done (committed):**
-- **0 · doctor.sh** (`ed8c286`): the hang was `timeout 10 bash -ic` (an interactive bash ignores SIGTERM and contends for the TTY). Now stdin is `/dev/null` and there is no interactive shell; Node source = login-shell PATH plus a static check that `~/.bashrc` loads nvm. Every call has a hard timeout (5 s commands, 3 s network; exceptions 10 s for router `/connections*`, 45 s per live model call). Docker down short-circuits the compose checks. Each check name is printed before it runs; `--verbose` (secrets redacted) replaces `bash -x`. Cerebras is `optional: true` (skipped by owner) and shows grey in doctor and CHECKLIST.
-- **0b · self-healing**
-  - Router (`d2ae0b1`):
-    - Root cause of "Model with id=… not found in db": LiteLLM `/model/info` lists a `<provider>/*` wildcard once per provider model, all with one id. Reconcile deleted the "duplicates" and so removed the wildcard. Now rows are collapsed by id.
-    - Idempotent writes: delete-missing counts as success; deterministic ids; create on an existing id becomes `PATCH /model/{id}/update`. One reconcile at a time (lock).
-    - `app/sync.py`: syncs on startup, every 5 min, on a 10 s liveness check ("came back" = restart), on a 30 s expected-vs-actual diff, and on request; backoff 2–60 s.
-    - Coded errors `{code, message, detail}`.
-    - New endpoints: `/system/components`, `/system/sync`, `/system/resync`, `/connections/{id}/resync`.
-    - Verified live: LiteLLM stop/start resynced on its own, and the deleted wildcards were restored.
-  - Portal (`b6b1e38`):
-    - `ErrorNote` + `i18n/errors.ts`: one sentence and one action; raw detail only in Pro mode under Details.
-    - Card "Retry now" for a failed sync; plain chat errors.
-    - `/status` view with in-app fixes or plain instructions.
-    - OpenRouter/Zen badges only on free models; a paid one shows "Paid".
-- **A · router API** (`fc31074`): Alembic `0003` `threads.pinned` (pinned sorts first, pinning keeps `updated_at`); `GET /chat/export?format=json|md` (private only on request); `DELETE /chat/threads` with the confirm phrase; `GET/PUT /settings` (caps and private-by-default in `system_meta`, over the read-only rules.yaml; the stricter cap wins); `GET /system/summary` for the footer; version 0.1.5. Router: 138 pytest, ruff clean; live router rebuilt, migration at 0003.
-- **B · foundations** (`09fec5a`): motion v2, scrollbar and cursor tokens (tested: thumbs ≥ 3:1, transitions 150–300 ms); thin auto-hiding themed scrollbars; one tooltip; prefs `motion`, `ambientCursor` and `sidebarCollapsed`.
-- **Dial** (`d891d00`): CSS transitions instead of Motion `useSpring`. `/chat` went from 196.9 to 190.5 KB and `/` from 189.3 to 183.0 KB.
+- **doctor.sh:** never hangs.
+  - It used to call `timeout 10 bash -ic`; an interactive bash ignores SIGTERM and grabs the TTY.
+  - Now stdin is /dev/null and there is no interactive shell. Every external call has a hard limit (5 s commands, 3 s network; 10 s for the router's CLI endpoints, 45 s per live model call).
+  - Each check is printed before it runs. `--verbose` prints commands with secrets redacted.
+  - Cerebras is `optional: true` (grey, no warning) and marked skipped in CHECKLIST.
+- **Self-healing:**
+  - **Root cause of the OpenRouter key-replace bug:** LiteLLM lists a `<provider>/*` wildcard once per provider model in `/model/info`, all with one id. Reconcile deleted the "duplicates", removing the wildcard. Rows are now collapsed by id. On first start here the fix logged -95; the two wildcards that went with them came back 30 s later via the drift check, and a later restart removed nothing.
+  - **Idempotent writes:** deleting something already gone counts as success; creating an existing id becomes an update; deployment ids are deterministic; a lock stops concurrent reconciles.
+  - **`app/sync.py`:** syncs on startup and every 5 min, on a 10 s liveness check (restart), on a 30 s drift diff, and on request; backoff 2–60 s.
+  - **Plain errors:** coded `{code, message, detail}`; `ErrorNote` shows one sentence and one action, with raw text in Pro mode only. "Retry now" on cards.
+  - **`/status`:** in-app fixes or plain instructions.
+  - **OpenRouter/Zen:** recommended only from free models; a paid model shown is labelled "Paid".
+  - **Verified live:** stopping and starting LiteLLM was followed by "LiteLLM came back (restart)" and a resync; deleted wildcards were restored.
+- **Router API:** Alembic `0003` (`threads.pinned`), pin via PATCH, export (JSON/Markdown), clear-all with a confirm phrase, `GET/PUT /settings` (caps and private-by-default over the read-only rules.yaml; the stricter cap wins), `GET /system/summary`. Version 0.1.5.
+- **Portal:**
+  - Every item in the M1.5 brief: scrollbars, chat layout, Why fix, footer, splash/transitions, Settings (7 sections), motion v2, ambient cursor, one tooltip, shortcuts sheet. Details are in docs/m15.md and SPEC §8c (updated).
+  - Also: a top-bar scrim, so content no longer shows between the nav pills.
+  - Also: the Dial is CSS, which cut first-load JS by 6.4 KB.
+- **Decisions:**
+  - The tooltip is a delegated DOM layer, not Radix Tooltip, which would have pushed `/chat` over 200 KB.
+  - The splash is CSS-only. Page transitions run only on client navigations. Staggers never start fully transparent (LCP).
+  - Settings overrides live in `system_meta`, not in rules.yaml. Private-by-default is the composer's starting state, not a lock.
+  - Restarts are detected by liveness plus the diff; LiteLLM has no restart marker.
+- **Checks:**
+  - Router: 138 pytest, ruff clean.
+  - Portal: 58 vitest; Playwright 119 functional/axe (both themes) plus 68 visual baselines.
+  - **Visual baselines.** New: `chat-collapsed`, `chat-hover-actions`, `footer`, `footer-phone`, `settings`, `shortcuts`, `status`, `tooltip` (each light/dark). Regenerated: every older baseline. The reserved scrollbar gutter, the footer and the new chat layout change every page. `dial` also changed: anti-aliasing of the CSS handle.
+  - Lighthouse (mobile): performance 95–100, accessibility 99–100, best practices 100, CLS ≤ 0.002.
+  - First-load JS: `/chat` 197.3 KB, `/welcome` 196.9 KB, others ≤ 193.4 KB.
+  - CLS fixes found while measuring: the footer moving under skeletons, lazy menus collapsing, and the phone composer note appearing late.
 
-**WIP (`123ffd9`, C, typechecks and lints, not yet built or tested):**
-- footer with `/api/status`;
-- shortcuts registry, handlers and lazy sheet;
-- CSS splash;
-- `template.tsx` page transition;
-- `loading.tsx` skeletons.
+## Carry-over from M1.5
 
-**Left:**
-- **C:** build and budget, then verify:
-  - the footer, including the mobile icon row;
-  - the splash: ≤ 1.2 s, never blocking, and its Lighthouse/LCP impact;
-  - the shortcuts sheet;
-  - CLS of the loading skeletons.
-- **D · chat:**
-  - sidebar: grouping, search, pin, row menu, ⌘B collapse, keyboard nav;
-  - 760 px column, sticky composer;
-  - hover actions, date separators, provider icon per reply, scroll-to-latest;
-  - Why popover placement fix plus a non-overlap test.
-- **E · Settings page:** seven sections, lazy; "Run setup again" writes only on Finish.
-- **F:** motion polish (stagger, hover lift, spring toasts, stream reveal) and the ambient cursor (CSS vars + rAF, never touches `cursor`).
-- **G:**
-  - tests: Playwright for every item, axe in both themes, CLS and long-task checks;
-  - budget and Lighthouse;
-  - regenerate the visual baselines and list them;
-  - screenshots;
-  - SPEC §11 row and §8c; `docs/m15.md`;
-  - flip the stale M2 and Provider-fixes rows (both merged) here;
-  - open the PR.
-
-**Decisions so far:**
-- **Tooltip:** a delegated DOM layer (`data-tip`, `lib/enhance/tooltips.ts`, loaded on idle), not Radix Tooltip. Radix would put popper into every route's first load and push `/chat` past 200 KB. Same rules: 500/100 ms, focus, Esc, one at a time, collision-aware, no touch.
-- **Splash and transitions:** the splash is CSS-only (0 KB JS). Page transitions animate client navigations only, never the first paint (LCP).
-- **Settings overrides:** stored in `system_meta` `settings`, not by writing `rules.yaml` (it stays read-only until the M3 Rules UI). `private_by_default` is the composer's starting state, not a lock.
-- **Restart detection:** LiteLLM v1.108.8 has no restart marker. Restarts are caught by liveness (down→up) and the deployment diff; a restart that kept its DB needs no repair.
-- **Versioning:** router and portal are 0.1.5.
-- **Seen live, not fixed:** the `explore` alias (OpenRouter `openai/gpt-oss-120b:free`) answered 404 through LiteLLM. The model may have been retired; check the catalog.
-
+- **JS budget:** `/chat` and `/welcome` are within 3.2 KB of the 200 KB cap. The next shared addition needs a trim; candidates are the chat-only strings or splitting the thread-row menu.
+- **Visual flakes, fixed:** late lazy chunks shifted the gallery while sections were captured; shots now wait for a stable layout (`settled()`). Watch for new ones in M7 CI (same Linux Chromium only).
+- **`explore` alias** (OpenRouter `openai/gpt-oss-120b:free`) answered 404 through LiteLLM. Check the catalog or re-pin (M3).
+- **Home composer** doesn't read Settings → Privacy yet (`/chat` does).
+- **Lazy Markdown swap** still causes a small shift on `/chat` (0.002).
+- **Still open from earlier (yours):** add the Mistral, OpenRouter, Zen and xAI keys as wanted; verify the CLI login commands after installs; remove `GROQ_API_KEY`/`GEMINI_API_KEY` from `deploy/.env`.
