@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import hostprobe_client
+from app import hostprobe_client, sync
 from app.config import get_settings
 from app.db import get_session
 from app.registry import load_registry
@@ -47,5 +47,5 @@ async def system_status(request: Request, session: AsyncSession = Depends(get_se
         "alembic_revision": rev,
         "secret_keys": await key_checks(session),
         "env_keys_still_present": await env_keys_still_present(session, load_registry()),
-        "background": getattr(request.app.state, "background", {}),
+        "background": {**getattr(request.app.state, "background", {}), "sync": sync.state.snapshot()},
     }

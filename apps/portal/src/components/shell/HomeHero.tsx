@@ -42,6 +42,7 @@ export function HomeHero({ setupPending = false, serverName = "" }: { setupPendi
       </h1>
       <div className="grid gap-4">
         <Composer
+          phoneReadOnly={t("home.readOnlyNote")}
           state={phone ? "disabled" : "default"}
           disabledReason={t("home.readOnlyNote")}
           value={text}

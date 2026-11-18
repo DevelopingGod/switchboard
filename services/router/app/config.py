@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     router_admin_token: SecretStr
     ollama_api_base: str = "http://host.docker.internal:11434"
     hostprobe_url: str = "http://host.docker.internal:8101"
+    paperclip_url: str = "http://host.docker.internal:3100"
     hostprobe_token: SecretStr | None = None
     config_dir: Path = Path("/srv/config")
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]

@@ -61,6 +61,7 @@ class Served:
 class Failed:
     candidate: Candidate
     reason: str  # after the first token: the reply ends here
+    kind: str = "error"  # UpstreamError code, mapped to plain language by the portal
 
 
 @dataclass
@@ -147,6 +148,10 @@ def classify(status: int, body: str, retry_after: str | None) -> UpstreamError:
     if status in (401, 403):
         return UpstreamError("error", f"Key rejected ({status})", ERROR_S)
     if status == 400 and "Invalid model name" in body:
+        # LiteLLM lacks a deployment we expect (restart, manual delete): resync now, not in 30 s.
+        from app import sync
+
+        sync.request("chat found a deployment missing in LiteLLM")
         return UpstreamError("not_connected", "Not registered in LiteLLM yet (reconcile pending)", ERROR_S)
     if status == 404:
         return UpstreamError("error", "Model not found at the provider (404)", ERROR_S)
@@ -249,7 +254,7 @@ async def dispatch(
             if e.cooldown_s:
                 cooldowns.set(cand.target, e.code, e.reason, e.cooldown_s)
             if committed:
-                yield Failed(cand, e.reason)
+                yield Failed(cand, e.reason, e.code)
                 return
             skip = Skip(cand.target, cand.label, e.code, e.reason)
             dec.skipped.append(skip)

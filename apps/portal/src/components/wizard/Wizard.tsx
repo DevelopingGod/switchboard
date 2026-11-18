@@ -19,10 +19,12 @@ interface Props {
   rows: ConnectionRow[];
   modelsByProvider: Record<string, CatalogModel[]>;
   startStep: number;
+  /** "Run setup again" from Settings: prefilled, nothing is saved until Finish; Cancel returns. */
+  again?: boolean;
 }
 
 /** First-run wizard (SPEC §8b). Progress is saved in the router on every step, so it resumes anywhere. */
-export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: Props) {
+export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, again = false }: Props) {
   const router = useRouter();
   const prefs = usePrefs();
   const nameId = React.useId();
@@ -51,6 +53,7 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
   }, [step]);
 
   const persist = async (to: number, extra: { skipped?: boolean; completed?: boolean } = {}) => {
+    if (again && !extra.completed) return true; // staged: written only on Finish
     setBusy(true);
     setError(null);
     const r = await saveOnboarding({ step: STEPS[to], name, goals, preset, ...extra });
@@ -103,10 +106,11 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
             variant="ghost"
             disabled={busy}
             onClick={async () => {
-              if (await persist(step, { skipped: true })) router.push("/");
+              if (again) router.push("/settings");
+              else if (await persist(step, { skipped: true })) router.push("/");
             }}
           >
-            {tWizard("wizard.skip")}
+            {again ? tWizard("wizard.cancelAgain") : tWizard("wizard.skip")}
           </Button>
           {id === "finish" ? (
             <Button
@@ -114,12 +118,12 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep }: 
               loading={busy}
               onClick={async () => {
                 if (await persist(step, { completed: true })) {
-                  router.push("/");
+                  router.push(again ? "/settings" : "/");
                   router.refresh();
                 }
               }}
             >
-              {tWizard("wizard.open")}
+              {again ? tWizard("wizard.saveAgain") : tWizard("wizard.open")}
             </Button>
           ) : (
             <Button className="ml-auto" loading={busy} disabled={blocked} aria-describedby={blocked ? "goals-empty" : undefined} onClick={() => go(step + 1)}>

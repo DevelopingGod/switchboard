@@ -8,7 +8,8 @@ import { StatusBadge } from "@/components/kit/StatusBadge";
 import { CostBadge } from "@/components/kit/CostBadge";
 import { useToast } from "@/components/kit/Toast";
 import { Button } from "@/components/ui/button";
-import { removeKey, saveCredits, saveKey, testConnection } from "@/app/connections/actions";
+import { removeKey, resyncProvider, saveCredits, saveKey, testConnection } from "@/app/connections/actions";
+import { ErrorNote } from "@/components/kit/ErrorNote";
 import { usd } from "@/lib/chat-format";
 import type { CatalogModel, ConnectionRow } from "@/lib/router-types";
 import { t } from "@/i18n/strings";
@@ -17,7 +18,8 @@ import { PrivacyLine } from "./shared";
 import { RecommendedModels } from "./RecommendedModels";
 
 type Mode = "view" | "add" | "confirm-remove" | "credits";
-type Busy = null | "save" | "test" | "remove";
+type Busy = null | "save" | "test" | "remove" | "resync";
+type Note = { ok: true; text: string } | { ok: false; code?: string | null; detail?: string | null };
 
 /** An API-key provider (or the local Ollama): paste key → check → store; test; remove. */
 export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: CatalogModel[] }) {
@@ -30,12 +32,12 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
   const [key, setKey] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<Busy>(null);
-  const [note, setNote] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [note, setNote] = React.useState<Note | null>(null);
   const [balance, setBalance] = React.useState("");
   const credits = row.credits;
 
   const connected = row.status === "connected";
-  const failing = row.status === "error";
+  const failing = row.status === "error" || !!row.sync_error;
   const Icon = isLocal ? Cpu : KeyRound;
 
   const submit = async (e: React.FormEvent) => {
@@ -61,8 +63,18 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     setNote(null);
     const r = await testConnection(row.provider);
     setBusy(null);
-    const ok = r.ok && r.data.ok;
-    setNote({ ok, text: ok ? tConn("card.testOk", { name: row.name }) : `${tConn("card.testFailed")}: ${r.ok ? (r.data.error ?? "") : r.error}` });
+    if (r.ok && r.data.ok) setNote({ ok: true, text: tConn("card.testOk", { name: row.name }) });
+    else if (r.ok) setNote({ ok: false, code: r.data.error_code, detail: r.data.error });
+    else setNote({ ok: false, code: r.code, detail: r.detail ?? r.error });
+    router.refresh();
+  };
+
+  const resync = async () => {
+    setBusy("resync");
+    setNote(null);
+    const r = await resyncProvider(row.provider);
+    setBusy(null);
+    if (!r.ok) setNote({ ok: false, code: r.code ?? "gateway_sync", detail: r.detail ?? r.error });
     router.refresh();
   };
 
@@ -92,7 +104,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     const r = await removeKey(row.provider);
     setBusy(null);
     setMode("view");
-    if (!r.ok) setNote({ ok: false, text: r.error });
+    if (!r.ok) setNote({ ok: false, code: r.code, detail: r.detail ?? r.error });
     else {
       setNote(null);
       push({ tone: "info", title: tConn("card.removed", { name: row.name }) });
@@ -101,7 +113,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
   };
 
   return (
-    <GlassPanel as="article" aria-labelledby={`${ids}-h`} className="grid content-start gap-4">
+    <GlassPanel as="article" aria-labelledby={`${ids}-h`} className="lift grid content-start gap-4">
       <header className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span aria-hidden className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft text-accent-strong">
@@ -114,7 +126,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
             <p className="label">{isLocal ? t("provider.local") : t("provider.api")}</p>
           </div>
         </div>
-        {connected ? (
+        {connected && !row.sync_error ? (
           <StatusBadge status="healthy" label={tConn("card.connected")} />
         ) : failing ? (
           <StatusBadge status="error" label={tConn("card.needsAttention")} />
@@ -141,14 +153,18 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
         {row.notes && <p className="text-ink-muted">{row.notes}</p>}
       </div>
 
-      {row.last_error && (
-        <p className="flex items-start gap-1.5 text-sm text-err">
-          <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
-          <span>
-            <span className="font-semibold">{t("provider.lastError")}: </span>
-            {row.last_error}
-          </span>
-        </p>
+      {row.sync_error ? (
+        <ErrorNote code="gateway_sync" detail={row.sync_error} busy={busy === "resync"} actions={{ retry_sync: resync }} />
+      ) : (
+        row.last_error &&
+        !note && (
+          <ErrorNote
+            code={row.last_error_code}
+            detail={row.last_error}
+            busy={busy === "test"}
+            actions={{ retest: test, retry: test, replace_key: hasKey ? () => setMode("add") : undefined }}
+          />
+        )
       )}
 
       {credits && hasKey && (
@@ -294,9 +310,10 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
         </div>
       )}
 
-      <p role="status" className={note ? (note.ok ? "text-sm text-ok" : "text-sm text-err") : "sr-only"}>
-        {note?.text}
-      </p>
+      <div role="status" className={note ? "text-sm" : "sr-only"}>
+        {note?.ok === true && <p className="text-ok">{note.text}</p>}
+        {note?.ok === false && <ErrorNote code={note.code} detail={note.detail} />}
+      </div>
 
       {mode === "view" && (
         <footer className="flex flex-wrap gap-2">

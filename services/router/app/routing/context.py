@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits
+from app import credits, user_settings
 from app.models import Connection, Cost, ModelCatalog, ModelStats, ProviderSecret, SystemMeta
 from app.registry import Registry, load_registry
 from app.routing.engine import CatalogEntry, Context
@@ -68,6 +68,16 @@ def day_start() -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+async def value_saved_today(session: AsyncSession) -> float:
+    """What today's free-tier calls would have cost at list price (shown as "value saved")."""
+    total = await session.scalar(
+        select(func.coalesce(func.sum(Cost.list_price_usd), 0)).where(
+            Cost.created_at >= day_start(), Cost.cost_usd == 0, Cost.list_price_usd.is_not(None)
+        )
+    )
+    return float(total or 0)
+
+
 async def spent_today(session: AsyncSession) -> float:
     """What counts toward the daily cap: `cost_usd` only (free-tier calls are $0 there)."""
     total = await session.scalar(
@@ -78,7 +88,11 @@ async def spent_today(session: AsyncSession) -> float:
 
 async def build_context(session: AsyncSession) -> Context:
     registry = load_registry()
-    rules = load_rules().with_preset(await active_preset(session))
+    rules = (
+        load_rules()
+        .with_preset(await active_preset(session))
+        .with_settings(await user_settings.load(session))
+    )
     used_up = await credits.exhausted(session, registry)
     return Context(
         registry=registry,

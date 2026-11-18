@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { AppShell } from "@/components/shell/AppShell";
+import { LogoMark } from "@/components/kit/Logo";
 import { noFlashScript } from "@/lib/prefs";
 import { t } from "@/i18n/strings";
 
@@ -45,6 +46,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: noFlashScript }} />
       </head>
       <body>
+        {/* First-load splash (M1.5): CSS only, shown when the head script sets data-splash. It never
+            takes pointer events and is gone by 1.2 s, or as soon as the app hydrates. */}
+        <div id="sb-splash" aria-hidden="true">
+          <LogoMark className="splash-mark" />
+        </div>
         <AppShell>{children}</AppShell>
       </body>
     </html>

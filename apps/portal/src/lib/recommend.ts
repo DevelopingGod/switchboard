@@ -1,6 +1,6 @@
 import type { CatalogModel } from "./router-types";
 
-export type Badge = "code" | "fastest" | "context" | "free";
+export type Badge = "code" | "fastest" | "context" | "free" | "paid";
 
 export interface Recommended {
   model: CatalogModel;
@@ -9,6 +9,15 @@ export interface Recommended {
 
 /** Tags that mean "not a chat model", so they never get a recommendation badge. */
 const NOT_CHAT = new Set(["embedding", "moderation", "audio", "image", "video"]);
+
+/**
+ * Providers that price each model separately, so "free" is per model (OpenRouter `:free`, Zen zero
+ * cost). Only their free models are recommended (badged); a paid one that is still shown anywhere is
+ * labelled Paid, because automatic routing never uses it (provider-fixes, M1.5).
+ */
+export const PER_MODEL_PRICED = new Set(["openrouter", "opencode-zen"]);
+
+export const isFreeModel = (m: CatalogModel) => m.free || (m.provider === "openrouter" && m.model_id.endsWith(":free"));
 
 const isChat = (m: CatalogModel) =>
   m.status === "available" && m.tags.includes("chat") && !m.tags.some((t) => NOT_CHAT.has(t));
@@ -27,9 +36,10 @@ const measured = (m: CatalogModel) => (m.test && m.test.last_ok && m.test.p50_ms
  *  - Largest context: biggest context window among chat models.
  *  - Free: the model's `free` flag, added to whichever models were picked.
  * Untagged models never get a badge; they are only counted.
+ * For per-model-priced providers (OpenRouter, Zen) only free models are candidates.
  */
 export function recommend(models: CatalogModel[], limit = 3): { picks: Recommended[]; untagged: number } {
-  const chat = models.filter(isChat);
+  const chat = models.filter((m) => isChat(m) && (!PER_MODEL_PRICED.has(m.provider) || isFreeModel(m)));
   const untagged = models.filter((m) => m.status === "available" && m.tags.length === 0).length;
 
   const code = chat
@@ -55,7 +65,10 @@ export function recommend(models: CatalogModel[], limit = 3): { picks: Recommend
     picked.set(key, entry);
   }
   const picks = [...picked.values()].slice(0, limit);
-  for (const p of picks) if (p.model.free) p.badges.push("free");
+  for (const p of picks) {
+    if (isFreeModel(p.model)) p.badges.push("free");
+    else if (PER_MODEL_PRICED.has(p.model.provider)) p.badges.push("paid");
+  }
   return { picks, untagged };
 }
 

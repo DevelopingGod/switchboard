@@ -31,6 +31,7 @@ export function DialogContent({
         {closable && (
           <DialogPrimitive.Close
             aria-label={t("a11y.close")}
+            data-tip={t("a11y.close")}
             className="absolute top-3 right-3 grid size-8 place-items-center rounded-full text-ink-muted hover:bg-accent-soft hover:text-ink"
           >
             <X aria-hidden className="size-4" />

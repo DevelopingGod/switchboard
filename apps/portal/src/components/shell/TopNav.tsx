@@ -15,7 +15,7 @@ import { t } from "@/i18n/strings";
 export function TopNav({ onOpenPalette }: { onOpenPalette: () => void }) {
   const active = activeNavId(usePathname());
   return (
-    <header className="sticky top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4">
+    <header className="topbar sticky top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4">
       <div className="mx-auto flex max-w-[88rem] items-center gap-2 sm:gap-3">
         <Link href="/" aria-label={t("logo.alt")} className="rounded-chip pr-2">
           <Logo className="[&>span]:max-lg:hidden" />
@@ -41,6 +41,7 @@ export function TopNav({ onOpenPalette }: { onOpenPalette: () => void }) {
           <Link
             href="/settings"
             aria-label={t("nav.settings")}
+            data-tip={t("nav.settings")}
             aria-current={active === "settings" ? "page" : undefined}
             className={cn(
               "surface-strong grid size-(--ctl) place-items-center rounded-full text-ink transition-transform duration-(--d-fast) active:scale-[0.95]",

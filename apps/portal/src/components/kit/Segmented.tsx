@@ -36,7 +36,7 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
             type="button"
             role="radio"
             aria-checked={on}
-            title={o.hint}
+            data-tip={o.hint}
             tabIndex={on ? 0 : -1}
             disabled={disabled}
             onClick={() => onChange(o.value)}

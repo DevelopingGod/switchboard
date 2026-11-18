@@ -7,7 +7,7 @@ import { tWizard } from "@/i18n/wizard";
 
 export const metadata: Metadata = { title: tWizard("wizard.title") };
 
-export default async function Page({ searchParams }: { searchParams: Promise<{ step?: string }> }) {
+export default async function Page({ searchParams }: { searchParams: Promise<{ step?: string; again?: string }> }) {
   const [ob, conn, sp] = await Promise.all([loadOnboarding(), loadConnections(), searchParams]);
   if (!ob.ok) {
     return (
@@ -28,6 +28,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ s
       rows={conn.ok ? conn.data.rows : []}
       modelsByProvider={conn.ok ? conn.data.modelsByProvider : {}}
       startStep={startStep}
+      again={sp.again === "1"}
     />
   );
 }

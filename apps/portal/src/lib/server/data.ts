@@ -5,8 +5,10 @@ import type {
   CatalogModel,
   CatalogResponse,
   ChatThread,
+  ComponentsResponse,
   ConnectionRow,
   ConnectionsResponse,
+  SettingsView,
   OnboardingResponse,
   ThreadResponse,
 } from "../router-types";
@@ -31,6 +33,8 @@ export async function loadConnections(): Promise<Result<ConnectionsData>> {
 export interface ChatData {
   threads: ChatThread[];
   current: ThreadResponse | null;
+  /** Settings → Privacy (false when the setting can't be read). */
+  privateDefault: boolean;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,15 +43,37 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function loadChat(id: string | undefined): Promise<Result<ChatData>> {
   await connection();
   const wanted = id && UUID.test(id) ? id : null;
-  const [list, cur] = await Promise.all([
+  const [list, cur, settings] = await Promise.all([
     routerGetAdmin<{ threads: ChatThread[] }>("/chat/threads"),
     wanted ? routerGetAdmin<ThreadResponse>(`/chat/threads/${wanted}`) : Promise.resolve(null),
+    routerGet<SettingsView>("/settings"),
   ]);
   if (!list.ok) return list;
-  return { ok: true, data: { threads: list.data.threads, current: cur && cur.ok ? cur.data : null } };
+  return {
+    ok: true,
+    data: {
+      threads: list.data.threads,
+      current: cur && cur.ok ? cur.data : null,
+      privateDefault: settings.ok && settings.data.private_by_default,
+    },
+  };
 }
 
 export async function loadOnboarding(): Promise<Result<OnboardingResponse>> {
   await connection();
   return routerGet<OnboardingResponse>("/onboarding");
+}
+
+/** Status view. When the router itself is down, that is the one thing to fix (start Docker). */
+export async function loadComponents(): Promise<ComponentsResponse> {
+  await connection();
+  const r = await routerGet<ComponentsResponse>("/system/components");
+  if (r.ok) return r.data;
+  return { status: "down", components: [{ id: "router", status: "down", fix: "start_docker", detail: r.error, code: r.code ?? "router_down" }] };
+}
+
+/** Settings page data. */
+export async function loadSettings(): Promise<Result<SettingsView>> {
+  await connection();
+  return routerGet<SettingsView>("/settings");
 }

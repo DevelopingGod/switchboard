@@ -8,6 +8,8 @@ export const wizardStrings = {
     progress: "Setup progress",
     step: "Step {n} of {total}",
     skip: "Skip for now",
+    cancelAgain: "Cancel (keep current setup)",
+    saveAgain: "Save changes",
     back: "Back",
     next: "Continue",
     open: "Open Switchboard",

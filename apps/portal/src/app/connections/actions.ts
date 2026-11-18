@@ -16,7 +16,7 @@ const bad = (error: string): ActionResult<never> => ({ ok: false, error });
 async function run<T>(p: ReturnType<typeof routerSend<T>>, refresh = true): Promise<ActionResult<T>> {
   const r = await p;
   if (refresh) revalidatePath("/connections");
-  return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error };
+  return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
 }
 
 export async function saveKey(provider: string, apiKey: string): Promise<ActionResult<{ key_last4: string }>> {
@@ -37,9 +37,15 @@ export async function removeKey(provider: string): Promise<ActionResult<{ remove
   return run(routerSend<{ removed: boolean }>("DELETE", `/connections/${provider}/key`));
 }
 
-export async function testConnection(provider: string): Promise<ActionResult<{ ok: boolean; error?: string }>> {
+/** "Retry sync" on a card whose LiteLLM registration failed. */
+export async function resyncProvider(provider: string): Promise<ActionResult<{ ok: boolean }>> {
   if (!ID.test(provider)) return bad("Unknown provider.");
-  return run(routerSend<{ ok: boolean; error?: string }>("POST", `/connections/${provider}/test`));
+  return run(routerSend<{ ok: boolean }>("POST", `/connections/${provider}/resync`));
+}
+
+export async function testConnection(provider: string): Promise<ActionResult<{ ok: boolean; error?: string; error_code?: string }>> {
+  if (!ID.test(provider)) return bad("Unknown provider.");
+  return run(routerSend<{ ok: boolean; error?: string; error_code?: string }>("POST", `/connections/${provider}/test`));
 }
 
 export interface ModelTestResult {

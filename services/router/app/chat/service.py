@@ -345,6 +345,7 @@ class _TurnState:
         self.think_ms: int | None = None
         self.status = "ok"
         self.error: str | None = None
+        self.error_code: str | None = None  # stable code for plain-language errors in the portal
         self.credits_used_up: str | None = None  # a credits provider whose balance this call emptied
 
     def ms(self) -> int:
@@ -380,10 +381,11 @@ class _TurnState:
         elif isinstance(ev, Usage):
             self.usage = ev.usage
         elif isinstance(ev, Failed):
-            self.status, self.error = "error", ev.reason
+            self.status, self.error, self.error_code = "error", ev.reason, ev.kind
         elif isinstance(ev, Exhausted):
             self.status, self.chosen = "failed", None
             self.error = "Every model in the chain failed or was skipped"
+            self.error_code = "all_failed"
         return []
 
 
@@ -429,10 +431,15 @@ async def _no_dispatch(s, ctx: Context, dec: Decision, req: Request, asst: Messa
     else:
         req.status, asst.status = "failed", "error"
         req.error = "No model is available for this request"
-        asst.meta_json = {"error": req.error, **_chip(ctx, dec, None, None)}
+        asst.meta_json = {"error": req.error, "error_code": "no_model", **_chip(ctx, dec, None, None)}
         event = sse(
             "error",
-            {"message": req.error, "message_id": asst.id, "skipped": [k.as_dict() for k in dec.skipped]},
+            {
+                "message": req.error,
+                "code": "no_model",
+                "message_id": asst.id,
+                "skipped": [k.as_dict() for k in dec.skipped],
+            },
         )
     req.fallbacks_tried_json = [k.as_dict() for k in dec.skipped]
     req.decision_json = {**dec.as_dict(), "chosen": None}
@@ -550,6 +557,7 @@ async def _finalize(
     asst.status = {"ok": "done", "stopped": "stopped", "error": "error", "failed": "error"}[st.status]
     if st.status in ("failed", "error"):
         chip["error"] = st.error
+        chip["error_code"] = st.error_code or "error"
     asst.meta_json = chip
     thread.updated_at = datetime.now(UTC)
     await s.commit()

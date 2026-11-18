@@ -8,9 +8,9 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat import service
@@ -59,8 +59,15 @@ class EditIn(TurnOptionsIn):
     text: str = Field(min_length=1, max_length=32_000)
 
 
-class TitleIn(BaseModel):
-    title: str = Field(min_length=1, max_length=80)
+class ThreadPatch(BaseModel):
+    """Rename and/or pin. At least one field."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    pinned: bool | None = None
+
+
+class DeleteAllIn(BaseModel):
+    confirm: Literal["delete all chats"]
 
 
 class FeedbackIn(BaseModel):
@@ -79,6 +86,7 @@ def _thread_json(t: Thread) -> dict[str, Any]:
         "title": t.title or "New chat",
         "title_source": t.title_source,
         "private": t.private,
+        "pinned": t.pinned,
         "created_at": t.created_at,
         "updated_at": t.updated_at,
     }
@@ -104,8 +112,53 @@ def _stream(gen) -> StreamingResponse:
 # --- threads ------------------------------------------------------------------------------------
 @router.get("/chat/threads")
 async def list_threads(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
-    rows = (await session.execute(select(Thread).order_by(Thread.updated_at.desc()).limit(200))).scalars()
-    return {"threads": [_thread_json(t) for t in rows]}
+    q = select(Thread).order_by(Thread.pinned.desc(), Thread.updated_at.desc()).limit(200)
+    return {"threads": [_thread_json(t) for t in (await session.execute(q)).scalars()]}
+
+
+@router.delete("/chat/threads")
+async def delete_all_threads(
+    body: DeleteAllIn, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
+    """Settings → Data → Clear chats. Needs the literal confirmation phrase in the body."""
+    n = (await session.execute(delete(Thread))).rowcount  # messages go with them (ON DELETE CASCADE)
+    await session.commit()
+    return {"deleted": n}
+
+
+def _export_md(threads: list[tuple[Thread, list[Message]]]) -> str:
+    out = ["# Switchboard chats", ""]
+    for t, msgs in threads:
+        out += [
+            f"## {t.title or 'New chat'}",
+            "",
+            f"_{t.created_at:%Y-%m-%d %H:%M} UTC_" + (" · private" if t.private else ""),
+            "",
+        ]
+        for m in msgs:
+            who = "You" if m.role == "user" else "Assistant"
+            via = (m.meta_json or {}).get("label") if m.role == "assistant" else None
+            out += [f"**{who}**" + (f" ({via})" if via else ""), "", m.content or "", ""]
+    return "\n".join(out)
+
+
+@router.get("/chat/export")
+async def export_threads(
+    format: Literal["json", "md"] = "json",
+    include_private: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
+    """Settings → Data → Export. Private threads only when asked for."""
+    q = select(Thread).order_by(Thread.created_at)
+    if not include_private:
+        q = q.where(Thread.private.is_(False))
+    threads = [(t, await service._messages(session, t.id)) for t in (await session.execute(q)).scalars()]
+    if format == "md":
+        return PlainTextResponse(_export_md(threads), media_type="text/markdown; charset=utf-8")
+    return {
+        "format": "switchboard.chats.v1",
+        "threads": [{**_thread_json(t), "messages": [_message_json(m) for m in msgs]} for t, msgs in threads],
+    }
 
 
 @router.get("/chat/threads/{thread_id}")
@@ -118,13 +171,18 @@ async def get_thread(thread_id: uuid.UUID, session: AsyncSession = Depends(get_s
 
 
 @router.patch("/chat/threads/{thread_id}")
-async def rename_thread(
-    thread_id: uuid.UUID, body: TitleIn, session: AsyncSession = Depends(get_session)
+async def update_thread(
+    thread_id: uuid.UUID, body: ThreadPatch, session: AsyncSession = Depends(get_session)
 ) -> dict[str, Any]:
+    if body.title is None and body.pinned is None:
+        raise HTTPException(422, "nothing to change")
     t = await session.get(Thread, thread_id)
     if t is None:
         raise HTTPException(404, "thread not found")
-    t.title, t.title_source = body.title.strip(), "user"
+    if body.title is not None:
+        t.title, t.title_source = body.title.strip(), "user"
+    if body.pinned is not None:
+        t.pinned = body.pinned  # pinning does not touch updated_at: the thread keeps its date group
     await session.commit()
     return _thread_json(t)
 

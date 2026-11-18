@@ -2,6 +2,8 @@
 
 Start with `scripts/doctor.sh`. Each red line below maps to a fix.
 
+`doctor.sh` never waits on the terminal: every check has a hard timeout (5 s for commands, 3 s for network calls; 10 s for the router's CLI-detection endpoints and 45 s per live model call) and shows `timed out after Ns` instead of hanging. It prints each check's name while it runs. `scripts/doctor.sh --verbose` also prints every command (secrets redacted), its exit code and duration. Use it instead of `bash -x`, which prints every key in `deploy/.env`. Optional providers you skipped (`optional: true` in `config/providers.yaml`, e.g. Cerebras) show as a grey `○ skipped`, not a warning.
+
 ## Node
 
 **`Node source: Windows node first on PATH`**

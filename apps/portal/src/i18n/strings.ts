@@ -13,6 +13,7 @@ export const strings = {
     connections: "Connections",
     metrics: "Metrics",
     settings: "Settings",
+    status: "Status",
     newChat: "New chat",
     home: "Home",
     skip: "Skip to content",
@@ -218,7 +219,7 @@ export const strings = {
     hostprobeDown: "CLI status is unavailable because the hostprobe service isn’t running. scripts/doctor.sh shows how to start it.",
     refresh: "Try again",
   },
-  badge: { code: "Best for code", fastest: "Fastest", context: "Largest context", free: "Free" },
+  badge: { code: "Best for code", fastest: "Fastest", context: "Largest context", free: "Free", paid: "Paid" },
   copy: { label: "Copy command", copied: "Copied", failed: "Select the text and copy it by hand." },
   a11y: { decorative: "", close: "Close", more: "More" },
 } as const;

@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, Brain, ChevronDown, Pencil, RefreshCw, Square, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Brain, ChevronDown, Cpu, Pencil, RefreshCw, Square, ThumbsDown, ThumbsUp } from "lucide-react";
 import { CopyButton } from "@/components/kit/CopyButton";
 import { Button } from "@/components/ui/button";
 import { ms, usd } from "@/lib/chat-format";
-import type { ChatMessage } from "@/lib/router-types";
+import type { ChatMessage, RouteInfo } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { t } from "@/i18n/strings";
 import { tChat } from "@/i18n/chat";
@@ -17,6 +17,7 @@ import { WhyThis } from "./WhyThis";
 const JobHint = dynamic(() => import("./MessageExtras").then((m) => m.JobHint), { ssr: false });
 const Notice = dynamic(() => import("./MessageExtras").then((m) => m.Notice), { ssr: false });
 const Blocked = dynamic(() => import("./MessageExtras").then((m) => m.Blocked), { ssr: false });
+const ReplyError = dynamic(() => import("./MessageExtras").then((m) => m.ReplyError), { ssr: false });
 
 /** Client-only streaming state; never persisted (thinking text especially). */
 export interface Live {
@@ -68,6 +69,27 @@ function Thinking({ live, savedMs, streaming }: { live?: Live; savedMs: number |
   );
 }
 
+/** Which model answered, at the top of each reply: a monogram (or a chip icon for local models). */
+function Via({ r }: { r: RouteInfo }) {
+  const name = r.provider_name ?? r.label;
+  if (!name) return null;
+  const local = r.provider === "ollama";
+  return (
+    <p className="flex min-w-0 items-center gap-2 text-xs text-ink-muted">
+      <span
+        aria-hidden
+        className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-[0.625rem] font-bold text-accent-strong uppercase"
+      >
+        {local ? <Cpu className="size-3" strokeWidth={2.5} /> : name.trim().charAt(0)}
+      </span>
+      <span className="truncate" data-tip-truncated>
+        <span className="font-semibold text-ink">{name}</span>
+        {r.model && <span className="font-mono"> · {r.model}</span>}
+      </span>
+    </p>
+  );
+}
+
 export interface MessageActions {
   onRegenerate?: () => void;
   onEdit?: (text: string) => void;
@@ -80,7 +102,8 @@ export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: bo
   const streaming = m.status === "streaming";
   const live = m.live;
   return (
-    <article aria-label={tChat("chat.assistant")} className="surface-strong grid gap-2 rounded-panel p-4" aria-busy={streaming || undefined}>
+    <article aria-label={tChat("chat.assistant")} data-reply className="reply surface-strong grid grid-cols-[minmax(0,1fr)] gap-2 rounded-panel p-4" aria-busy={streaming || undefined}>
+      {r?.target && !streaming && <Via r={r} />}
       <Thinking live={live} savedMs={r?.thinking_ms ?? null} streaming={streaming} />
       {streaming && !m.content && (
         <p role="status" className="text-sm text-ink-muted">
@@ -100,12 +123,7 @@ export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: bo
       )}
       {m.status === "notice" && r?.notice && <Notice kind={r.notice} />}
       {m.status === "blocked" && r?.blocked && <Blocked b={r.blocked} />}
-      {m.status === "error" && (
-        <p role="alert" className="flex items-start gap-1.5 text-sm text-err">
-          <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
-          {r?.error ? tChat("chat.error", { reason: r.error }) : tChat("chat.errorGeneric")}
-        </p>
-      )}
+      {m.status === "error" && <ReplyError code={r?.error_code} detail={r?.error} />}
       {m.status === "stopped" && (
         <p className="flex items-center gap-1.5 text-sm text-ink-muted">
           <Square aria-hidden className="size-3.5" /> {tChat("chat.stopped")}
@@ -128,7 +146,7 @@ function Footer({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy:
           {r.cost_usd === 0 ? t("cost.free") : usd(r.cost_usd)}
         </span>
       )}
-      <span className="ml-auto flex items-center gap-1.5">
+      <span className={cn("msg-actions ml-auto flex items-center gap-1.5", last && "is-last")}>
         {m.content && <CopyButton text={m.content} label={tChat("chat.copy")} />}
         {last && !busy && actions.onRegenerate && m.status !== "notice" && (
           <Button type="button" size="sm" variant="glass" onClick={actions.onRegenerate}>
@@ -142,6 +160,7 @@ function Footer({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy:
               size="icon"
               variant="ghost"
               aria-label={tChat("chat.good")}
+              data-tip={tChat("chat.good")}
               aria-pressed={m.feedback === "up"}
               onClick={() => actions.onFeedback!(m.id, m.feedback === "up" ? null : "up")}
               className={cn("size-9 min-h-9", m.feedback === "up" && "bg-accent-soft text-accent-strong")}
@@ -153,6 +172,7 @@ function Footer({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy:
               size="icon"
               variant="ghost"
               aria-label={tChat("chat.bad")}
+              data-tip={tChat("chat.bad")}
               aria-pressed={m.feedback === "down"}
               onClick={() => actions.onFeedback!(m.id, m.feedback === "down" ? null : "down")}
               className={cn("size-9 min-h-9", m.feedback === "down" && "bg-accent-soft text-accent-strong")}

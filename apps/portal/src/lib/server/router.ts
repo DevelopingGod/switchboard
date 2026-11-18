@@ -10,7 +10,9 @@ import * as chatFixtures from "./chat-fixtures";
  * PORTAL_DATA=fixture serves recorded data from memory (tests, screenshots, no stack needed).
  */
 
-export type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
+/** Failures carry the router's stable `code` (plain-language mapping in i18n/errors.ts) and the raw
+ * `detail`, which the UI shows only in Pro mode. `error` is already a plain sentence. */
+export type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number; code?: string; detail?: string | null };
 
 const routerUrl = () => process.env.ROUTER_URL ?? "http://127.0.0.1:8100";
 export const fixtureMode = () => process.env.PORTAL_DATA === "fixture";
@@ -20,11 +22,15 @@ function adminHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function messageOf(body: unknown, fallback: string): string {
+function failureOf(body: unknown, fallback: string): { error: string; code?: string; detail?: string | null } {
   const detail = (body as { detail?: unknown } | null)?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail.map((d) => (d as { msg?: string }).msg ?? "invalid").join("; ");
-  return fallback;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const d = detail as { code?: string; message?: string; detail?: string | null };
+    return { error: d.message ?? fallback, code: d.code, detail: d.detail ?? null };
+  }
+  if (typeof detail === "string") return { error: detail, detail };
+  if (Array.isArray(detail)) return { error: detail.map((d) => (d as { msg?: string }).msg ?? "invalid").join("; ") };
+  return { error: fallback };
 }
 
 async function call<T>(method: string, path: string, body: unknown, admin: boolean, timeoutMs: number): Promise<Result<T>> {
@@ -45,19 +51,40 @@ async function call<T>(method: string, path: string, body: unknown, admin: boole
       signal: AbortSignal.timeout(timeoutMs),
     });
     const json = (await res.json().catch(() => null)) as unknown;
-    if (!res.ok) return { ok: false, status: res.status, error: messageOf(json, `Router returned ${res.status}`) };
+    if (!res.ok) return { ok: false, status: res.status, ...failureOf(json, `Router returned ${res.status}`) };
     return { ok: true, data: json as T };
   } catch (e) {
     const timedOut = e instanceof Error && e.name === "TimeoutError";
     return {
       ok: false,
       status: 503,
+      code: timedOut ? "router_slow" : "router_down",
       error: timedOut ? "The router took too long to answer." : "The router is not reachable. Is the stack running? (scripts/doctor.sh)",
     };
   }
 }
 
 export const routerGet = <T>(path: string) => call<T>("GET", path, undefined, false, 15_000);
+
+/** Admin GET returning the raw body (exports: JSON or Markdown text), or null on any failure. */
+export async function routerGetRaw(path: string): Promise<{ body: string; type: string } | null> {
+  if (fixtureMode()) {
+    const r = chatFixtures.handle<{ markdown?: string }>("GET", path, undefined);
+    if (!r.ok) return null;
+    return r.data.markdown !== undefined
+      ? { body: r.data.markdown, type: "text/markdown; charset=utf-8" }
+      : { body: JSON.stringify(r.data, null, 2), type: "application/json" };
+  }
+  const token = process.env.ROUTER_ADMIN_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch(routerUrl() + path, { headers: adminHeader(), cache: "no-store", signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) return null;
+    return { body: await res.text(), type: res.headers.get("content-type") ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
 
 /** Admin-token reads (chat history is private, so the router requires the token for it). */
 export const routerGetAdmin = <T>(path: string) => call<T>("GET", path, undefined, true, 15_000);
@@ -84,7 +111,7 @@ export async function routerChatStream(path: string, body: unknown, signal: Abor
     });
     if (!up.ok || !up.body) {
       const json = (await up.json().catch(() => null)) as unknown;
-      return Response.json({ error: messageOf(json, `Router returned ${up.status}`) }, { status: up.status === 200 ? 502 : up.status });
+      return Response.json(failureOf(json, `Router returned ${up.status}`), { status: up.status === 200 ? 502 : up.status });
     }
     return new Response(up.body, {
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },

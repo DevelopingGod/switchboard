@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { ready } from "./helpers";
 
 const schemes = ["light", "dark"] as const;
-const pages = ["/", "/dev/components", "/chat", "/chat?t=6f1c2a10-0000-4000-8000-000000000001", "/settings", "/connections", "/welcome?step=1", "/welcome?step=2", "/welcome?step=3", "/welcome?step=4", "/welcome?step=5"];
+const pages = ["/", "/dev/components", "/chat", "/chat?t=6f1c2a10-0000-4000-8000-000000000001", "/settings", "/status", "/connections", "/welcome?step=1", "/welcome?step=2", "/welcome?step=3", "/welcome?step=4", "/welcome?step=5"];
 
 /** `scope`: audit only this part of the page (a modal: the page behind it is inert and dimmed on purpose). */
 async function audit(page: Page, label: string, scope?: string) {

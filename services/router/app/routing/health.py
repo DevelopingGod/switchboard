@@ -40,5 +40,9 @@ class Cooldowns:
     def clear(self) -> None:
         self._by_target.clear()
 
+    def active(self) -> dict[str, Cooldown]:
+        """Targets cooling down right now (expired ones are dropped)."""
+        return {t: c for t in list(self._by_target) if (c := self.get(t)) is not None}
+
 
 cooldowns = Cooldowns()

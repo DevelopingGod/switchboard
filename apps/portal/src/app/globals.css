@@ -86,6 +86,7 @@ body {
 button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; }
 ::selection { background: var(--accent-soft); }
 
+/* Motion off: the OS setting, or Settings → Appearance → Motion: Reduce (data-motion). */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;
@@ -93,6 +94,94 @@ button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; 
     scroll-behavior: auto !important;
   }
 }
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation: none !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---------- Scrollbars (M1.5) ----------
+   Thin and themed everywhere. Thumbs are transparent at rest and show on hover, keyboard focus, or
+   for 800 ms after scrolling (data-scrolling, lib/enhance/scroll-activity.ts). The gutter is always
+   reserved, so showing a thumb never shifts layout. Touch devices keep their native overlay bars. */
+@media (hover: hover) and (pointer: fine) {
+  :root {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
+  }
+  :root[data-scrolling] { scrollbar-color: var(--scroll-thumb) transparent; }
+  body * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  body *:hover,
+  body *:focus-visible,
+  body *:focus-within,
+  body *[data-scrolling] { scrollbar-color: var(--scroll-thumb) transparent; }
+  body *[data-scrolling]:hover { scrollbar-color: var(--scroll-thumb-hover) transparent; }
+}
+@media (forced-colors: active) {
+  :root, body * { scrollbar-color: auto; }
+}
+
+/* ---------- Page transition (M1.5, app/template.tsx) ----------
+   Transform/opacity only (no layout work), so it cannot cause layout shift. */
+.page-enter { animation: page-in var(--d-enter) var(--ease-out) both; }
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Splash (M1.5) ----------
+   Once per browser session, the logo mark breathes over the sky until the app hydrates (fade out,
+   AppShell) and at most 1.2 s: the fade-out animation is scheduled in CSS, so a slow load can never
+   keep it up. pointer-events: none, so it never blocks anything. Skipped under reduced motion. */
+#sb-splash { display: none; }
+:root[data-splash] #sb-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: var(--sky-bloom-a), var(--sky-bloom-b), var(--sky-gradient);
+  color: var(--ink);
+  animation: splash-out 250ms var(--ease-in) 950ms forwards;
+}
+:root[data-splash="out"] #sb-splash { animation: splash-out 200ms var(--ease-in) forwards; }
+#sb-splash .splash-mark {
+  width: 76px;
+  height: 76px;
+  animation: splash-breathe 900ms var(--ease-out) infinite alternate;
+}
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+@keyframes splash-breathe {
+  from { transform: scale(0.94); opacity: 0.75; }
+  to { transform: scale(1.04); opacity: 1; }
+}
+
+/* ---------- Tooltip (M1.5, lib/enhance/tooltips.ts) ---------- */
+.sb-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  max-width: min(18rem, calc(100vw - 16px));
+  padding: 0.375rem 0.625rem;
+  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-solid);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease-out);
+}
+.sb-tip[data-state="open"] { opacity: 1; }
+.sb-tip[data-state="closed"] { transition-duration: 100ms; }
 
 /* Mobile is read-only: composer-style inputs are visually muted by the components themselves. */
 .scroll-fade { scrollbar-width: none; }
