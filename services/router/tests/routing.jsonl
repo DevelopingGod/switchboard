@@ -1,0 +1,80 @@
+{"text": "Write a LinkedIn post announcing that I just got promoted to senior engineer", "label": "writing"}
+{"text": "Help me announce my new job to my network, something humble but proud", "label": "writing"}
+{"text": "Draft a polite email to my landlord asking to fix the heating", "label": "writing"}
+{"text": "Can you make this paragraph sound more professional? We was late cause the train broke.", "label": "writing"}
+{"text": "Write a LinkedIn post about what I learned teaching a Python course to beginners", "label": "writing"}
+{"text": "I need a short bio for my conference speaker page, I'm a data engineer who loves cycling", "label": "writing"}
+{"text": "Turn these notes into a newsletter intro: launch delayed, new pricing, hiring two devs", "label": "writing"}
+{"text": "Give me three catchy captions for an Instagram photo of my bakery's new croissants", "label": "writing"}
+{"text": "Rewrite my cover letter so it fits a product manager role at a fintech startup", "label": "writing"}
+{"text": "Write a thank-you note to my team for shipping the release on time", "label": "writing"}
+{"text": "Write a Python function that checks if a string is a palindrome", "label": "code-small"}
+{"text": "Why does this give KeyError? d = {'a': 1}; print(d['b'])", "label": "code-small"}
+{"text": "What's the regex for matching an email address?", "label": "code-small"}
+{"text": "How do I reverse a list in JavaScript without mutating it?", "label": "code-small"}
+{"text": "Write a SQL query that returns the top 5 customers by total order value", "label": "code-small"}
+{"text": "TypeError: Cannot read properties of undefined (reading 'map') — what does this mean in React?", "label": "code-small"}
+{"text": "Convert this bash loop to use xargs: for f in *.log; do gzip $f; done", "label": "code-small"}
+{"text": "What's the difference between let and const in TypeScript?", "label": "code-small"}
+{"text": "My docker container exits immediately with code 137, why?", "label": "code-small"}
+{"text": "How do I undo the last git commit but keep my changes?", "label": "code-small"}
+{"text": "Fix all the failing tests in my repo and open a pull request", "label": "code-large"}
+{"text": "Refactor our whole codebase from callbacks to async/await", "label": "code-large"}
+{"text": "Migrate the project from Create React App to Vite, updating every config file", "label": "code-large"}
+{"text": "Implement user authentication end to end in my Django app: models, views, templates and tests", "label": "code-large"}
+{"text": "Go through the repository and add type hints to every module, then make mypy pass", "label": "code-large"}
+{"text": "Review this pull request across the backend and frontend and fix the issues you find", "label": "code-large"}
+{"text": "Set up a new monorepo with a Next.js frontend, a FastAPI backend, CI and Docker compose", "label": "code-large"}
+{"text": "Our test suite takes 40 minutes; profile it and speed it up across all packages", "label": "code-large"}
+{"text": "Upgrade the app from Python 3.9 to 3.12 and fix everything that breaks", "label": "code-large"}
+{"text": "Split the giant utils.py into proper modules and update all the imports in the project", "label": "code-large"}
+{"text": "Research the main competitors to Notion and compare their pricing and features", "label": "research"}
+{"text": "Find recent studies on whether intermittent fasting improves longevity, with sources", "label": "research"}
+{"text": "What's the market size for electric scooters in India and who are the key players?", "label": "research"}
+{"text": "Do a deep dive on the state of the art in small language models for on-device use", "label": "research"}
+{"text": "Investigate why solar adoption is faster in Germany than in the UK, cite sources", "label": "research"}
+{"text": "Gather the latest papers on retrieval-augmented generation evaluation and summarize them", "label": "research"}
+{"text": "Compare the top five project management tools for a 10-person agency, with a table", "label": "research"}
+{"text": "Look into how other open-source projects fund themselves and report what works", "label": "research"}
+{"text": "Survey the literature on remote work and productivity since 2020", "label": "research"}
+{"text": "Analyze the competitive landscape for AI note-taking apps", "label": "research"}
+{"text": "Make a logo for my coffee shop called Moonbean", "label": "image"}
+{"text": "Generate a picture of a cat astronaut floating above Mars", "label": "image"}
+{"text": "Design a YouTube thumbnail for my video about budgeting tips", "label": "image"}
+{"text": "Create an illustration of a cozy reading nook for my blog header", "label": "image"}
+{"text": "I need a poster for our hackathon next Friday, neon cyberpunk style", "label": "image"}
+{"text": "Draw a minimalist icon of a paper plane", "label": "image"}
+{"text": "Can you produce a wallpaper with mountains at sunset for my phone?", "label": "image"}
+{"text": "Give me a banner image for my LinkedIn profile, blue and professional", "label": "image"}
+{"text": "Render a product photo of a white sneaker on a marble table", "label": "image"}
+{"text": "Sketch a cartoon avatar of a friendly robot", "label": "image"}
+{"text": "Make an 8 second video of waves crashing on a beach at dawn", "label": "video"}
+{"text": "Generate a short animation of our logo spinning", "label": "video"}
+{"text": "Create a 15-second reel showing our new coffee blend being poured", "label": "video"}
+{"text": "I want a video clip of a drone flying over a forest", "label": "video"}
+{"text": "Produce a looping animation of rain on a window for my stream background", "label": "video"}
+{"text": "Make a product demo video for my app's onboarding screen", "label": "video"}
+{"text": "Generate footage of a busy Tokyo street at night in the rain", "label": "video"}
+{"text": "Create an animated explainer clip about how vaccines work", "label": "video"}
+{"text": "Make a short video of a paper boat sailing down a stream", "label": "video"}
+{"text": "Can you render a 5 second clip of fireworks over a city?", "label": "video"}
+{"text": "My blood test came back with high ALT and AST, what could that mean?", "label": "private"}
+{"text": "I've been feeling really anxious and can't sleep since my divorce, what should I do?", "label": "private"}
+{"text": "My salary is 18 lakh and I have a 40 lakh home loan, how should I plan my taxes?", "label": "private"}
+{"text": "Here is my bank statement summary, help me find where my money goes", "label": "private"}
+{"text": "My employer is threatening to fire me after I reported harassment, what are my rights?", "label": "private"}
+{"text": "My passport number is K1234567 and it expires next month, what do I need to renew it?", "label": "private"}
+{"text": "My doctor prescribed sertraline 50mg, can I drink alcohol with it?", "label": "private"}
+{"text": "I'm being sued by my former business partner over our contract, how should I respond?", "label": "private"}
+{"text": "My credit score dropped to 610 after missing two payments, how do I fix it?", "label": "private"}
+{"text": "My sister told me in confidence she is pregnant, how do I support her without telling our parents?", "label": "private"}
+{"text": "What's the capital of Australia?", "label": "chat"}
+{"text": "Explain how a rainbow forms in simple terms", "label": "chat"}
+{"text": "Give me some ideas for a weekend trip near Bangalore", "label": "chat"}
+{"text": "Why is the sky blue?", "label": "chat"}
+{"text": "What are some good books like The Martian?", "label": "chat"}
+{"text": "How many cups of coffee a day is too much?", "label": "chat"}
+{"text": "Tell me a fun fact about octopuses", "label": "chat"}
+{"text": "What's the difference between a crocodile and an alligator?", "label": "chat"}
+{"text": "Help me brainstorm names for a pet hamster", "label": "chat"}
+{"text": "How does compound interest work?", "label": "chat"}

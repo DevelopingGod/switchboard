@@ -431,6 +431,8 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             await _drop_exhausted(s, client, st.credits_used_up)
         if st.chosen is not None and st.chosen.local:
             aux_llm.schedule_unload((st.served or "").split("/", 1)[-1] or None)
+            if not thread.private:  # a local fallback outside a private thread
+                classifier.ensure_resident()
         yield sse(
             "done", {"message_id": asst.id, "status": asst.status, "content": asst.content, "route": meta}
         )
@@ -744,5 +746,6 @@ async def local_title(
         timeout=TITLE_TIMEOUT_S,
         cloud_ok=not private and local_profile.active().tasks is None,
         connected=ctx.connected,
+        private=private,
     )
     return clean_title(text) if text else None

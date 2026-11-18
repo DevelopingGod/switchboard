@@ -370,8 +370,12 @@ class FakeOllama:
         body = json.loads(request.content)
         self.calls.append(body)
         model, text = body["model"], body["messages"][-1]["content"]
-        if model not in self.loaded:
+        r = await self._answer(model, text)
+        if r.status_code == 200 and model not in self.loaded:
             self.loaded.append(model)
+        return r
+
+    async def _answer(self, model, text):
         if "Arch-Router" in model:
             if self.classifier_delay:
                 import asyncio

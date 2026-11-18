@@ -29,6 +29,8 @@ async def generate(
     cloud_ok: bool,
     connected: set[str],
     temperature: float = 0.2,
+    private: bool = False,
+    num_ctx: int | None = None,  # summaries need a longer window than Ollama's default; titles don't
 ) -> tuple[str | None, str | None]:
     """(text, model that wrote it) or (None, None)."""
     prof = local_profile.active()
@@ -40,9 +42,17 @@ async def generate(
                 timeout=timeout,
                 keep_alive="10m",
                 think=False,
-                options={"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192},
+                options={
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                    **({"num_ctx": num_ctx} if num_ctx else {}),
+                },
             )
             schedule_unload(prof.tasks)
+            if not private:  # private threads skip the classifier: don't swap qwen out again
+                from app.routing import classifier
+
+                classifier.ensure_resident()
             if text:
                 return text, f"ollama/{prof.tasks}"
         except ollama.OllamaError as e:

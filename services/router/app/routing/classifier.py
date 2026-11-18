@@ -91,17 +91,19 @@ def build_prompt(routes: tuple[Route, ...], text: str) -> str:
 
 
 def parse_route(raw: str, cfg: ClassifierCfg) -> str | None:
-    """`{"route": "code_small"}` (possibly wrapped in prose or a code fence) -> a known route or other."""
-    m = re.search(r"\{[^{}]*\}", raw)
+    """`{"route": "code_small"}` -> a known route or `other`. Arch-Router-1.5B (Q4 GGUF on Ollama)
+    answers with Python-style quotes, `{'route': 'code_small'}`, so both are accepted, also wrapped in
+    prose or a code fence."""
     name = None
+    m = re.search(r"\{[^{}]*\}", raw)
     if m:
         try:
             name = json.loads(m.group(0)).get("route")
         except (ValueError, AttributeError):
             name = None
     if name is None:
-        m2 = re.search(r'"route"\s*:\s*"([\w-]+)"', raw)
-        name = m2.group(1) if m2 else raw.strip().strip('"')
+        m2 = re.search(r"""["']route["']\s*:\s*["']([\w-]+)["']""", raw)
+        name = m2.group(1) if m2 else raw.strip().strip("\"'")
     if name == "other" or (isinstance(name, str) and cfg.route(name)):
         return name
     return None
@@ -120,33 +122,74 @@ def to_intent(route: str, cfg: ClassifierCfg, text: str) -> Intent:
 
 def prefilter(text: str) -> Intent | None:
     """Strong signals that need no model: media requests, code fences, stack traces."""
-    if m := heuristics.VIDEO.search(text):
-        return heuristics.Intent("video", "small", "normal", heuristics._cue(m))
-    if m := heuristics.IMAGE.search(text):
-        return heuristics.Intent("image", "small", "normal", heuristics._cue(m))
+    video, image = heuristics.VIDEO.search(text), heuristics.IMAGE.search(text)
+    if video and image:  # "design a thumbnail for my video": ambiguous, let the classifier decide
+        return None
+    if video:
+        return heuristics.Intent("video", "small", "normal", heuristics._cue(video))
+    if image:
+        return heuristics.Intent("image", "small", "normal", heuristics._cue(image))
     if heuristics.CODE_FENCE.search(text) or heuristics.TRACE.search(text):
         return heuristics.detect(text)  # code; size from the heuristics (repo words, length)
     return None
 
 
-async def _warm(model: str) -> None:
+def model_options(**extra: object) -> dict[str, object]:
+    """Generation options; the profile may add some (e.g. `num_gpu: 0` = run on the CPU). Warm-up must
+    use the same ones, or Ollama loads a second copy."""
+    return {"temperature": 0, "num_predict": 24, **local_profile.active().classifier_options, **extra}
+
+
+async def _warm(model: str, only_if_unloaded: bool = False) -> None:
     try:
+        if only_if_unloaded:
+            loaded = await ollama.ps() or []
+            if any((m.get("name") or m.get("model")) == model for m in loaded):
+                return
         await ollama.chat(
-            model, [{"role": "user", "content": "hi"}], timeout=WARMUP_TIMEOUT_S, keep_alive=-1, think=None
+            model,
+            [{"role": "user", "content": "hi"}],
+            timeout=WARMUP_TIMEOUT_S,
+            keep_alive=-1,
+            think=None,
+            options=model_options(num_predict=1),
         )
         reset()
-        log.info("classifier %s warmed up", model)
+        log.info("classifier %s loaded", model)
     except ollama.OllamaError as e:
         log.info("classifier warm-up failed: %s", e)
     finally:
         breaker.warming = False
 
 
+_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> None:
+    try:
+        task = asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        coro.close()
+        return
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
 def warm_up_in_background() -> None:
     model = local_profile.active().classifier
     if model and not breaker.warming:
         breaker.warming = True
-        asyncio.get_running_loop().create_task(_warm(model))
+        _spawn(_warm(model))
+
+
+def ensure_resident() -> None:
+    """After another local model ran (a title, a summary, a local reply outside a private thread):
+    on a small GPU it evicted the classifier, so load it back now, before the next message, instead
+    of letting that message wait ~3 s and fall back to the heuristics (measured in docs/m3a.md)."""
+    model = local_profile.active().classifier
+    if model and not breaker.warming:
+        breaker.warming = True
+        _spawn(_warm(model, only_if_unloaded=True))
 
 
 async def classify(text: str, cfg: ClassifierCfg) -> Result:
@@ -178,7 +221,7 @@ async def classify(text: str, cfg: ClassifierCfg) -> Result:
                 timeout=cfg.timeout_s + 1,
                 keep_alive=-1,  # resident: the classifier must not be evicted (local-models.yaml)
                 think=None,
-                options={"temperature": 0, "num_predict": 24},
+                options=model_options(),
             )
     except TimeoutError:
         breaker.until, breaker.reason = (

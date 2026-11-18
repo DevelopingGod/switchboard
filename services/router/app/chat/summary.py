@@ -102,6 +102,8 @@ async def summarize(
         timeout=TIMEOUT_S,
         cloud_ok=not thread.private,  # never send a private thread to a cloud model
         connected=connected,
+        private=thread.private,
+        num_ctx=8192,
     )
     if not text:
         return None

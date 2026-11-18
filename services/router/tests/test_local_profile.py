@@ -89,3 +89,23 @@ async def test_none_profile_titles_use_the_cloud_only_for_non_private_threads(cl
     ev = await turn(client, text="a private question", private=True)
     assert stack.chat_calls == [] and "title" not in [e for e, _ in ev]
     assert first(ev, "route")["local"] is True
+
+
+async def test_classifier_is_reloaded_after_the_tasks_model_ran(client, stack):
+    """4 GB GPU: qwen3 (title) evicts Arch-Router; it is loaded back in the background right away."""
+    import asyncio
+
+    from app.routing import classifier
+
+    arch = local_profile.active().classifier
+    stack.ollama.loaded = []
+    await turn(client, text="how do I center a div in CSS?")
+    await asyncio.gather(*classifier._tasks)
+    warm = [c for c in stack.ollama.calls if c["model"] == arch and c["options"].get("num_predict") == 1]
+    assert warm and warm[-1]["keep_alive"] == -1
+    # a private thread never triggers it
+    n = len(stack.ollama.calls)
+    stack.ollama.loaded = []
+    await turn(client, text="something private", private=True)
+    await asyncio.gather(*classifier._tasks)
+    assert not [c for c in stack.ollama.calls[n:] if c["model"] == arch]

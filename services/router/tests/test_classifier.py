@@ -34,6 +34,7 @@ def test_prompt_follows_the_model_card():
     ("raw", "want"),
     [
         ('{"route": "writing"}', "writing"),
+        ("{'route': 'sensitive_health'}", "sensitive_health"),  # what the Q4 GGUF really answers
         ('```json\n{"route": "code_large"}\n```', "code_large"),
         ('{"route": "other"}', "other"),
         ('{"route": "made_up"}', None),
@@ -57,6 +58,7 @@ def test_prefilter_decides_strong_signals_without_a_model():
     assert classifier.prefilter("make me a logo for my bakery").intent == "image"
     assert classifier.prefilter("```py\nprint(1)\n```\nwhy?").intent == "code"
     assert classifier.prefilter("write a linkedin post about python") is None  # ambiguous: ask the model
+    assert classifier.prefilter("design a thumbnail for my video") is None  # image and video words
 
 
 # --- fallback --------------------------------------------------------------------------------------

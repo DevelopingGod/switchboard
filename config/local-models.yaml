@@ -7,6 +7,14 @@
 #   coder       the `local-code` alias (null = `general`)
 # At most `max_loaded` models stay in GPU memory at once; the classifier is kept resident and the
 # router unloads anything else it loaded beyond that (Ollama would otherwise evict the classifier).
+#   classifier_options   extra Ollama options for the classifier, e.g. { num_gpu: 0 } to run it on
+#                        the CPU so it never competes with the general model for GPU memory
+#                        (measured on a 4 GB card in docs/m3a.md: ~0.9 s per call instead of ~0.09 s)
+#
+# Measured on a 4 GB GPU (docs/m3a.md): the classifier (1.1 GB) and qwen3:4b (3.4 GB) don't fit
+# together, so Ollama swaps them whatever keep_alive says. The router reloads the classifier in the
+# background right after the tasks model or a local reply ran outside a private thread, so the next
+# message finds it loaded (~0.1 s) instead of waiting ~3 s and falling back to the heuristics.
 
 arch_router: &arch hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M
 

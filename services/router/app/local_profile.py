@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +45,7 @@ class Profile:
     coder: str | None
     cpu: bool
     max_loaded: int
+    classifier_options: dict[str, Any] = field(default_factory=dict, compare=False)
 
     @property
     def models(self) -> list[str]:
@@ -90,6 +91,7 @@ def load_profiles(config_dir: Path | None = None) -> tuple[dict[str, Profile], s
             coder=p.get("coder"),
             cpu=bool(p.get("cpu", False)),
             max_loaded=int(p.get("max_loaded", 2)),
+            classifier_options=dict(p.get("classifier_options") or {}),
         )
     fallback = str(data.get("fallback") or "small")
     if fallback not in out:
