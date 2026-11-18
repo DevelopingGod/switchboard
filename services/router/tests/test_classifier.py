@@ -35,6 +35,9 @@ def test_prompt_follows_the_model_card():
     [
         ('{"route": "writing"}', "writing"),
         ("{'route': 'sensitive_health'}", "sensitive_health"),  # what the Q4 GGUF really answers
+        ("{'route': 'health'}", "sensitive_health"),  # shortened (seen on the CPU): one route ends with it
+        ("{'route': 'small'}", "code_small"),
+        ("{'route': 'chat'}", "general_chat"),
         ('```json\n{"route": "code_large"}\n```', "code_large"),
         ('{"route": "other"}', "other"),
         ('{"route": "made_up"}', None),
@@ -229,3 +232,52 @@ async def test_start_event_carries_the_masked_text(client, stack):
     assert start["user_text"] == "is [secret masked: API key] still valid?"
     assert start["secret"] == {"kinds": ["api_key"]}
     assert SECRET not in json.dumps([d for _, d in ev])  # nothing in the stream echoes it
+
+
+async def test_no_wait_while_the_classifier_is_loading(ollama_fake):
+    ollama_fake.route = "writing"
+    classifier.breaker.warming = True
+    r = await classifier.classify("announce my new job", CFG)
+    assert r.info["source"] == "heuristic" and "loading" in r.info["fallback_reason"]
+    assert not ollama_fake.classifier_calls()
+
+
+async def test_a_reply_that_echoes_the_secret_is_stored_masked(client, stack, session):
+    """Seen live: the local model repeated the pasted key in its answer."""
+    stack.answer = f"Your key `{SECRET}` looks truncated."
+    ev = await turn(client, text=f"why does {SECRET} give 401?")
+    done = [d for e, d in ev if e == "done"][0]
+    assert SECRET not in done["content"] and "[secret masked: API key]" in done["content"]
+    rows = (await session.execute(select(Message.content))).scalars().all()
+    assert all(SECRET not in c for c in rows)
+    from app.chat import service
+
+    assert service.raw_secret_text == {}  # the raw text is gone once the turn ends
+
+
+@pytest.mark.parametrize(
+    ("text", "cat"),
+    [
+        ("My doctor prescribed sertraline 50mg, can I drink alcohol with it?", "health"),
+        ("My blood test came back with high ALT and AST, what could that mean?", "health"),
+        ("My salary is 18 lakh and I have a home loan, how do I plan taxes?", "finance"),
+        ("I'm being sued by my former business partner, how should I respond?", "legal"),
+        ("My passport number is K1234567, how do I renew it?", "personal"),
+        ("How do credit scores work?", None),  # no first-person cue
+        ("Write a blog post about anxiety at work", None),
+        ("What is a blood test?", None),
+    ],
+)
+def test_heuristic_fallback_still_spots_sensitive_messages(text, cat):
+    from app.routing import heuristics
+
+    assert heuristics.detect(text).sensitive == cat
+
+
+async def test_sensitive_message_stays_local_even_when_the_classifier_is_down(client, stack, mock_http):
+    mock_http.post("http://ollama.test/api/chat").mock(side_effect=httpx.ConnectError("refused"))
+    ev = await turn(client, text="My doctor prescribed sertraline 50mg, can I drink alcohol with it?")
+    done = [d for e, d in ev if e == "done"][0]["route"]
+    assert done["classifier"]["source"] == "heuristic"
+    assert done["matched_by"] == "auto_private" and done["sensitive"]["category"] == "health"
+    assert first(ev, "route")["local"] is True

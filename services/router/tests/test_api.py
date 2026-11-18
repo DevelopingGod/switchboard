@@ -199,8 +199,9 @@ async def test_router_healthy_when_hostprobe_down(client, hostprobe_down):
         "db": "ok",
         "litellm": "ok",
         "hostprobe": "down",
-        "rules": "ok (11 rules)",
+        "rules": "ok (11 rules, 11 classifier routes)",
         "fault_injection": False,
+        "quota_test_limits": None,
     }
     r = await client.get("/connections")
     assert r.status_code == 200 and r.json()["hostprobe"] == "down"

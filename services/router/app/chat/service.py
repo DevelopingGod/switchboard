@@ -271,6 +271,21 @@ def active_in(thread_id: uuid.UUID) -> bool:
 _threads_active: set[tuple[int, uuid.UUID]] = set()
 
 
+# request id -> the unmasked user text of this turn (only while it streams; for masking echoes)
+raw_secret_text: dict[int, str] = {}
+
+
+def mask_echo(reply: str, raw: str | None) -> str:
+    """Replace any secret from the user's raw text (exact values) and anything else that looks like a
+    secret in the reply."""
+    if raw:
+        for h in secrets_detect.find(raw):
+            value = raw[h.start : h.end]
+            if len(value) >= 4:
+                reply = reply.replace(value, f"[secret masked: {secrets_detect.LABEL[h.kind]}]")
+    return secrets_detect.mask(reply)[0]
+
+
 # --- cost bookkeeping ----------------------------------------------------------------------------
 def served_model(registry: Registry, served: str | None, cand: Candidate) -> tuple[str, str]:
     """(provider, model_id) of the deployment that answered."""
@@ -394,6 +409,8 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
 
         _threads_active.add((req.id, prep.thread_id))
         cancel = active.setdefault(req.id, asyncio.Event())
+        if prep.raw_text is not None:
+            raw_secret_text[req.id] = prep.raw_text
         st = _TurnState()
         prompt = dec.prompt
         if prep.raw_text is not None and all(c.local for c in dec.candidates):
@@ -423,12 +440,18 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             st.status = "stopped"
         except (asyncio.CancelledError, GeneratorExit):
             st.status = "stopped"
-            await asyncio.shield(_finalize(s, ctx, dec, req, asst, thread, st))
+            try:
+                await asyncio.shield(_finalize(s, ctx, dec, req, asst, thread, st))
+            finally:
+                raw_secret_text.pop(req.id, None)
             raise
         finally:
             active.pop(req.id, None)
             _threads_active.discard((req.id, prep.thread_id))
-        meta = await _finalize(s, ctx, dec, req, asst, thread, st)
+        try:
+            meta = await _finalize(s, ctx, dec, req, asst, thread, st)
+        finally:
+            raw_secret_text.pop(req.id, None)
         await ctx.cooldowns.persist(s)
         if st.credits_used_up:
             await _drop_exhausted(s, client, st.credits_used_up)
@@ -649,6 +672,9 @@ async def _finalize(
     s: AsyncSession, ctx: Context, dec: Decision, req: Request, asst: Message, thread: Thread, st: _TurnState
 ) -> dict[str, Any]:
     text = "".join(st.parts).strip()
+    if dec.sensitive and dec.sensitive.get("source") == "secret":
+        # The local model saw the raw secret this turn and may repeat it: never store it (M3a).
+        text = mask_echo(text, raw_secret_text.get(req.id))
     latency = st.ms()
     chip = _chip(ctx, dec, st.chosen, st)
     chip["request_id"] = req.id

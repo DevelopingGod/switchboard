@@ -106,6 +106,12 @@ def parse_route(raw: str, cfg: ClassifierCfg) -> str | None:
         name = m2.group(1) if m2 else raw.strip().strip("\"'")
     if name == "other" or (isinstance(name, str) and cfg.route(name)):
         return name
+    if isinstance(name, str) and name:
+        # Seen live when the model ran (partly) on the CPU: `health` for `sensitive_health`. Accept a
+        # shortened name only when exactly one route ends with it.
+        hits = [r.name for r in cfg.routes if r.name.endswith(f"_{name}")]
+        if len(hits) == 1:
+            return hits[0]
     return None
 
 
@@ -212,6 +218,10 @@ async def classify(text: str, cfg: ClassifierCfg) -> Result:
         return fall("no classifier in this local-model profile")
     if breaker.until > time.monotonic():
         return fall(breaker.reason or "classifier paused after an error")
+    if breaker.warming:
+        # Loading (startup, or reloading after another local model evicted it on a small GPU): a call
+        # now would queue behind the load and time out, so don't make this message wait 1.5 s.
+        return fall("classifier is loading (another local model just ran)")
     prompt = build_prompt(cfg.routes, text[: cfg.max_chars])
     try:
         async with asyncio.timeout(cfg.timeout_s):

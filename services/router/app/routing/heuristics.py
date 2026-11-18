@@ -44,6 +44,46 @@ QUALITY_HIGH = re.compile(
 )
 LARGE_CHARS = 1500
 
+# M3a: the fallback when the classifier is unavailable (Ollama down, or reloading on a small GPU) must
+# still keep obviously sensitive messages local. Conservative on purpose: a sensitive topic word AND
+# a first-person cue in the same sentence ("my blood test", "I'm being sued"), so general questions
+# ("how do credit scores work?") still go to the cloud.
+_ME = r"\b(my|mine|i|i'm|i am|i've|i have|me|our|we're|my sister|my brother|my wife|my husband)\b"
+SENSITIVE = {
+    "health": re.compile(
+        r"\b(blood test|test results?|diagnos\w*|prescri\w*|medication|symptoms?|my doctor|therap\w*|"
+        r"depress\w*|anxi\w*|panic attack|pregnan\w*|biopsy|cancer|hiv|std|\d+\s?mg\b|"
+        r"insulin|surgery|mental health|cholesterol)",
+        re.I,
+    ),
+    "finance": re.compile(
+        r"\b(my salary|salary is|bank (statement|account|balance)|credit score|my debts?|home loan|"
+        r"my loan|tax return|payslip|net worth|my savings|lakh|crore)\b",
+        re.I,
+    ),
+    "legal": re.compile(
+        r"\b(sued|suing|lawsuit|my lawyer|divorce|custody|police case|arrested|court case|"
+        r"harass\w*|fired me|wrongful termination|immigration status|visa (was )?rejected)\b",
+        re.I,
+    ),
+    "personal": re.compile(
+        r"\b(passport number|aadhaar|social security|ssn|my address is|home address|in confidence|"
+        r"my phone number is)\b",
+        re.I,
+    ),
+}
+
+
+def sensitive_of(text: str) -> tuple[str | None, str | None]:
+    """(category, cue) when a sentence has a sensitive topic and a first-person cue."""
+    for sentence in re.split(r"(?<=[.?!\n])\s+", text):
+        if not re.search(_ME, sentence, re.I):
+            continue
+        for cat, rx in SENSITIVE.items():
+            if m := rx.search(sentence):
+                return cat, m.group(0)[:40]
+    return None, None
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -61,6 +101,9 @@ def _cue(m: re.Match[str] | None) -> str | None:
 def detect(text: str) -> Intent:
     size = "large" if len(text) > LARGE_CHARS else "small"
     quality = "high" if QUALITY_HIGH.search(text) else "normal"
+    cat, cue = sensitive_of(text)
+    if cat:
+        return Intent("chat", size, quality, cue, cat)
     if m := VIDEO.search(text):
         return Intent("video", size, quality, _cue(m))
     if m := IMAGE.search(text):
