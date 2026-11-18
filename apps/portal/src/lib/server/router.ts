@@ -66,6 +66,26 @@ async function call<T>(method: string, path: string, body: unknown, admin: boole
 
 export const routerGet = <T>(path: string) => call<T>("GET", path, undefined, false, 15_000);
 
+/** Admin GET returning the raw body (exports: JSON or Markdown text), or null on any failure. */
+export async function routerGetRaw(path: string): Promise<{ body: string; type: string } | null> {
+  if (fixtureMode()) {
+    const r = chatFixtures.handle<{ markdown?: string }>("GET", path, undefined);
+    if (!r.ok) return null;
+    return r.data.markdown !== undefined
+      ? { body: r.data.markdown, type: "text/markdown; charset=utf-8" }
+      : { body: JSON.stringify(r.data, null, 2), type: "application/json" };
+  }
+  const token = process.env.ROUTER_ADMIN_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch(routerUrl() + path, { headers: adminHeader(), cache: "no-store", signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) return null;
+    return { body: await res.text(), type: res.headers.get("content-type") ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
+
 /** Admin-token reads (chat history is private, so the router requires the token for it). */
 export const routerGetAdmin = <T>(path: string) => call<T>("GET", path, undefined, true, 15_000);
 
