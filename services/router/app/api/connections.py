@@ -28,6 +28,8 @@ router = APIRouter(tags=["connections"])
 
 class KeyIn(BaseModel):
     api_key: SecretStr = Field(min_length=8, max_length=512)
+    # Generic providers (providers.yaml `params:`): extra non-secret values, e.g. an account id.
+    params: dict[str, str] | None = None
 
 
 class CreditsIn(BaseModel):
@@ -139,6 +141,9 @@ async def list_connections(session: AsyncSession = Depends(get_session)) -> dict
             row["sync_error"] = sync.state.provider_errors[p.id]
         if p.kind == "api_key":
             row["key_last4"] = last4.get(p.id)
+            if p.params:  # generic provider: the key form also asks for these (non-secret)
+                row["params"] = list(p.params)
+                row["param_values"] = ((c.meta_json or {}).get("params") or {}) if c else {}
         if credits.is_credits(p):
             row["credits"] = await credits.status(session, p.id) or {"starting_usd": None}
         if p.kind != "cli":
@@ -243,6 +248,10 @@ async def put_key(
     p = _provider(provider_id)
     key = body.api_key.get_secret_value().strip()
     secrets.remember(key)
+    params = {k: v.strip() for k, v in (body.params or {}).items() if k in p.params and v.strip()}
+    if missing := [n for n in p.params if n not in params]:
+        raise problem(400, "params_missing", f"Also enter: {', '.join(missing)}.", None)
+    p = p.with_params(params)
     async with httpx.AsyncClient() as client:
         try:
             fetched = await fetch(client, p, key)  # validates the key before anything is stored
@@ -254,6 +263,9 @@ async def put_key(
                 f"key test failed: {e}",
             ) from None
     await secrets.store_key(session, p.id, key)
+    if params:
+        conn = await get_connection(session, p)
+        conn.meta_json = {**(conn.meta_json or {}), "params": params}
     await session.commit()
     counts = await record_fetch(session, p, load_tag_rules(), fetched)
     try:
@@ -328,6 +340,7 @@ async def test_connection(provider_id: str, session: AsyncSession = Depends(get_
     key = await secrets.load_key(session, p.id) if p.kind == "api_key" else None
     if p.kind == "api_key" and key is None:
         raise HTTPException(400, f"no key stored for {p.id}")
+    p = p.with_params(await secrets.load_params(session, p.id))
     async with httpx.AsyncClient() as client:
         try:
             fetched = await fetch(client, p, key)
@@ -379,7 +392,7 @@ async def test_model(
     registry = load_registry()
     start = model_test.timer()
     if body.alias:
-        deps = [d for d in registry.aliases if d.alias == body.alias]
+        deps = [d for d in registry.static_aliases() if d.alias == body.alias]
         if not deps:
             raise HTTPException(404, f"unknown alias {body.alias}")
         try:
@@ -396,6 +409,7 @@ async def test_model(
     key = await secrets.load_key(session, p.id) if p.kind == "api_key" else None
     if p.kind == "api_key" and key is None:
         raise HTTPException(400, f"no key stored for {p.id}")
+    p = p.with_params(await secrets.load_params(session, p.id))
     async with httpx.AsyncClient() as client:
         try:
             await model_test.call_provider(client, p, body.model_id or "", key)

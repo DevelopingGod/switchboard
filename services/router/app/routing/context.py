@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits, user_settings
+from app import credits, quota, user_settings
 from app.models import Connection, Cost, ModelCatalog, ModelStats, ProviderSecret, SystemMeta
 from app.registry import Registry, load_registry
 from app.routing.engine import CatalogEntry, Context
 from app.routing.health import cooldowns
+from app.routing.recommend import Stat
 from app.routing.rules import load_rules
 
 
@@ -38,14 +39,21 @@ async def connected_providers(session: AsyncSession, registry: Registry) -> set[
 
 
 async def load_catalog(session: AsyncSession) -> list[CatalogEntry]:
-    q = (
-        select(ModelCatalog, ModelStats.p50_ms)
-        .outerjoin(ModelStats, (ModelStats.model_id == ModelCatalog.id) & (ModelStats.task_type == "test"))
-        .where(ModelCatalog.status == "available")
-    )
+    q = select(ModelCatalog).where(ModelCatalog.status == "available")
+    stats: dict[int, dict[str, Stat]] = {}
+    for st in (await session.execute(select(ModelStats))).scalars():
+        stats.setdefault(st.model_id, {})[st.task_type] = Stat(
+            samples=st.samples,
+            failures=st.failures,
+            p50_ms=st.p50_ms,
+            up=st.thumbs_up or 0,
+            down=st.thumbs_down or 0,
+        )
     out: list[CatalogEntry] = []
-    for m, p50 in (await session.execute(q)).all():
+    for m in (await session.execute(q)).scalars():
         prices = m.prices_json or {}
+        own = stats.get(m.id) or {}
+        p50 = own["test"].p50_ms if "test" in own else None
         out.append(
             CatalogEntry(
                 id=m.id,
@@ -58,6 +66,7 @@ async def load_catalog(session: AsyncSession) -> list[CatalogEntry]:
                 output_per_1m=prices.get("output_per_1m"),
                 privacy=m.privacy,
                 p50_ms=p50,
+                stats=own,
             )
         )
     return out
@@ -94,6 +103,7 @@ async def build_context(session: AsyncSession) -> Context:
         .with_settings(await user_settings.load(session))
     )
     used_up = await credits.exhausted(session, registry)
+    owner = await user_settings.load(session)
     return Context(
         registry=registry,
         rules=rules,
@@ -102,4 +112,7 @@ async def build_context(session: AsyncSession) -> Context:
         catalog=await load_catalog(session),
         cooldowns=cooldowns,
         spent_today=await spent_today(session),
+        quota=await quota.load_view(session, registry),
+        explore=bool(owner.get("explore", False)),
+        auto_private=bool(owner.get("auto_private", True)),
     )

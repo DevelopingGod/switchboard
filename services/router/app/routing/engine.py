@@ -8,13 +8,18 @@ The dispatcher then tries the candidates in order and adds runtime skips (429, t
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.registry import Registry
-from app.routing import heuristics
+from app.routing import heuristics, recommend
 from app.routing.health import Cooldowns
+from app.routing.recommend import Scored, Stat
 from app.routing.rules import Rule, RuleSet
+
+if TYPE_CHECKING:
+    from app.quota import QuotaView
 
 SLASH = re.compile(r"^/([a-z][\w-]{0,20})(?:\s+|$)", re.I)
 MODEL_TARGET = re.compile(r"^model:[\w.:/@-]{1,200}$")
@@ -41,7 +46,9 @@ class CatalogEntry:
     input_per_1m: float | None
     output_per_1m: float | None
     privacy: str
-    p50_ms: int | None = None
+    p50_ms: int | None = None  # 1-token test ping median (M1a)
+    # M3a: model_stats per task type (chat, code, ..., test) for the recommender
+    stats: Mapping[str, Stat] | None = field(default=None, compare=False, hash=False)
 
 
 @dataclass
@@ -53,6 +60,9 @@ class Context:
     cooldowns: Cooldowns
     spent_today: float = 0.0
     exhausted: dict[str, str] = field(default_factory=dict)  # credits used up: provider -> reason
+    quota: QuotaView | None = None  # M3a quota guard snapshot
+    explore: bool = False  # Settings → Routing → Explore new models
+    auto_private: bool = True  # Settings → Privacy → Auto-detect sensitive messages
 
     def entry(self, provider: str, model_id: str) -> CatalogEntry | None:
         return next((c for c in self.catalog if c.provider == provider and c.model_id == model_id), None)
@@ -66,6 +76,11 @@ class RouteRequest:
     temperature: float | None = None
     autonomy: int | None = None
     context_chars: int = 0  # history sent along (cost estimate + chip)
+    # M3a: the classifier's answer (app/routing/classifier.py); None -> keyword heuristics here
+    classified: heuristics.Intent | None = None
+    classifier_info: dict[str, Any] | None = None  # source, route, ms, fallback reason (logged)
+    secret_kinds: tuple[str, ...] = ()  # the message contained a secret (already masked)
+    no_auto_private: bool = False  # "Not sensitive — use cloud" re-run: skip auto-detection
 
 
 @dataclass
@@ -83,7 +98,10 @@ class Candidate:
     est_cost_usd: float
     catalog_id: int | None
     position: int  # 0 = rule's first choice
-    note: str | None = None  # e.g. "best:reasoning pick"
+    note: str | None = None  # "best:<cap>" pick, "alias:<name>" (dynamic), "spread:<alias>"
+    model_id: str = ""  # the model expected to answer (quota counters)
+    scored: Scored | None = None  # recommender result for best:/dynamic picks
+    quota_note: str | None = None  # a manual pick near its limit
 
     def summary(self) -> dict[str, Any]:
         return {"target": self.target, "label": self.label, "provider": self.provider, "local": self.local}
@@ -94,7 +112,8 @@ class Skip:
     target: str
     label: str
     code: str  # not_connected | cooldown | agent | paid | budget_request | budget_daily | private
-    #            | not_configured | credits | credit_limit | rate_limited | timeout | error
+    #            | not_configured | credits | credit_limit | rate_limited | timeout | error | quota
+    #            | not_found
     reason: str
 
     def as_dict(self) -> dict[str, str]:
@@ -123,6 +142,12 @@ class Decision:
     candidates: list[Candidate] = field(default_factory=list)
     skipped: list[Skip] = field(default_factory=list)
     context_tokens: int = 0
+    classifier: dict[str, Any] | None = None
+    explore: bool = False
+    weights: dict[str, float] = field(default_factory=dict)  # recommender weights (reasons)
+    # M3a: why a request went local without the toggle: {source: classifier | secret, category,
+    # overridable, overridden}
+    sensitive: dict[str, Any] | None = None
 
     @property
     def blocked_by_budget(self) -> bool:
@@ -149,6 +174,8 @@ class Decision:
             "candidates": [c.summary() for c in self.candidates],
             "skipped": [s.as_dict() for s in self.skipped],
             "context_tokens": self.context_tokens,
+            "classifier": self.classifier,
+            "sensitive": self.sensitive,
         }
 
 
@@ -180,6 +207,7 @@ class _Resolver:
         self.ctx, self.dec, self.manual = ctx, dec, manual
         self.reg = ctx.registry
         self.cooled: list[Candidate] = []  # last resort when nothing else is viable
+        self.over_quota: set[str] = set()  # targets skipped by the quota guard (for spreading)
 
     def skip(self, target: str, label: str, code: str, reason: str) -> None:
         self.dec.skipped.append(Skip(target, label, code, reason))
@@ -198,8 +226,15 @@ class _Resolver:
         if kind != "model":
             self.skip(target, target, "not_configured", "Unknown target type")
             return []
+        if any(a.alias == name and a.dynamic for a in self.reg.aliases):
+            return self._dynamic(target, name, position)
         if name in {a.alias for a in self.reg.aliases}:
             c = self._alias(target, name, position)
+            if c and self._viable(c):
+                return [c]
+            if c and c.target in self.over_quota and not self.manual:  # a manual pick is never swapped
+                return self._spread(name, position)
+            return []
         elif "/" in name and name.split("/", 1)[0] in self.reg.providers:
             provider, model_id = name.split("/", 1)
             c = self._model(target, provider, model_id, position)
@@ -224,6 +259,7 @@ class _Resolver:
                 )
             return None
         entry = self.ctx.entry(first.provider, first.model)
+        live_first = live[0]
         return Candidate(
             target=target,
             litellm_model=alias,
@@ -238,6 +274,7 @@ class _Resolver:
             est_cost_usd=0.0,
             catalog_id=entry.id if entry else None,
             position=position,
+            model_id=live_first.model,
         )
 
     def _model(self, target: str, provider: str, model_id: str, position: int, note=None) -> Candidate | None:
@@ -278,42 +315,102 @@ class _Resolver:
             catalog_id=entry.id if entry else None,
             position=position,
             note=note,
+            model_id=model_id,
         )
 
-    def _best(self, target: str, cap: str, position: int) -> list[Candidate]:
-        pool = [
-            e
-            for e in self.ctx.catalog
-            if cap in e.tags
-            and not (NON_CHAT_TAGS & set(e.tags))
-            and e.provider in self.ctx.connected
-            and self.reg.providers.get(e.provider) is not None
-            and self.reg.providers[e.provider].kind != "cli"
-            # OpenRouter: automatic picks stay on ":free" models
-            and (
-                not isinstance(self.reg.providers[e.provider].free_tier, str)
-                or self.reg.providers[e.provider].is_free_tier(e.model_id)
-            )
-        ]
-        if self.dec.private:
-            pool = [e for e in pool if self.reg.providers[e.provider].kind == "local"]
+    # --- recommender-backed targets (SPEC §6.4) ------------------------------------------------
+    def _pool(self, tags: tuple[str, ...], providers: set[str] | None = None) -> list[CatalogEntry]:
+        """Hard filters that need no candidate: tag, chat-capable, connected, OpenRouter `:free`
+        only, privacy, and a context window big enough for this request."""
+        need = self.dec.context_tokens + tokens(len(self.dec.prompt)) + MIN_OUTPUT_TOKENS
+        out = []
+        for e in self.ctx.catalog:
+            p = self.reg.providers.get(e.provider)
+            if (
+                p is None
+                or p.kind == "cli"
+                or e.provider not in self.ctx.connected
+                or (providers is not None and e.provider not in providers)
+                or not set(tags) <= set(e.tags)
+                or NON_CHAT_TAGS & set(e.tags)
+                or (isinstance(p.free_tier, str) and not p.is_free_tier(e.model_id))
+                or (e.context is not None and e.context < need)
+                or (self.dec.private and p.kind != "local")
+            ):
+                continue
+            out.append(e)
+        return out
 
-        def key(e: CatalogEntry) -> tuple:
-            free = self.reg.providers[e.provider].is_free_tier(e.model_id)
-            local = self.reg.providers[e.provider].kind == "local"
-            # free first, cloud before local (local is slow on a 4 GB GPU), then fastest, then context
-            return (not free, local, e.p50_ms if e.p50_ms is not None else 10**9, -(e.context or 0))
+    def _ranked(self, pool: list[CatalogEntry]) -> list[Scored]:
+        cfg = self.ctx.rules.recommender
+        q = self.ctx.quota
+        return recommend.rank(
+            pool,
+            task=self.dec.intent,
+            weights=cfg.weights,
+            min_samples=cfg.min_samples,
+            explore=self.ctx.explore,
+            is_free=lambda e: self.reg.providers[e.provider].is_free_tier(e.model_id),
+            is_local=lambda e: self.reg.providers[e.provider].kind == "local",
+            headroom=lambda e: q.headroom(e.provider, e.model_id) if q else 1.0,
+        )
 
+    def _from_ranked(self, ranked: list[Scored], position: int, note: str, keep: int) -> list[Candidate]:
         out: list[Candidate] = []
-        for e in sorted(pool, key=key):
-            c = self._model(f"model:{e.provider}/{e.model_id}", e.provider, e.model_id, position, note=target)
-            if c and self._viable(c):
+        for sc in ranked:
+            e = sc.entry
+            c = self._model(f"model:{e.provider}/{e.model_id}", e.provider, e.model_id, position, note=note)
+            if c is None:
+                continue
+            c.scored = sc
+            if self._viable(c):
                 out.append(c)
-            if len(out) == 2:  # pick + runner-up
+            if len(out) == keep:
                 break
+        return out
+
+    def _best(self, target: str, cap: str, position: int) -> list[Candidate]:
+        out = self._from_ranked(self._ranked(self._pool((cap,))), position, target, keep=2)
         if not out:
             self.skip(target, target, "not_configured", f"No connected model is tagged “{cap}”")
         return out
+
+    def _dynamic(self, target: str, alias: str, position: int) -> list[Candidate]:
+        """`explore` and other `pick:` aliases: the best available model of the alias's provider,
+        chosen per request from the live catalog (a pinned free model kept being retired)."""
+        d = next(a for a in self.reg.aliases if a.alias == alias and a.dynamic)
+        p = self.reg.providers[d.provider]
+        if d.provider not in self.ctx.connected:
+            self.skip(target, alias, "not_connected", f"Not connected: add a key for {p.name} in Connections")
+            return []
+        pool = self._pool(d.tags, {d.provider})
+        if d.pick == "best-free":
+            pool = [e for e in pool if p.is_free_tier(e.model_id)]
+        out = self._from_ranked(self._ranked(pool), position, f"alias:{alias}", keep=1)
+        if not out and not pool:
+            self.skip(
+                target, alias, "not_configured", f"{p.name} lists no available free chat model right now"
+            )
+        for c in out:
+            c.timeout = float(d.timeout or c.timeout)
+        return out
+
+    def _spread(self, alias: str, position: int) -> list[Candidate]:
+        """The alias is near its free limit: use the listed stand-in with the most headroom."""
+        q = self.ctx.quota
+        options = []
+        for t in self.reg.equivalent.get(alias, []):
+            provider, model_id = t.split("/", 1)
+            if self.ctx.entry(provider, model_id) is None or provider not in self.ctx.connected:
+                continue
+            options.append((q.headroom(provider, model_id) if q else 1.0, provider, model_id))
+        for _, provider, model_id in sorted(options, key=lambda o: -o[0]):
+            c = self._model(
+                f"model:{provider}/{model_id}", provider, model_id, position, note=f"spread:{alias}"
+            )
+            if c and self._viable(c):
+                return [c]
+        return []
 
     # --- policy filters ------------------------------------------------------------------------
     def _viable(self, c: Candidate) -> bool:
@@ -339,7 +436,28 @@ class _Resolver:
             self.skip(c.target, c.label, "cooldown", f"{cd.reason}; cooling down for {left} s")
             self.cooled.append(c)
             return False
+        if not self._quota(c):
+            return False
         return self._budget(c)
+
+    def _quota(self, c: Candidate) -> bool:
+        """Quota guard (M3a): automatic routing leaves a model at `reroute_at` (80%) of any window,
+        before the provider answers 429; a manual pick may use the rest, up to `block_at`."""
+        q = self.ctx.quota
+        u = q.usage(c.provider, c.model_id) if q and c.model_id else None
+        if u is None:
+            return True
+        cfg = self.ctx.rules.quota
+        manual_pick = self.manual and c.position == 0
+        limit = cfg.block_at if manual_pick else cfg.reroute_at
+        if u.fraction >= limit:
+            why = "at its limit" if u.fraction >= cfg.block_at else "keeping headroom for manual picks"
+            self.skip(c.target, c.label, "quota", f"{u.describe()}; {why}")
+            self.over_quota.add(c.target)
+            return False
+        if manual_pick and u.fraction >= cfg.reroute_at:
+            c.quota_note = f"{c.label} {u.describe()}"
+        return True
 
     def _budget(self, c: Candidate) -> bool:
         """Hard caps (SPEC §13.6). Free-tier and local models cost $0 and are never blocked."""
@@ -389,14 +507,33 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
     rules = ctx.rules
     command, prompt = parse_slash(req.text.strip(), rules)
     private = req.private or command == "private"
-    intent = heuristics.detect(prompt)
+    intent = req.classified or heuristics.detect(prompt)
     # SPEC §7.1: a manual pick beats a slash command (still stripped; /private still applies).
     manual = req.target not in ("", "auto")
 
     if manual and not MODEL_TARGET.match(req.target):
         raise ValueError("target must be `auto` or `model:<alias>` / `model:<provider>/<model>`")
 
-    if manual:
+    # M3a hard rules: a pasted secret always stays local (no override); a message the classifier
+    # finds sensitive stays local while Settings → Privacy → Auto-detect is on (overridable).
+    sensitive: dict[str, Any] | None = None
+    auto = None
+    if req.secret_kinds:
+        sensitive = {"source": "secret", "category": "secret", "kinds": list(req.secret_kinds)}
+        sensitive["overridable"] = False
+        auto = "secret"
+    elif intent.sensitive and ctx.auto_private and not req.no_auto_private and not private:
+        sensitive = {"source": "classifier", "category": intent.sensitive, "overridable": True}
+        auto = "auto_private"
+    if auto and not private:
+        private = True
+    elif auto:  # already private: still note why it would have been
+        sensitive = {**(sensitive or {}), "already_private": True}
+        auto = None
+
+    if auto and not manual:
+        rule, matched_by = rules.get("private") or rules.get("default"), auto
+    elif manual:
         rule, matched_by = rules.get("default"), "manual"
     elif command:
         rule, matched_by = rules.get(rules.slash[command]), "slash"
@@ -439,6 +576,10 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
         job_suggested=rule.job and not manual,
         media=media_kind,
         context_tokens=tokens(req.context_chars) if req.context_chars else 0,
+        classifier=req.classifier_info,
+        sensitive=sensitive,
+        explore=ctx.explore,
+        weights=dict(rules.recommender.weights),
     )
     if media_kind and not manual:
         return dec
@@ -467,7 +608,8 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
     if dec.private:  # belt and braces: nothing non-local survives
         dec.candidates = [c for c in dec.candidates if c.local]
     if manual and private and (not dec.candidates or dec.candidates[0].target != req.target):
-        dec.rule_id, dec.matched_by = "private", "private"
+        dec.rule_id = "private"
+        dec.matched_by = auto or "private"
     return dec
 
 
@@ -480,6 +622,11 @@ def reasons(dec: Decision, chosen: Candidate, registry: Registry, catalog: list[
         out.append(f"/{dec.command} command → rule “{dec.rule_id}”")
     elif dec.matched_by == "private":
         out.append("Private is on → stays on this machine")
+    elif dec.matched_by == "secret":
+        out.append("Contains a secret (masked) → kept on this machine")
+    elif dec.matched_by == "auto_private":
+        cat = (dec.sensitive or {}).get("category") or "personal"
+        out.append(f"Looks sensitive ({cat}) → kept on this machine")
     elif dec.matched_by == "intent":
         cue = f" (“{dec.cue}”)" if dec.cue else ""
         out.append(f"Looks like {dec.intent}{cue} → rule “{dec.rule_id}”")
@@ -487,8 +634,28 @@ def reasons(dec: Decision, chosen: Candidate, registry: Registry, catalog: list[
         out.append("General chat → default rule")
 
     runtime = [s for s in dec.skipped if s.code in ("rate_limited", "timeout", "error", "cooldown")]
+    if chosen.scored is not None:
+        sc = chosen.scored
+        kind, _, name = (chosen.note or "").partition(":")
+        what = f"“{name}”" if kind == "best" else f"the {name} alias"
+        lead = f"Best for {what}: score {sc.score:.2f}"
+        if not sc.proven:
+            lead += (
+                f" (exploring: new model, {sc.samples} samples)"
+                if dec.explore
+                else f" (only {sc.samples} samples; no proven model available)"
+            )
+        out.append(lead)
+        out.extend(sc.factors(dec.weights)[: 3 - len(out)])
+        return out[:3]
+    if chosen.quota_note:
+        out.append(chosen.quota_note)
     if dec.matched_by == "manual" and chosen.position == 0:
         out.append(f"{chosen.label} answered directly (no fallbacks for a manual pick)")
+    elif chosen.note and chosen.note.startswith("spread:"):
+        alias = chosen.note.split(":", 1)[1]
+        q = next((s for s in dec.skipped if s.code == "quota"), None)
+        out.append(f"Spread load: {q.label if q else alias} {q.reason.split(';')[0] if q else 'is busy'}")
     elif chosen.note:
         out.append(f"Best connected match for “{chosen.note.split(':', 1)[1]}”")
     elif chosen.position == 0 and not runtime:

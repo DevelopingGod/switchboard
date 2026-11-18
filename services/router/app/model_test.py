@@ -41,7 +41,7 @@ async def call_provider(client: httpx.AsyncClient, p: Provider, model_id: str, k
             "options": {"num_predict": 16},
         }
     else:
-        base = p.raw.get("chat_base_url") or p.base_url
+        base = p.chat_base_url or p.base_url
         url, headers = f"{base}/chat/completions", {"Authorization": f"Bearer {key}"}
         body = {"model": model_id, "max_tokens": 16, "messages": [{"role": "user", "content": PROMPT}]}
     try:

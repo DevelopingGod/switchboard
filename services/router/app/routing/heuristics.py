@@ -51,6 +51,7 @@ class Intent:
     size: str  # small | large
     quality: str  # normal | high
     cue: str | None  # the words that triggered it (shown in "Why this?")
+    sensitive: str | None = None  # M3a classifier: health | finance | legal | personal
 
 
 def _cue(m: re.Match[str] | None) -> str | None:

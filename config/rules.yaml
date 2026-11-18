@@ -2,13 +2,15 @@
 # the file changes. Admin-editable here until the Rules UI (M3) adds versioning and per-user overrides.
 #
 # Pipeline (SPEC §7.1): manual pick > slash command > hard rules (private) > intent > `default`.
-# Intent comes from keyword heuristics in M2 (app/routing/heuristics.py); M3 swaps in Arch-Router.
+# Intent (M3a): strong keyword signals decide directly (code fences, stack traces, "make an image");
+# everything else goes to the Arch-Router classifier (`classifier:` below), with the keyword
+# heuristics (app/routing/heuristics.py) as the fallback when Ollama is down or slow.
 #
 # Targets:
 #   model:<alias>                 an alias from providers.yaml (fast, smart-free, local, ...)
 #   model:<provider>/<model id>   one catalog model, e.g. model:groq/openai/gpt-oss-20b
 #   best:<capability>             best connected catalog model with that tag (code, reasoning, fast,
-#                                 long-context, ...); M2 picks free-first then fastest, M3 scores
+#                                 long-context, ...), scored by the recommender (`recommender:` below)
 #   agent:<id>                    a Paperclip agent job (M4; skipped in chat until then)
 #   media:<id>                    image/video/audio generation (Studio, M5)
 # A rule's fallbacks are tried in order when a target is not connected, cooling down after a 429 or
@@ -90,6 +92,94 @@ rules:
     when: {}
     target: model:fast
     fallbacks: [model:smart-free, model:explore, model:local]
+
+# Arch-Router (SPEC §7.1 step 3). The model comes from the local-model profile
+# (config/local-models.yaml). Route descriptions are what the classifier reads: describe the request,
+# not the target. `facts` feed rule matching like the heuristics do; `sensitive` routes switch the
+# request to local and make the thread private (Settings → Privacy → Auto-detect, on by default).
+# Arch-Router answers "other" when nothing fits: that is general chat.
+classifier:
+  timeout_s: 1.5          # slower than this -> keyword heuristics for this request
+  breaker_s: 60           # after a failure, skip the classifier this long (no 1.5 s on every request)
+  max_chars: 2000         # only the start of a long message is classified
+  routes:
+    - name: code_small
+      description: >-
+        Programming help with a small scope: write or fix one function, script, SQL query or regex,
+        explain an error message or stack trace, a quick question about a language, library or command.
+      facts: { intent: code, size: small }
+    - name: code_large
+      description: >-
+        Software work across a whole repository or codebase: fix the failing test suite, refactor or
+        migrate many files, implement a feature end to end, review a pull request, set up a project.
+      facts: { intent: code, size: large }
+    - name: research
+      description: >-
+        Research that needs gathering and comparing sources: competitor or market analysis, literature
+        review, find studies or papers, investigate a topic in depth and report with citations.
+      facts: { intent: research }
+    - name: writing
+      description: >-
+        Write, rewrite or polish text for an audience: LinkedIn or social media posts, emails, blog
+        articles, newsletters, cover letters, announcements, captions, bios, speeches, product copy.
+      facts: { intent: writing }
+    - name: image
+      description: >-
+        Create a picture: generate, draw or design an image, photo, logo, illustration, icon, poster,
+        banner, thumbnail, sticker or wallpaper.
+      facts: { intent: image }
+    - name: video
+      description: Create a video, animation, short clip, reel or footage.
+      facts: { intent: video }
+    - name: sensitive_health
+      description: >-
+        The user shares their own or a family member's private health details: symptoms, diagnosis,
+        medication, test results, therapy or mental health.
+      facts: { sensitive: health }
+    - name: sensitive_finance
+      description: >-
+        The user shares their own private financial details: salary, bank balance or account, debts,
+        taxes, payslips, investments or credit score.
+      facts: { sensitive: finance }
+    - name: sensitive_legal
+      description: >-
+        The user shares their own private legal matter: a lawsuit, contract dispute, police case,
+        divorce, immigration or employment complaint involving them.
+      facts: { sensitive: legal }
+    - name: sensitive_personal
+      description: >-
+        The user shares private personal information about themselves or someone they know: home
+        address, ID or passport numbers, phone numbers, relationship problems, confidential secrets.
+      facts: { sensitive: personal }
+    - name: general_chat
+      description: >-
+        General questions, explanations, how things work, advice, trivia, brainstorming, small talk.
+      facts: { intent: chat }
+
+# Recommender (SPEC §6.4) for best:<capability> and the dynamic `explore` alias. Hard filters first
+# (privacy, capability, context window, budget, quota, cooldown), then a weighted score of 0..1 terms.
+recommender:
+  min_samples: 5          # never auto-pick a model with fewer samples over a proven one, unless
+                          # Settings → Routing → Explore new models is on
+  weights:
+    capability: 0.25      # has the tag; bonus for the task's own tag
+    feedback: 0.15        # thumbs up/down for this task type (smoothed)
+    latency: 0.15         # median time to first token
+    success: 0.15         # answers without error (smoothed)
+    headroom: 0.10        # free quota left
+    cost: 0.10            # free = 1
+    privacy: 0.10         # no-training > varies > may-train
+
+# Quota guard (M3a): limits per provider live in providers.yaml `limits:`.
+quota:
+  reroute_at: 0.8         # automatic routing moves elsewhere at 80% of any window...
+  block_at: 1.0           # ...manual picks may use the rest
+
+# Long threads (M3a): older turns are summarized after a reply once the history reaches start_at of
+# max_context_tokens; the newest keep_last messages are always sent word for word.
+summary:
+  start_at: 0.75
+  keep_last: 6
 
 # Slash commands (SPEC §7.1) -> rule id. The command is removed from the prompt.
 slash:

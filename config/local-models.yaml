@@ -1,0 +1,49 @@
+# Local-model profiles (M3a). Switchboard runs on many machines, so nothing is tied to one GPU:
+# setup and doctor detect the GPU memory (nvidia-smi through hostprobe) and pick a profile; you can
+# change it in Settings → Local models. The active profile decides:
+#   classifier  Arch-Router model for intent routing (null = keyword heuristics only)
+#   general     the `local` / `private` aliases (private chats, last-resort fallback)
+#   tasks       titles and long-thread summaries (null = a free cloud model, never for private threads)
+#   coder       the `local-code` alias (null = `general`)
+# At most `max_loaded` models stay in GPU memory at once; the classifier is kept resident and the
+# router unloads anything else it loaded beyond that (Ollama would otherwise evict the classifier).
+
+arch_router: &arch hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M
+
+profiles:
+  none:
+    label: CPU only / under 4 GB
+    min_vram_gb: 0
+    classifier: null
+    general: llama3.2:3b         # runs on CPU here: private replies are slow
+    tasks: null
+    coder: null
+    cpu: true
+    max_loaded: 1
+  small:
+    label: 4–6 GB GPU
+    min_vram_gb: 4
+    classifier: *arch
+    general: qwen3:4b
+    tasks: qwen3:4b              # thinking disabled for titles and summaries
+    coder: null
+    max_loaded: 2
+  medium:
+    label: 8–12 GB GPU
+    min_vram_gb: 8
+    classifier: *arch
+    general: qwen3:8b
+    tasks: qwen3:8b
+    coder: null
+    max_loaded: 2
+  large:
+    label: 16 GB+ GPU
+    min_vram_gb: 16
+    classifier: *arch
+    general: qwen3:14b
+    tasks: qwen3:14b
+    coder: qwen2.5-coder:14b
+    max_loaded: 2
+
+# Used when detection fails (no NVIDIA GPU visible, hostprobe down) until you pick one in Settings.
+fallback: small

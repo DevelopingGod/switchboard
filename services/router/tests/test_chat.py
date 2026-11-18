@@ -443,7 +443,10 @@ async def test_title_from_local_model_then_rename(client, stack, session):
     assert first(ev, "start")["title"] == "how do I center a div…"
     t = first(ev, "title")
     assert t["title"] == "Centering a div in CSS" and t["source"] == "local"
-    assert "ollama/llama3.2:3b" in stack.chat_calls  # titles never leave the machine
+    # M3a: the local profile's tasks model writes it through Ollama, thinking off; never the cloud
+    call = next(c for c in stack.ollama.calls if c["messages"][0]["content"].startswith("Write a title"))
+    assert call["model"] == "qwen3:4b" and call["think"] is False
+    assert not stack.chat_calls
     tid = t["thread_id"]
     r = await client.patch(f"/chat/threads/{tid}", json={"title": "CSS notes"}, headers=ADMIN)
     assert r.json()["title"] == "CSS notes" and r.json()["title_source"] == "user"
@@ -453,7 +456,7 @@ async def test_title_from_local_model_then_rename(client, stack, session):
 
 
 async def test_title_falls_back_to_first_words(client, stack):
-    stack.title_status = 500
+    stack.ollama.title_status = 500
     ev = await turn(client, text="one two three four five six seven eight")
     assert "title" not in names(ev)
     threads = (await client.get("/chat/threads", headers=ADMIN)).json()["threads"]

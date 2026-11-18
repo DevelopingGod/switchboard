@@ -25,13 +25,15 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits, db, model_test, secrets
+from app import credits, db, local_profile, model_test, quota, secrets
+from app.chat import aux_llm, summary
 from app.chat.dispatch import (
     Delta,
     Exhausted,
     Failed,
     Fallback,
     Fault,
+    RateHeaders,
     Route,
     Served,
     Stopped,
@@ -43,6 +45,7 @@ from app.litellm_admin import LiteLLMAdmin
 from app.models import Cost, Message, Request, Thread
 from app.reconcile import reconcile
 from app.registry import Registry
+from app.routing import classifier, secrets_detect
 from app.routing.context import build_context
 from app.routing.engine import (
     Candidate,
@@ -51,6 +54,7 @@ from app.routing.engine import (
     Decision,
     RouteRequest,
     decide,
+    parse_slash,
     reasons,
     tokens,
 )
@@ -61,7 +65,6 @@ SYSTEM_PROMPT = (
     "You are the assistant inside Switchboard, a personal AI portal. Answer clearly and concisely. "
     "Use Markdown. Put code in fenced blocks with a language tag."
 )
-TITLE_TARGET = "ollama/llama3.2:3b"  # local, no "thinking" output; titles never leave the machine
 TITLE_TIMEOUT_S = 20
 TITLE_WORDS = 6
 
@@ -76,19 +79,24 @@ class TurnOptions:
     temperature: float | None = None
     autonomy: int | None = None
     fault: Fault | None = None
+    cloud_override: bool = False  # "Not sensitive — use cloud" on an auto-private reply (regenerate)
 
 
 @dataclass
 class Prep:
     thread_id: uuid.UUID
     user_message_id: int
-    user_text: str
+    user_text: str  # as stored: secrets masked
     history: list[dict[str, str]]
     private: bool
     title: str
     title_pending: bool  # first turn: try a local summary title after the reply
     new_thread: bool
     extra: dict[str, Any] = field(default_factory=dict)
+    # M3a: a pasted secret. `raw_text` (unmasked) only ever goes to the local model, this turn.
+    secret_kinds: tuple[str, ...] = ()
+    raw_text: str | None = field(default=None, repr=False)
+    no_auto_private: bool = False
 
 
 def sse(event: str, data: dict[str, Any]) -> str:
@@ -123,16 +131,19 @@ def history_for(messages: list[Message]) -> list[dict[str, str]]:
 
 
 def trim_history(history: list[dict[str, str]], max_tokens: int) -> list[dict[str, str]]:
-    """Newest first until the budget is used (SPEC §8c: send only what the task needs)."""
+    """Newest first until the budget is used (SPEC §8c: send only what the task needs). A leading
+    summary note (M3a) is always kept and counts toward the budget."""
+    head = [history[0]] if history and history[0]["role"] == "system" else []
+    rest = history[len(head) :]
     kept: list[dict[str, str]] = []
-    used = 0
-    for m in reversed(history):
+    used = sum(tokens(len(m["content"])) for m in head)
+    for m in reversed(rest):
         t = tokens(len(m["content"]))
         if used + t > max_tokens:
             break
         kept.append(m)
         used += t
-    return list(reversed(kept))
+    return head + list(reversed(kept))
 
 
 async def _thread(session: AsyncSession, thread_id: uuid.UUID) -> Thread:
@@ -147,10 +158,35 @@ async def _messages(session: AsyncSession, thread_id: uuid.UUID) -> list[Message
     return list((await session.execute(q)).scalars())
 
 
+def _mask(text: str | None) -> tuple[str, str | None, list[str]]:
+    """(stored text, raw text for this turn's local call or None, secret kinds)."""
+    raw = text or ""
+    masked, kinds = secrets_detect.mask(raw)
+    return masked, (raw if kinds else None), kinds
+
+
+async def _mark_overridden(session: AsyncSession, thread: Thread, msgs: list[Message]) -> None:
+    """Log the person's "Not sensitive" override on the request that auto-detected it."""
+    for m in reversed(msgs):
+        if m.role == "assistant" and m.request_id:
+            req = await session.get(Request, m.request_id)
+            if req and (req.decision_json or {}).get("sensitive"):
+                d = dict(req.decision_json)
+                d["sensitive"] = {**d["sensitive"], "overridden": True, "overridden_at": _now_iso()}
+                req.decision_json = d
+            return
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 async def prepare_turn(
     session: AsyncSession, mode: str, thread_id: uuid.UUID | None, text: str | None, opts: TurnOptions
 ) -> Prep:
     new_thread = False
+    raw_text: str | None = None
+    kinds: list[str] = []
     if mode == "send":
         if thread_id is None:
             thread = Thread(private=opts.private)
@@ -162,9 +198,14 @@ async def prepare_turn(
         if active_in(thread.id):
             raise HTTPException(409, "a reply is still streaming in this thread")
         msgs = await _messages(session, thread.id)
-        history = history_for(msgs)
+        history = summary.build_history(thread, msgs)
+        stored, raw_text, kinds = _mask(text)
         user = Message(
-            thread_id=thread.id, role="user", content=text or "", private=opts.private or thread.private
+            thread_id=thread.id,
+            role="user",
+            content=stored,
+            private=opts.private or thread.private or bool(kinds),
+            meta_json={"secret": {"kinds": kinds}} if kinds else {},
         )
         session.add(user)
     else:
@@ -176,14 +217,33 @@ async def prepare_turn(
         if not users:
             raise HTTPException(409, "nothing to regenerate yet")
         user = users[-1]
+        if opts.cloud_override:
+            if thread.private_source != "auto":
+                raise HTTPException(
+                    409, "only a thread that auto-detection made private can be switched to the cloud"
+                )
+            await _mark_overridden(session, thread, msgs)
+            thread.private, thread.private_source = False, None
+            for m in msgs:
+                m.private = False
+            opts.private = False
         if mode == "edit":
-            user.content = text or ""
+            stored, raw_text, kinds = _mask(text)
+            user.content = stored
+            user.meta_json = {"secret": {"kinds": kinds}} if kinds else {}
+        else:
+            kinds = list(((user.meta_json or {}).get("secret") or {}).get("kinds") or [])
         later = [m.id for m in msgs if m.id > user.id]
         if later:
             await session.execute(delete(Message).where(Message.id.in_(later)))
-        history = history_for([m for m in msgs if m.id < user.id])
+        history = summary.build_history(thread, [m for m in msgs if m.id < user.id], before_id=user.id)
     if opts.private:
+        if not thread.private:
+            thread.private_source = "user"
         thread.private = True
+    if kinds:
+        thread.private, thread.private_source = True, "secret"
+        user.private = True
     title_pending = thread.title_source == "none"
     if title_pending:
         thread.title, thread.title_source = words_title(user.content), "words"
@@ -198,6 +258,9 @@ async def prepare_turn(
         title=thread.title,
         title_pending=title_pending,
         new_thread=new_thread,
+        secret_kinds=tuple(kinds),
+        raw_text=raw_text,
+        no_auto_private=opts.cloud_override,
     )
 
 
@@ -212,7 +275,7 @@ _threads_active: set[tuple[int, uuid.UUID]] = set()
 def served_model(registry: Registry, served: str | None, cand: Candidate) -> tuple[str, str]:
     """(provider, model_id) of the deployment that answered."""
     if served:
-        p = registry.provider_for_litellm_model(served)
+        p = registry.provider_for_litellm_model(served, prefer=cand.provider)
         if p is None and cand.provider in registry.providers:
             p = registry.providers[cand.provider]
         if p is not None:
@@ -231,18 +294,45 @@ def priced(entry: CatalogEntry | None, tin: int, tout: int) -> float | None:
 
 
 # --- the turn ------------------------------------------------------------------------------------
+async def classify_for(text: str, ctx: Context, private: bool, secret: bool):
+    """Classifier result for a request, or (None, info) when it isn't needed: a slash command, a
+    pasted secret, or a request that is already private (the intent is then only for logs)."""
+    command, prompt = parse_slash(text.strip(), ctx.rules)
+    if command:
+        return None, {"source": "slash", "route": command}
+    if secret:
+        return None, {"source": "secret", "route": None}
+    if private:
+        return None, {"source": "heuristic", "route": None, "fallback_reason": "private request"}
+    res = await classifier.classify(prompt, ctx.rules.classifier)
+    return res.intent, res.info
+
+
+def _private_source(dec: Decision) -> str:
+    if dec.matched_by == "secret":
+        return "secret"
+    if dec.matched_by == "auto_private":
+        return "auto"
+    return "slash" if dec.command == "private" else "user"
+
+
 async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> AsyncIterator[str]:
     async with db.sessionmaker()() as s:
         ctx = await build_context(s)
         hist_chars = sum(len(m["content"]) for m in prep.history)
+        intent, cinfo = await classify_for(prep.user_text, ctx, prep.private, bool(prep.secret_kinds))
         dec = decide(
             RouteRequest(
                 text=prep.user_text,
                 target=opts.target,
-                private=prep.private,
+                private=prep.private and not prep.secret_kinds,
                 temperature=opts.temperature,
                 autonomy=opts.autonomy,
                 context_chars=hist_chars,
+                classified=intent,
+                classifier_info=cinfo,
+                secret_kinds=prep.secret_kinds,
+                no_auto_private=prep.no_auto_private,
             ),
             ctx,
         )
@@ -250,8 +340,12 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
         dec.context_tokens = tokens(sum(len(m["content"]) for m in history)) if history else 0
         thread = await s.get(Thread, prep.thread_id)
         assert thread is not None
-        if dec.private and not thread.private:
-            thread.private = True  # sticky: later requests in this thread stay local too
+        if dec.private and (not thread.private or thread.private_source in (None, "auto")):
+            # sticky: later requests in this thread stay local too
+            new_source = _private_source(dec)
+            if not thread.private or new_source == "secret":
+                thread.private_source = new_source
+            thread.private = True
             user = await s.get(Message, prep.user_message_id)
             if user:
                 user.private = True
@@ -298,17 +392,30 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
         _threads_active.add((req.id, prep.thread_id))
         cancel = active.setdefault(req.id, asyncio.Event())
         st = _TurnState()
+        prompt = dec.prompt
+        if prep.raw_text is not None and all(c.local for c in dec.candidates):
+            # The unmasked text only ever goes to the local model, for this turn.
+            prompt = parse_slash(prep.raw_text.strip(), ctx.rules)[1]
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             *history,
-            {"role": "user", "content": dec.prompt},
+            {"role": "user", "content": prompt},
         ]
         try:
             async for ev in dispatch(client, dec, messages, cancel, ctx.cooldowns, opts.fault):
                 for out in st.on(ev, ctx):
                     yield out
-                if isinstance(ev, Fallback):
+                if isinstance(ev, Route):
+                    c = ev.candidate
+                    await quota.record(s, ctx.registry, c.provider, c.model_id or c.litellm_model, requests=1)
+                    await s.commit()
+                elif isinstance(ev, RateHeaders):
+                    c = ev.candidate
+                    await quota.record_headers(s, ctx.registry, c.provider, c.model_id, ev.headers)
+                elif isinstance(ev, Fallback):
                     await _record_failure(s, ctx, ev.skip.target, dec)
+                    if ev.skip.code == "not_found":
+                        _refresh_catalog_soon(ev.skip.target)
         except Stopped:
             st.status = "stopped"
         except (asyncio.CancelledError, GeneratorExit):
@@ -319,18 +426,68 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             active.pop(req.id, None)
             _threads_active.discard((req.id, prep.thread_id))
         meta = await _finalize(s, ctx, dec, req, asst, thread, st)
+        await ctx.cooldowns.persist(s)
         if st.credits_used_up:
             await _drop_exhausted(s, client, st.credits_used_up)
+        if st.chosen is not None and st.chosen.local:
+            aux_llm.schedule_unload((st.served or "").split("/", 1)[-1] or None)
         yield sse(
             "done", {"message_id": asst.id, "status": asst.status, "content": asst.content, "route": meta}
         )
 
         if prep.title_pending and asst.status == "done":
-            title = await local_title(client, ctx, prep.user_text, asst.content)
+            title = await local_title(client, ctx, prep.user_text, asst.content, private=thread.private)
             if title:
                 thread.title, thread.title_source = title, "local"
                 await s.commit()
                 yield sse("title", {"thread_id": prep.thread_id, "title": title, "source": "local"})
+
+        if asst.status == "done":
+            async for ev in _maybe_summarize(s, client, ctx, thread):
+                yield ev
+
+
+async def _maybe_summarize(s: AsyncSession, client: httpx.AsyncClient, ctx: Context, thread: Thread):
+    """Long threads (M3a): fold aged-out turns into the running summary after the reply."""
+    cfg, d = ctx.rules.summary, ctx.rules.defaults
+    msgs = await _messages(s, thread.id)
+    if not summary.needs_summary(thread, msgs, d.max_context_tokens, cfg.start_at, cfg.keep_last):
+        return
+    new = await summary.summarize(client, thread, msgs, keep_last=cfg.keep_last, connected=ctx.connected)
+    if new is None:
+        return
+    thread.summary_json = new
+    await s.commit()
+    yield sse("summary", {"thread_id": thread.id, "summary": new})
+
+
+_bg: set[asyncio.Task] = set()
+
+
+def _refresh_catalog_soon(target: str) -> None:
+    """A 404 usually means the provider retired the model: refresh that provider's catalog now so the
+    recommender stops picking it (the target is also cooling down for 6 h)."""
+    provider = target.removeprefix("model:").split("/", 1)[0]
+
+    async def run() -> None:
+        from app.catalog.job import refresh_provider
+        from app.registry import load_registry, load_tag_rules
+
+        p = load_registry().providers.get(provider)
+        if p is None or p.kind == "cli":
+            return
+        try:
+            async with db.sessionmaker()() as session, httpx.AsyncClient() as c:
+                await refresh_provider(session, c, p, load_tag_rules())
+        except Exception as e:  # best effort; the daily refresh catches up
+            log.info("catalog refresh after a 404 failed: %s", secrets.redact(str(e))[:120])
+
+    try:
+        task = asyncio.get_running_loop().create_task(run())
+    except RuntimeError:
+        return
+    _bg.add(task)
+    task.add_done_callback(_bg.discard)
 
 
 class _TurnState:
@@ -457,7 +614,9 @@ def _chip(ctx: Context, dec: Decision, chosen: Candidate | None, st: _TurnState 
     runner = None
     if chosen:
         later = [c for c in dec.candidates if c.position >= chosen.position and c.target != chosen.target]
-        runner = later[0].label if later else None
+        if later:
+            r = later[0]
+            runner = f"{r.label} (score {r.scored.score:.2f})" if r.scored is not None else r.label
     return {
         "request_id": None,
         "rule": dec.rule_id,
@@ -475,6 +634,9 @@ def _chip(ctx: Context, dec: Decision, chosen: Candidate | None, st: _TurnState 
         "skipped": [k.as_dict() for k in dec.skipped],
         "context_tokens": dec.context_tokens,
         "thinking_ms": st.think_ms if st else None,
+        "sensitive": dec.sensitive,
+        "classifier": dec.classifier,
+        "score": chosen.scored.score if chosen and chosen.scored is not None else None,
     }
 
 
@@ -496,6 +658,7 @@ async def _finalize(
         list_price = u.get("cost")
         if list_price is None:
             list_price = priced(entry, tin, tout)
+        await quota.record(s, ctx.registry, provider, model_id, tokens=tin + tout)
         free = bool(p and p.is_free_tier(model_id)) or st.chosen.local
         cost = 0.0 if free else float(list_price or 0)
         s.add(
@@ -564,25 +727,22 @@ async def _finalize(
     return chip
 
 
-async def local_title(client: httpx.AsyncClient, ctx: Context, user_text: str, answer: str) -> str | None:
-    """A short title from the local model (never leaves the machine); None -> keep the words title."""
-    if "ollama" not in ctx.connected:
-        return None
+async def local_title(
+    client: httpx.AsyncClient, ctx: Context, user_text: str, answer: str, private: bool = True
+) -> str | None:
+    """A short title from the local profile's tasks model; a free cloud model only when the profile
+    has none (CPU only) and the thread isn't private. None -> keep the words title. `user_text` is the
+    stored (masked) text: a secret never reaches a title."""
     prompt = (
         "Write a title of 3 to 6 words for this conversation. Reply with the title only, no quotes.\n\n"
         f"User: {user_text[:600]}\nAssistant: {answer[:400]}"
     )
-    body = {
-        "model": TITLE_TARGET,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 24,
-        "temperature": 0.2,
-        "disable_fallbacks": True,
-    }
-    try:
-        r = await client.post("/v1/chat/completions", json=body, timeout=TITLE_TIMEOUT_S)
-        if r.status_code >= 400:
-            return None
-        return clean_title(r.json()["choices"][0]["message"].get("content") or "")
-    except (httpx.HTTPError, ValueError, KeyError, IndexError):
-        return None
+    text, _ = await aux_llm.generate(
+        client,
+        prompt,
+        max_tokens=24,
+        timeout=TITLE_TIMEOUT_S,
+        cloud_ok=not private and local_profile.active().tasks is None,
+        connected=ctx.connected,
+    )
+    return clean_title(text) if text else None

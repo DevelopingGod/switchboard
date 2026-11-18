@@ -19,6 +19,9 @@ CODES = (
     "unreachable",  # could not connect to the provider/service
     "not_found",
     "provider_error",
+    "params_missing",  # a generic provider also needs its declared params (e.g. an account id)
+    "ollama_down",
+    "bad_profile",
 )
 
 

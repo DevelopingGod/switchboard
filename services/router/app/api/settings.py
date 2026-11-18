@@ -20,6 +20,8 @@ class SettingsIn(BaseModel):
     max_cost_usd: float | None = Field(default=None, ge=0, le=100)
     daily_cap_usd: float | None = Field(default=None, ge=0, le=100)
     private_by_default: bool | None = None
+    explore: bool | None = None
+    auto_private: bool | None = None
 
 
 async def _view(session: AsyncSession) -> dict[str, Any]:
@@ -29,10 +31,14 @@ async def _view(session: AsyncSession) -> dict[str, Any]:
         "max_cost_usd": o.get("max_cost_usd", d.max_cost_usd),
         "daily_cap_usd": o.get("daily_cap_usd", d.daily_cap_usd),
         "private_by_default": o.get("private_by_default", d.private),
+        "explore": o.get("explore", False),
+        "auto_private": o.get("auto_private", True),
         "defaults": {
             "max_cost_usd": d.max_cost_usd,
             "daily_cap_usd": d.daily_cap_usd,
             "private_by_default": d.private,
+            "explore": False,
+            "auto_private": True,
         },
         "overridden": sorted(o),
     }

@@ -74,28 +74,77 @@ async def _get(client: httpx.AsyncClient, url: str, headers: dict[str, str], **k
     return r.json()
 
 
+def _dig(obj: Any, path: str | None) -> Any:
+    """`limits.max_input_tokens` -> obj["limits"]["max_input_tokens"] (None when absent)."""
+    if not path:
+        return None
+    for part in path.split("."):
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(part)
+    return obj
+
+
+def _model_list(data: Any) -> list[dict[str, Any]]:
+    """OpenAI-style `{data: [...]}`, `{models: [...]}`, or a bare array."""
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = data.get("data") if isinstance(data.get("data"), list) else data.get("models") or []
+    else:
+        items = []
+    return [m for m in items if isinstance(m, dict)]
+
+
+def _modalities(v: Any) -> list[str]:
+    return sorted({_modality(str(x)) for x in v}) if isinstance(v, list) and v else []
+
+
 async def fetch_openai(client: httpx.AsyncClient, p: Provider, key: str | None) -> list[FetchedModel]:
-    """OpenAI-compatible GET /models (Groq, Cerebras, Mistral)."""
-    data = await _get(client, f"{p.base_url}/models", {"Authorization": f"Bearer {key}"})
+    """OpenAI-compatible model list (Groq, Cerebras, Mistral, and any `adapter: openai-compatible`
+    provider). `models_url` and `models_fields` in providers.yaml cover lists that live elsewhere or
+    name their fields differently."""
+    url = p.models_url or f"{p.base_url}/models"
+    data = await _get(client, url, {"Authorization": f"Bearer {key}"})
+    f = p.models_fields
     out = []
-    for m in data.get("data", []):
-        caps = m.get("capabilities") or {}
-        inputs = list(m.get("input_modalities") or ["text"])
+    for m in _model_list(data):
+        mid = _dig(m, f.get("id")) if f.get("id") else m.get("id")
+        if not mid:
+            continue
+        caps = m.get("capabilities") if isinstance(m.get("capabilities"), dict) else {}
+        inputs = _modalities(_dig(m, f.get("input_modalities"))) or list(
+            m.get("input_modalities") or m.get("supported_input_modalities") or ["text"]
+        )
         if caps.get("vision") and "image" not in inputs:
             inputs.append("image")
-        pricing = m.get("pricing") or {}
+        outputs = _modalities(_dig(m, f.get("output_modalities"))) or list(
+            m.get("output_modalities") or m.get("supported_output_modalities") or ["text"]
+        )
+        pricing = m.get("pricing") if isinstance(m.get("pricing"), dict) else {}
+        context = _dig(m, f.get("context")) if f.get("context") else None
+        context = context or (
+            m.get("context_window")
+            or m.get("context_length")
+            or m.get("max_context_length")
+            or _dig(m, "limits.max_input_tokens")
+        )
+        max_out = _dig(m, f.get("max_output")) if f.get("max_output") else None
+        max_out = max_out or (
+            m.get("max_completion_tokens")
+            or m.get("max_output_length")
+            or _dig(m, "limits.max_output_tokens")
+        )
         out.append(
             FetchedModel(
-                model_id=m["id"],
-                display_name=m.get("name") or m.get("id"),
-                context=_int(
-                    m.get("context_window") or m.get("context_length") or m.get("max_context_length")
-                ),
-                max_output=_int(m.get("max_completion_tokens") or m.get("max_output_length")),
+                model_id=str(mid),
+                display_name=(_dig(m, f.get("name")) if f.get("name") else None) or m.get("name") or str(mid),
+                context=_int(context),
+                max_output=_int(max_out),
                 prices=_per_million(pricing.get("prompt"), pricing.get("completion")),
-                free=True,  # provider free tier (limits in providers.yaml)
+                free=p.is_free_tier(str(mid)) if p.free_tier else not p.paid,
                 input_modalities=inputs,
-                output_modalities=list(m.get("output_modalities") or ["text"]),
+                output_modalities=outputs,
                 deprecated=m.get("active") is False or bool(m.get("deprecation")),
                 meta={k: m[k] for k in ("owned_by", "supported_features", "deprecation") if m.get(k)},
             )

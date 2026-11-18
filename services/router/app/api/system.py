@@ -12,10 +12,11 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits, hostprobe_client, secrets, sync, user_settings
+from app import credits, hostprobe_client, local_profile, ollama, quota, secrets, sync, user_settings
 from app.config import get_settings
 from app.db import get_session
 from app.deps import litellm, require_admin
@@ -23,7 +24,8 @@ from app.errors import classify, problem
 from app.litellm_admin import LiteLLMAdmin
 from app.models import Connection
 from app.registry import load_registry
-from app.routing.context import spent_today, value_saved_today
+from app.routing import classifier
+from app.routing.context import connected_providers, spent_today, value_saved_today
 from app.routing.health import cooldowns
 from app.routing.rules import load_rules
 
@@ -91,12 +93,30 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
         _c("paperclip", "ok" if pc_ok else "down", None if pc_ok else "start_paperclip", pc_err),
         _c("hostprobe", "ok" if probe_up else "down", "recheck_cli" if probe_up else "start_hostprobe"),
     ]
-    # Providers needing attention: a failed test/catalog fetch, or a failed LiteLLM registration.
+    # Local models (M3a): the active profile, its classifier, missing models.
+    out += await _local_rows(ollama_ok)
+    # Providers needing attention: a failed test/catalog fetch, a failed LiteLLM registration, a
+    # rate limit or other cooldown (with the time it ends), or a provider near its free limit.
     registry = load_registry()
-    for c in (await session.execute(select(Connection))).scalars():
-        p = registry.get(c.provider)
-        if p is None or p.kind == "cli":
+    cooling = cooldowns.active()
+    view = await quota.load_view(session, registry)
+    usage = {
+        u["provider"]: u for u in quota.provider_summary(view, await connected_providers(session, registry))
+    }
+    rq = load_rules().quota
+    conns = {c.provider: c for c in (await session.execute(select(Connection))).scalars()}
+    for p in registry.providers.values():
+        if p.kind == "cli":
             continue
+        c = conns.get(p.id) or Connection(provider=p.id, kind=p.kind, status="unknown")
+        cds = sorted(
+            (
+                cd
+                for t, cd in cooling.items()
+                if (cd.provider or t.removeprefix("model:").split("/")[0]) == p.id
+            ),
+            key=lambda cd: -cd.until,
+        )
         if c.provider in st.provider_errors:
             out.append(
                 _c(
@@ -119,7 +139,78 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
                     code=classify(c.last_error),
                 )
             )
+        elif cds:
+            cd = cds[0]
+            out.append(
+                _c(
+                    f"provider:{c.provider}",
+                    "degraded",
+                    None,
+                    cd.reason,
+                    name=p.name,
+                    code=cd.code if cd.code in COOLDOWN_CODES else "cooldown",
+                    until=cd.until_iso,
+                )
+            )
+        elif (u := usage.get(c.provider)) and u["fraction"] >= rq.reroute_at:
+            out.append(
+                _c(
+                    f"provider:{c.provider}",
+                    "degraded",
+                    None,
+                    None,
+                    name=p.name,
+                    code="quota_high",
+                    quota=u,
+                    until=u["resets_at"],
+                )
+            )
     return out
+
+
+COOLDOWN_CODES = {"rate_limited", "credit_limit", "timeout", "error", "not_found", "not_connected"}
+
+
+async def _local_rows(ollama_ok: bool) -> list[dict[str, Any]]:
+    """`local_profile` row (detected GPU → profile, missing models) and the classifier's state."""
+    state = local_profile.view(_profile_state, await ollama.tags() if ollama_ok else None)
+    prof = next(p for p in state["profiles"] if p["name"] == state["active"])
+    det = state["detected"]
+    rows = [
+        _c(
+            "local_profile",
+            "degraded" if state["missing"] else "ok",
+            "pull_models" if state["missing"] and ollama_ok else None,
+            None,
+            profile=state["active"],
+            label=prof["label"],
+            vram_gb=det.get("vram_gb"),
+            missing=state["missing"],
+            overridden=state["overridden"],
+        )
+    ]
+    if prof["classifier"]:
+        missing = prof["classifier"] in state["missing"]
+        paused = classifier.breaker.until > time.monotonic()
+        rows.append(
+            _c(
+                "classifier",
+                "degraded" if (missing or paused or not ollama_ok) else "ok",
+                "pull_models" if missing and ollama_ok else None,
+                classifier.breaker.reason if paused else None,
+                code="classifier_missing" if missing else ("classifier_paused" if paused else None),
+            )
+        )
+    return rows
+
+
+_profile_state: dict[str, Any] = {}
+
+
+async def refresh_profile_state(session: AsyncSession) -> dict[str, Any]:
+    global _profile_state
+    _profile_state = await local_profile.load_state(session)
+    return _profile_state
 
 
 @router.get("/system/components")
@@ -169,6 +260,8 @@ async def summary(request: Request, session: AsyncSession = Depends(get_session)
     spent = await spent_today(session)
     cooling = cooldowns.active()
     registry = load_registry()
+    view = await quota.load_view(session, registry)
+    by_provider = quota.provider_summary(view, await connected_providers(session, registry))
     low, out = [], []
     for p in registry.providers.values():
         if credits.is_credits(p) and (c := await credits.status(session, p.id)):
@@ -177,7 +270,12 @@ async def summary(request: Request, session: AsyncSession = Depends(get_session)
             elif c["starting_usd"] and c["remaining_usd"] / c["starting_usd"] < 0.2:
                 low.append(p.id)
     cap_used = spent / cap if cap > 0 else 1.0
-    quota = "blocked" if cap_used >= 1 else ("limited" if cooling or out or cap_used >= 0.8 or low else "ok")
+    near = any(u["fraction"] >= load_rules().quota.reroute_at for u in by_provider)
+    status = (
+        "blocked"
+        if cap_used >= 1
+        else ("limited" if cooling or out or cap_used >= 0.8 or low or near else "ok")
+    )
     return {
         "health": {
             "router": "ok",
@@ -189,12 +287,72 @@ async def summary(request: Request, session: AsyncSession = Depends(get_session)
         "spend_today_usd": round(spent, 4),
         "value_saved_usd": round(await value_saved_today(session), 4),
         "quota": {
-            "status": quota,
+            "status": status,
             "daily_cap_usd": cap,
             "daily_cap_used": round(min(cap_used, 1.0), 3),
             "cooling_down": sorted(cooling),
             "credits_low": low,
             "credits_out": out,
+            # M3a quota guard: the provider closest to a free limit, and all of them (Status view)
+            "providers": by_provider,
+            "top": by_provider[0] if by_provider and by_provider[0]["fraction"] >= 0.5 else None,
         },
         "version": request.app.version,
     }
+
+
+# --- local models (M3a): Settings → Local models, Status "Pull models" --------------------------------
+class ProfileIn(BaseModel):
+    profile: str | None = Field(default=None, max_length=32)  # None = back to the detected one
+
+
+async def _profile_view(session: AsyncSession) -> dict[str, Any]:
+    state = await refresh_profile_state(session)
+    installed = await ollama.tags()
+    v = local_profile.view(state, installed)
+    v["ollama"] = "ok" if installed is not None else "down"
+    v["pull"] = dict(ollama.pull_state)
+    return v
+
+
+@router.get("/system/local-profile")
+async def get_local_profile(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    return await _profile_view(session)
+
+
+@router.put("/system/local-profile", dependencies=[Depends(require_admin)])
+async def put_local_profile(
+    body: ProfileIn, session: AsyncSession = Depends(get_session), admin: LiteLLMAdmin = Depends(litellm)
+) -> dict[str, Any]:
+    try:
+        await local_profile.choose(session, body.profile)
+    except ValueError as e:
+        raise problem(400, "bad_profile", "That profile doesn't exist.", str(e)) from None
+    classifier.reset()
+    try:  # the local aliases now point at the new profile's models
+        await sync.sync_once(session, admin, "local-model profile changed")
+    except Exception as e:
+        sync.request("profile changed", None, str(e))
+    return await _profile_view(session)
+
+
+@router.post("/system/local-profile/detect", dependencies=[Depends(require_admin)])
+async def redetect(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    await local_profile.init(session, redetect=True)
+    return await _profile_view(session)
+
+
+@router.post("/system/models/pull", dependencies=[Depends(require_admin)])
+async def pull_models(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    """Pull the active profile's missing models in the background (progress in GET local-profile)."""
+    v = await _profile_view(session)
+    if v["ollama"] != "ok":
+        raise problem(503, "ollama_down", "Ollama isn't reachable. Start Ollama, then try again.", None)
+    if v["missing"] and ollama.pull_state.get("status") != "running":
+        task = asyncio.get_running_loop().create_task(ollama.pull(v["missing"]))
+        _pulls.add(task)
+        task.add_done_callback(_pulls.discard)
+    return {"started": bool(v["missing"]), "missing": v["missing"], "pull": dict(ollama.pull_state)}
+
+
+_pulls: set[asyncio.Task] = set()

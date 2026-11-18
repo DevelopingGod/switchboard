@@ -6,6 +6,8 @@ rules.yaml is mounted read-only and stays the source of the defaults; these over
 - `daily_cap_usd`: daily cap (UTC day).
 - `private_by_default`: the composer starts new chats with Private on. It is a default, not a lock:
   the person can still switch it off for one chat (a private thread stays private once started).
+- `explore` (M3a, off): let the recommender try models with fewer than 5 samples.
+- `auto_private` (M3a, on): messages the classifier finds sensitive stay local (Privacy section).
 """
 
 import json
@@ -16,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import SystemMeta
 
 KEY = "settings"
-FIELDS = ("max_cost_usd", "daily_cap_usd", "private_by_default")
+FIELDS = ("max_cost_usd", "daily_cap_usd", "private_by_default", "explore", "auto_private")
 
 
 async def load(session: AsyncSession) -> dict[str, Any]:

@@ -2,6 +2,27 @@
 # Free limits are seeded from cheahjs/free-llm-api-resources (Nov 2026) — verify in each console.
 # privacy: no-training | may-train | local | varies
 #
+# Adding a provider (M3a): an OpenAI-compatible API needs only an entry here, no code:
+#   adapter: openai-compatible   # implies catalog: openai, litellm_prefix: openai, chat_base_url: base_url
+#   base_url: https://api.example.com/v1          # may contain {param} placeholders, see `params`
+#   models_url: https://api.example.com/catalog   # optional; default {base_url}/models
+#   models_fields:                                # optional dotted paths into each listed model
+#     { id: id, name: name, context: limits.max_input_tokens, max_output: limits.max_output_tokens,
+#       input_modalities: supported_input_modalities, output_modalities: supported_output_modalities }
+#   params: [account_id]          # extra non-secret values asked for with the key, used as {account_id}
+#   limits: ...                   # free-tier limits the quota guard enforces (format below)
+#   privacy / free_tier / paid / free_limits / notes   # as for the providers below
+# The list may be a bare JSON array or wrapped in {data: [...]} / {models: [...]}.
+#
+# limits (M3a quota guard): automatic routing moves elsewhere at `quota.reroute_at` (rules.yaml) of
+# any window; a manual pick may use the rest. Response headers (x-ratelimit-*) override the counters
+# when they say less is left.
+#   scope: model | provider      # separate counters per model, or one shared counter
+#   only_free: true              # count only free-tier models (OpenRouter ":free")
+#   day_reset_tz: UTC            # when the daily window resets
+#   default: { rpm, rpd, tpm, tpd }   # any subset; per minute / per day, requests / tokens
+#   models: { <model id>: { ... } }   # per-model overrides
+#
 # API keys are never stored here. They are added through the Router API (encrypted in the Router DB
 # and registered as a LiteLLM credential). `env_key` names the deploy/.env variable imported once
 # on first start, if set.
@@ -17,6 +38,16 @@ providers:
     free_tier: true          # M2: cost_usd 0, list price kept as list_price_usd
     privacy: no-training
     free_limits: "~30 req/min, 1k–14.4k req/day per model"
+    # Free plan, console.groq.com/docs/rate-limits (read 2026-11-18). Organisation-wide, per model.
+    # Headers: x-ratelimit-*-requests = per day, x-ratelimit-*-tokens = per minute.
+    limits:
+      scope: model
+      day_reset_tz: UTC
+      default: { rpm: 30, rpd: 1000, tpm: 8000, tpd: 200000 }
+      models:
+        openai/gpt-oss-safeguard-20b: { rpm: 3, rpd: 1000, tpm: 2000, tpd: 200000 }
+        meta-llama/llama-prompt-guard-2-22m: { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 }
+        meta-llama/llama-prompt-guard-2-86m: { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 }
     notes: Groq states no training on API data.
 
   gemini:
@@ -29,6 +60,18 @@ providers:
     free_tier: true          # AI Studio free tier
     privacy: may-train
     free_limits: "Flash: ~10 req/min, ~250 req/day; Flash-Lite higher"
+    # Per project; daily quotas reset at midnight Pacific (aistudio.google.com/docs/rate-limits, read
+    # 2026-11-18). The free numbers are only shown to a signed-in account (aistudio.google.com/rate-limit),
+    # so these are conservative estimates: check yours and edit.
+    limits:
+      scope: model
+      day_reset_tz: America/Los_Angeles
+      estimate: true
+      default: { rpm: 10, rpd: 250 }
+      models:
+        gemini-3.1-flash-lite: { rpm: 15, rpd: 1000 }
+        gemini-3.5-flash-lite: { rpm: 15, rpd: 1000 }
+        gemini-2.5-flash-lite: { rpm: 15, rpd: 1000 }
     notes: Free tier may train on data outside EEA/UK/CH.
 
   cerebras:
@@ -73,6 +116,13 @@ providers:
     free_tier: ":free"       # only model ids ending in ":free"
     privacy: varies
     free_limits: "`:free` models: 20 req/min, 50 req/day (1000/day after $10 credit)"
+    # openrouter.ai/docs/api-reference/limits (read 2026-11-18): account-wide for all ":free" models;
+    # 1000/day once $10 of credit was ever bought (raise rpd here if so). Headers only on a 429.
+    limits:
+      scope: provider
+      only_free: true
+      day_reset_tz: UTC
+      default: { rpm: 20, rpd: 50 }
     notes: Only `:free` models are used automatically. A paid model is used only when you pick it by hand.
 
   opencode-zen:
@@ -180,12 +230,22 @@ aliases:
   general:
     - { provider: mistral, model: mistral-small-latest, timeout: 60 }
   explore:
-    - { provider: openrouter, model: "openai/gpt-oss-120b:free", timeout: 60 }
+    # Dynamic (M3a): the best available OpenRouter ":free" chat model from the live catalog, picked per
+    # request by the recommender. A pinned free model kept being retired (404).
+    - { provider: openrouter, pick: best-free, tags: [chat], timeout: 60 }
   code-free:
     - { provider: opencode-zen, model: big-pickle, timeout: 90 }
+  # local / private / local-code follow the active local-model profile (config/local-models.yaml);
+  # these entries are the `small` profile's models and are replaced when another profile is active.
   local:
     - { provider: ollama, model: "qwen3:4b" }
   private:
     - { provider: ollama, model: "qwen3:4b" }
   local-code:
-    - { provider: ollama, model: "qwen2.5-coder:3b" }
+    - { provider: ollama, model: "qwen3:4b" }
+
+# Stand-ins (M3a quota guard): when an alias's model is near its free limit, automatic routing uses
+# the listed model with the most headroom instead (each must be connected and in the catalog).
+equivalent:
+  fast: [groq/openai/gpt-oss-20b, groq/qwen/qwen3.8-27b, cerebras/gpt-oss-120b]
+  smart-free: [gemini/gemini-3.5-flash-lite, gemini/gemini-2.5-flash-lite, groq/openai/gpt-oss-120b]
