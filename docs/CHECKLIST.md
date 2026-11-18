@@ -19,7 +19,7 @@
 ### Local
 | ✔ | Item | Notes |
 |---|---|---|
-| [x] | Ollama running on Windows | `qwen3:4b` (local/private/titles), `qwen2.5-coder:3b` (local-code), `llama3.2:3b` (spare) |
+| [x] | Ollama running on Windows | Models follow the local-model profile (M3a, Settings → Local models). On this machine (4 GB → `small`): Arch-Router (classifier), `qwen3:4b` (local/private/local-code), `llama3.2:3b` (titles, summaries). `scripts/setup-wsl.sh --pull-models` pulls what's missing |
 | [ ] | Ollama starts with Windows | Ollama app → settings / Startup apps |
 
 ### Agent CLIs (Connections → Install → log in from a new Ubuntu tab → Check again)
@@ -48,12 +48,13 @@
 - [ ] `config/rules.yaml`: keep `max_context_tokens: 8000`, `daily_cap_usd: 1.00` (paid models only).
 - [ ] Re-run `scripts/gemini-sweep.py` every 2–4 weeks; free models rotate.
 
-**Platform features to build (add to M3 scope)**
-- [ ] **Quota guard**: track per-provider usage per minute/day against known free limits; at ~80% route elsewhere *before* hitting 429; reserve headroom for important requests.
-- [ ] **Load spreading**: round-robin equivalent free models across providers.
-- [ ] **Auto-summarize long threads** to cut resent tokens.
+**Platform features**
+- [x] **Quota guard** (M3a): per minute/day against `limits:` in `providers.yaml` plus rate-limit headers; at 80% automatic routing moves elsewhere before a 429; the last 20% is kept for manual picks. The footer and Status show the busiest provider.
+- [x] **Load spreading** (M3a): `equivalent:` stand-ins per alias; `best:` targets score quota headroom.
+- [x] **Auto-summarize long threads** (M3a): from 75% of `max_context_tokens`, last 6 messages kept as they are.
 - [ ] **Response cache** for identical prompts (optional).
-- [ ] Quota dials on Connections and Metrics (remaining today / resets at).
+- [ ] Quota dials on Connections and Metrics (remaining today / resets at): M6.
+- [ ] Check Gemini's real free limits at aistudio.google.com/rate-limit and edit `config/providers.yaml` (they are estimates).
 
 ## 3. Security hygiene
 - [ ] Save `SWITCHBOARD_SECRET_KEY` and `LITELLM_SALT_KEY` in a password manager.
@@ -71,9 +72,9 @@
 
 ## 5. Adding a new provider in the future
 
-**Goal: OpenAI-compatible providers need YAML only, no code.** (Make this a M3 deliverable: a generic OpenAI-compatible fetcher/adapter.)
+**OpenAI-compatible providers need YAML only, no code** (M3a, proved by `services/router/tests/test_generic_provider.py`). Candidates and their terms: PROGRESS.md → Future providers.
 
-1. `config/providers.yaml` — new entry: `kind` (`billing: credits` for one-time credits, `paid: true` for paid-only), `base_url`, `models_endpoint`, `litellm_prefix`, `env_key`, `free_limits`, `privacy`, (CLIs: `bin`, `version_cmd`, `auth_cmd`, `login_hint`, installer).
+1. `config/providers.yaml`: a new entry with `adapter: openai-compatible`, `base_url`, and optionally `models_url` + `models_fields` (when the list lives elsewhere or names fields differently) and `params: [account_id]` (asked for with the key, filled into `{account_id}` in URLs). Add `limits:` (free tier, for the quota guard), `free_tier`/`paid`, `privacy` and `free_limits`. The header comment in `providers.yaml` has the format. Non-generic: `kind`, `billing: credits`, `paid: true`, `litellm_prefix`, `env_key`; CLIs: `bin`, `login_hint`, installer.
 2. `config/model-tags.yaml` — tag its models (code, fast, reasoning, vision, long-context…).
 3. Aliases (optional) — add it to a fallback chain in `providers.yaml` `aliases:`.
 4. Only if its API is **not** OpenAI-compatible: add a fetcher in `services/router/app/catalog/fetchers.py` (+ recorded fixture test).

@@ -48,6 +48,12 @@ Docker Desktop publishes ports on the Windows host, so a native Windows Postgres
 
 **`Model qwen3:4b missing`**: on Windows, run `ollama pull qwen3:4b`.
 
+**`Model … missing` (local-model profile, M3a)**: run `scripts/setup-wsl.sh --pull-models`, or use Settings → Local models → Pull missing models. A missing classifier is only yellow: routing uses the keyword heuristics until it's pulled.
+
+**Routing says "classifier slower than 1.5 s" or "classifier is loading" after a private chat (small GPUs)**: on 4 GB the classifier (1.1 GB) and qwen3:4b or llama3.2:3b don't fit together, so Ollama swaps them, whatever `keep_alive` says. The router reloads the classifier in the background after the other model runs; until then (about 3 s) the keyword heuristics decide. `OLLAMA_MAX_LOADED_MODELS` doesn't help: these evictions are by memory, not by count, so leave it at its default. To keep the classifier always loaded, run it on the CPU: add `classifier_options: { num_gpu: 0 }` to the `small` profile in `config/local-models.yaml` (≈ 0.9 s per message, 95% on the labelled set; docs/m3a.md).
+
+**Titles stay as the first words**: the tasks model (llama3.2:3b in the GPU profiles) isn't pulled, or Ollama is down. qwen3 models can't do titles: they write their reasoning into the answer even with thinking off.
+
 ## LiteLLM
 
 **Keys changed but calls still fail**: LiteLLM reads env vars only at start.
