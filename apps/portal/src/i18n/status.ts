@@ -16,6 +16,8 @@ export const statusStrings = {
     ollama: "Ollama (local models)",
     paperclip: "Paperclip (jobs)",
     hostprobe: "CLI detector",
+    local_profile: "Local models",
+    classifier: "Intent classifier",
   },
   ok: {
     router: "Running.",
@@ -26,6 +28,8 @@ export const statusStrings = {
     paperclip: "Running.",
     hostprobe: "Running. Agent CLIs are detected.",
     provider: "Working.",
+    local_profile: "Detected {vram} → profile “{label}”. Its models are pulled.",
+    classifier: "Arch-Router is reading each message to pick the right rule.",
   },
   down: {
     router: "Not running, so nothing else can be checked.",
@@ -39,11 +43,43 @@ export const statusStrings = {
   },
   degraded: {
     model_sync: "Waiting for the gateway.",
+    local_profile: "Profile “{label}”: not pulled yet: {models}.",
+    classifier: "Not available, so routing uses keyword rules for now.",
   },
+  /** M3a: provider rows say exactly what is wrong and until when. */
+  reason: {
+    rate_limited: "Rate-limited until {time}. Other models answer meanwhile.",
+    credit_limit: "Out of credit. Skipped until {time}, or until you add credit.",
+    timeout: "Timing out. Skipped until {time}.",
+    not_found: "A model it listed was retired. Skipped until {time}.",
+    error: "Answering with errors. Skipped until {time}.",
+    not_connected: "Not registered with the gateway. Retrying until {time}.",
+    cooldown: "Skipped until {time}.",
+    quota_day: "{pct}% of today’s free limit used. Resets at {time}; other models are used meanwhile.",
+    quota_minute: "{pct}% of its per-minute limit used. Other models are used for a moment.",
+    key_rejected: "Key rejected. Add a new key in Connections.",
+    gateway_sync: "Not registered with the gateway. Retrying automatically.",
+    unreachable: "Can’t reach the provider.",
+    classifier_missing: "The classifier model isn’t pulled. Routing uses keyword rules until it is.",
+    classifier_paused: "Paused after a slow or failed answer; keyword rules for a minute.",
+  },
+  /** The same reasons when there is no end time (a failed test or catalog fetch, not a cooldown). */
+  now: {
+    rate_limited: "Rate-limited by the provider. Re-test it later.",
+    credit_limit: "Out of credit. Add credit, then re-test.",
+    timeout: "Timing out. Re-test it, or wait and check again.",
+    not_found: "The provider says this doesn’t exist (404).",
+    error: "Answering with errors.",
+    provider_error: "The provider answered with an error.",
+    not_connected: "Not registered with the gateway.",
+    cooldown: "Being skipped for a while.",
+  },
+  unknownGpu: "no NVIDIA GPU",
   fix: {
     resync: "Resync models",
     recheck_cli: "Re-check CLIs",
     retest: "Re-test provider",
+    pull_models: "Pull models",
   },
   howTo: "How to fix",
   instruction: {
@@ -56,6 +92,7 @@ export const statusStrings = {
     resync: "Models resynced.",
     recheck_cli: "CLIs checked.",
     retest: "Provider re-tested.",
+    pull_models: "Pulling models in the background. Check again in a few minutes.",
   },
   lastOk: "Last synced {time}",
 };

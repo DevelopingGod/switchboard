@@ -7,7 +7,7 @@ import { GlassPanel } from "@/components/kit/GlassPanel";
 import { Button } from "@/components/ui/button";
 import { saveOnboarding } from "@/app/welcome/actions";
 import { setPrefs, usePrefs } from "@/lib/prefs";
-import type { CatalogModel, ConnectionRow, OnboardingResponse, OnboardingState, Preset } from "@/lib/router-types";
+import type { CatalogModel, ConnectionRow, OnboardingResponse, OnboardingState, Preset, LocalProfileView } from "@/lib/router-types";
 import { t } from "@/i18n/strings";
 import { type WizardKey, tWizard } from "@/i18n/wizard";
 import { STEPS, neededProviders } from "@/lib/wizard";
@@ -19,12 +19,13 @@ interface Props {
   rows: ConnectionRow[];
   modelsByProvider: Record<string, CatalogModel[]>;
   startStep: number;
+  localProfile?: LocalProfileView | null;
   /** "Run setup again" from Settings: prefilled, nothing is saved until Finish; Cancel returns. */
   again?: boolean;
 }
 
 /** First-run wizard (SPEC §8b). Progress is saved in the router on every step, so it resumes anywhere. */
-export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, again = false }: Props) {
+export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, again = false, localProfile = null }: Props) {
   const router = useRouter();
   const prefs = usePrefs();
   const nameId = React.useId();
@@ -88,7 +89,7 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, ag
 
         {id === "welcome" && <WelcomeStep name={name} onName={setName} nameId={nameId} />}
         {id === "goals" && <GoalsStep available={Object.keys(goalMap)} goals={goals} onToggle={toggle} />}
-        {id === "connect" && <ConnectStep needed={needed} rows={rows} modelsByProvider={modelsByProvider} />}
+        {id === "connect" && <ConnectStep needed={needed} rows={rows} modelsByProvider={modelsByProvider} localProfile={localProfile} />}
         {id === "preset" && <PresetStep preset={preset} onPick={setPreset} />}
         {id === "finish" && <FinishStep goals={goals} preset={preset} connected={connected} />}
 

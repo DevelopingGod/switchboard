@@ -382,6 +382,9 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             "rule": dec.rule_id,
             "job_suggested": dec.job_suggested,
         }
+        if prep.secret_kinds:  # the portal swaps its optimistic copy (with the raw key) for this
+            start["user_text"] = prep.user_text
+            start["secret"] = {"kinds": list(prep.secret_kinds)}
         yield sse("start", start)
 
         if dec.media or not dec.candidates:

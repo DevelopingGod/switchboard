@@ -54,7 +54,10 @@ test("privacy default starts new chats as Private", async ({ page }) => {
   await ready(page);
   await expect(page.getByRole("switch", { name: "Private" })).toHaveAttribute("aria-checked", "true");
   await page.goto("/settings");
-  await section(page, "Privacy").getByRole("switch", { name: "Start new chats as Private" }).click();
+  const sw = section(page, "Privacy").getByRole("switch", { name: "Start new chats as Private" });
+  await sw.click();
+  await expect(sw).toHaveAttribute("aria-checked", "false");
+  await expect(sw).toBeEnabled(); // the save finished: later tests see the default again
 });
 
 test("budgets: validation, save, back to default", async ({ page }) => {
@@ -126,4 +129,54 @@ test("data: clear all chats needs the word, axe clean with the dialog open", asy
   await expect(page.getByText("All chats deleted")).toBeVisible();
   await page.goto("/chat");
   await expect(page.getByText("No chats yet. Ask anything below.")).toBeVisible();
+});
+
+// --- M3a ---------------------------------------------------------------------------------------
+test("Home's composer starts Private when Settings says so", async ({ page }) => {
+  const setDefault = async (on: boolean) => {
+    await page.goto("/settings");
+    await ready(page);
+    const sw = section(page, "Privacy").getByRole("switch", { name: "Start new chats as Private" });
+    if ((await sw.getAttribute("aria-checked")) !== String(on)) await sw.click();
+    await expect(sw).toHaveAttribute("aria-checked", String(on));
+    await expect(sw).toBeEnabled(); // saved
+  };
+  await setDefault(true);
+  await page.goto("/");
+  await ready(page);
+  await expect(page.getByRole("switch", { name: "Private" })).toHaveAttribute("aria-checked", "true");
+  await setDefault(false);
+  await page.goto("/");
+  await ready(page);
+  await expect(page.getByRole("switch", { name: "Private" })).toHaveAttribute("aria-checked", "false");
+});
+
+test("auto-detect and explore switches save", async ({ page }) => {
+  await page.goto("/settings");
+  await ready(page);
+  const auto = section(page, "Privacy").getByRole("switch", { name: "Auto-detect sensitive messages" });
+  await expect(auto).toHaveAttribute("aria-checked", "true"); // on by default
+  const explore = section(page, "Routing").getByRole("switch", { name: "Explore new models" });
+  await expect(explore).toHaveAttribute("aria-checked", "false");
+  await explore.click();
+  await expect(page.getByText("Saved").first()).toBeVisible();
+  await page.reload();
+  await ready(page);
+  await expect(section(page, "Routing").getByRole("switch", { name: "Explore new models" })).toHaveAttribute("aria-checked", "true");
+  await section(page, "Routing").getByRole("switch", { name: "Explore new models" }).click();
+});
+
+test("local models: detected GPU, pick a profile, back to detected", async ({ page }) => {
+  await page.goto("/settings");
+  await ready(page);
+  const s = section(page, "Local models");
+  await expect(s.getByText(/Detected: NVIDIA GeForce RTX 3050 Laptop GPU, 4 GB GPU memory/)).toBeVisible();
+  await expect(s.getByRole("radio", { name: /4–6 GB GPU/ })).toBeChecked();
+  await expect(s.getByText("All of this profile’s models are pulled.")).toBeVisible();
+  await s.getByRole("radio", { name: /16 GB\+ GPU/ }).check();
+  await expect(s.getByText(/Not pulled yet: qwen3:14b, qwen2.5-coder:14b/)).toBeVisible();
+  await s.getByRole("button", { name: "Use the detected profile" }).click();
+  await expect(s.getByRole("radio", { name: /4–6 GB GPU/ })).toBeChecked();
+  const r = await new AxeBuilder({ page }).include("#local").analyze();
+  expect(r.violations.filter((v) => v.impact === "serious" || v.impact === "critical")).toEqual([]);
 });

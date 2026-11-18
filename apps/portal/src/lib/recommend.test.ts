@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatContext, recommend } from "./recommend";
+import { formatContext, recommend, perModelPriced } from "./recommend";
 import type { CatalogModel } from "./router-types";
 
 const m = (id: string, tags: string[], over: Partial<CatalogModel> = {}): CatalogModel => ({
@@ -98,11 +98,15 @@ describe("formatContext", () => {
   });
 
   it("labels a shown paid model of a per-model-priced provider as Paid, never Free", () => {
-    // Zen: a paid model only reaches the picks when it is free-flagged (it is filtered otherwise);
-    // simulate a free-flag mismatch to check the label path.
-    const zen = m("paid-one", ["chat", "code"], { provider: "opencode-zen", free: true });
-    expect(recommend([zen]).picks[0].badges).toContain("free");
-    expect(recommend([{ ...zen, free: false }]).picks).toHaveLength(0);
+    // Zen lists free and paid models side by side, so it prices per model (derived from the rows,
+    // M3a): only its free models are candidates, and they are badged Free.
+    const free = m("big-pickle", ["chat", "code"], { provider: "opencode-zen", free: true });
+    const paid = m("paid-one", ["chat", "code"], { provider: "opencode-zen", free: false });
+    const picks = recommend([free, paid]).picks;
+    expect(picks.map((p) => p.model.model_id)).toEqual(["big-pickle"]);
+    expect(picks[0].badges).toContain("free");
+    expect(perModelPriced([free, paid])).toEqual(new Set(["opencode-zen"]));
+    expect(perModelPriced([paid])).toEqual(new Set());
   });
 });
 

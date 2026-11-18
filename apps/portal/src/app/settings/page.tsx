@@ -2,13 +2,18 @@ import type { Metadata } from "next";
 import { SettingsScreen } from "@/components/settings/SettingsScreen";
 import { loadOnboarding, loadSettings } from "@/lib/server/data";
 import { routerGet } from "@/lib/server/router";
-import type { SystemSummary } from "@/lib/router-types";
+import type { LocalProfileView, SystemSummary } from "@/lib/router-types";
 import { tSet } from "@/i18n/settings";
 
 export const metadata: Metadata = { title: tSet("title") };
 
 export default async function Page() {
-  const [ob, settings, summary] = await Promise.all([loadOnboarding(), loadSettings(), routerGet<SystemSummary>("/system/summary")]);
+  const [ob, settings, summary, local] = await Promise.all([
+    loadOnboarding(),
+    loadSettings(),
+    routerGet<SystemSummary>("/system/summary"),
+    routerGet<LocalProfileView>("/system/local-profile"),
+  ]);
   const state = ob.ok ? ob.data.state : null;
   return (
     <div className="mx-auto grid max-w-[68rem] gap-8">
@@ -24,6 +29,7 @@ export default async function Page() {
           available: ob.ok ? Object.keys(ob.data.goals) : [],
           settings: settings.ok ? settings.data : null,
           spentToday: summary.ok ? summary.data.spend_today_usd : null,
+          localProfile: local.ok ? local.data : null,
           routerCode: ob.ok ? null : (ob.code ?? "router_down"),
         }}
       />

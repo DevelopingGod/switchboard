@@ -221,3 +221,11 @@ async def test_classifier_unreachable_is_not_fatal(client, stack, mock_http):
     assert "done" in names(ev)
     done = [d for e, d in ev if e == "done"][0]["route"]
     assert done["classifier"]["source"] == "heuristic" and done["intent"] == "research"
+
+
+async def test_start_event_carries_the_masked_text(client, stack):
+    ev = await turn(client, text=f"is {SECRET} still valid?")
+    start = first(ev, "start")
+    assert start["user_text"] == "is [secret masked: API key] still valid?"
+    assert start["secret"] == {"kinds": ["api_key"]}
+    assert SECRET not in json.dumps([d for _, d in ev])  # nothing in the stream echoes it

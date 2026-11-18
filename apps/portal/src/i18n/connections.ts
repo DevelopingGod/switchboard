@@ -16,6 +16,7 @@ export const connectionStrings = {
     confirmRemoveYes: "Yes, remove it",
     keep: "Keep it",
     keyLabel: "{name} API key",
+    paramLabel: "{name}: {param}",
     keyHelp: "Checked with {name} first, then stored encrypted on this machine. Afterwards only the last four characters are shown.",
     saveKey: "Check and save",
     saving: "Checking…",

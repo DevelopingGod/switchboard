@@ -23,6 +23,9 @@ export const shellStrings = {
       ok: "Quota OK",
       limited: "Quota limited",
       blocked: "Daily cap reached",
+      /** M3a quota guard: the provider closest to a free limit. */
+      day: "{name} {pct}% of today’s limit",
+      minute: "{name} {pct}% of its per-minute limit",
       tip: "Quota: today’s budget use plus any provider that is rate-limited or out of credit.",
     },
     version: "v{version}",

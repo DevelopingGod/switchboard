@@ -8,7 +8,7 @@ import { CostBadge } from "@/components/kit/CostBadge";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { cn } from "@/lib/cn";
 import { GOAL_ORDER, neededProviders } from "@/lib/wizard";
-import type { CatalogModel, ConnectionRow, Preset } from "@/lib/router-types";
+import type { CatalogModel, ConnectionRow, Preset, LocalProfileView } from "@/lib/router-types";
 import { type WizardKey, tWizard } from "@/i18n/wizard";
 
 export const PRESETS: Preset[] = ["free", "balanced", "best"];
@@ -94,10 +94,12 @@ export function ConnectStep({
   needed,
   rows,
   modelsByProvider,
+  localProfile = null,
 }: {
   needed: ReturnType<typeof neededProviders>;
   rows: ConnectionRow[];
   modelsByProvider: Record<string, CatalogModel[]>;
+  localProfile?: LocalProfileView | null;
 }) {
   if (needed.length === 0) return <p className="text-ink-muted">{tWizard("wizard.connect.none")}</p>;
   return (
@@ -111,6 +113,7 @@ export function ConnectStep({
             <div key={n.provider} className="grid content-start gap-1.5">
               <ProviderCardFor row={row} models={modelsByProvider[n.provider] ?? []} />
               <p className="px-2 text-xs text-ink-muted">{tWizard("wizard.connect.forGoals", { goals: n.for.map(goalLabel).join(", ") })}</p>
+              {n.provider === "ollama" && localProfile && <LocalProfileLine v={localProfile} />}
             </div>
           );
         })}
@@ -213,4 +216,12 @@ export function StepList({ steps, current }: { steps: readonly string[]; current
       ))}
     </ol>
   );
+}
+
+function LocalProfileLine({ v }: { v: LocalProfileView }) {
+  const p = v.profiles.find((x) => x.name === v.active);
+  if (!p) return null;
+  const gpu = v.detected.vram_gb != null ? `${v.detected.vram_gb} GB GPU` : tWizard("wizard.connect.noGpu");
+  const models = [p.classifier ? "Arch-Router" : null, p.general].filter(Boolean).join(" + ");
+  return <p className="px-2 text-xs text-ink-muted">{tWizard("wizard.connect.localProfile", { gpu, label: p.label, models })}</p>;
 }

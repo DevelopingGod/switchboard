@@ -11,7 +11,10 @@ import type { ChatMessage, ChatThread, RouteInfo, TargetsResponse, TargetModel }
  *   "/image", "make an image of", "/video"   Studio notice (M5)
  *   "failing tests", "/research"             answered in chat + "Run as job (M4)" hint
  *   "code" / "/code"        a fenced code block
+ *   "blood test"            auto-private (M3a): kept local with a "Not sensitive — use cloud" note
+ *   a pasted "sk-…" key     masked, kept local, secret note on the message (M3a)
  *   anything else           a short Markdown answer
+ * The seeded "Notes on my health check" thread is private by auto-detection and has a summary.
  */
 
 interface FxThread extends ChatThread {
@@ -36,6 +39,26 @@ const day = (offset: number, hour = 9, minute = 0) => {
   return d.toISOString();
 };
 const T0 = day(0);
+
+const SECRET = /\b(sk-[A-Za-z0-9_-]{20,})\b/g;
+
+const local = (over: Partial<RouteInfo>): Partial<RouteInfo> => ({
+  rule: "private",
+  private: true,
+  target: "model:local",
+  label: "Ollama · qwen3:4b",
+  local: true,
+  model: "ollama_chat/qwen3:4b",
+  provider: "ollama",
+  provider_name: "Ollama (local)",
+  runner_up: null,
+  skipped: [],
+  list_price_usd: null,
+  thinking_ms: null,
+  latency_ms: 2100,
+  ttft_ms: 1900,
+  ...over,
+});
 
 const base = (over: Partial<RouteInfo>): RouteInfo => ({
   request_id: 1,
@@ -174,10 +197,48 @@ function seed(): FxThread[] {
       title: "Notes on my health check",
       title_source: "words",
       private: true,
+      private_source: "auto",
       pinned: false,
       created_at: day(-4, 10),
       updated_at: day(-4, 10, 1),
-      messages: [],
+      summary: {
+        text: "- Blood test: ALT and AST slightly high; doctor wants a re-test in 6 weeks.\n- The user asked about diet; suggested less alcohol and fried food.",
+        upto_message_id: 21,
+        covers: 2,
+        model: "ollama/qwen3:4b",
+        created_at: day(-4, 10, 1),
+      },
+      messages: [
+        { id: 20, role: "user", content: "My blood test shows ALT and AST slightly high. What could that mean?", status: "done", private: true, feedback: null, route: null, created_at: day(-4, 10) },
+        {
+          id: 21,
+          role: "assistant",
+          content: "Slightly raised ALT and AST often come from recent exercise, alcohol, some medicines or a fatty liver. Your doctor's re-test will show whether it persists.",
+          status: "done",
+          private: true,
+          feedback: null,
+          route: base(
+            local({
+              request_id: 7,
+              matched_by: "auto_private",
+              reasons: ["Looks sensitive (health) → kept on this machine", "First choice of rule “private”", "Runs on your GPU; nothing leaves the machine"],
+              sensitive: { source: "classifier", category: "health", overridable: true },
+            }),
+          ),
+          created_at: day(-4, 10),
+        },
+        { id: 22, role: "user", content: "Thanks. What should I eat this week?", status: "done", private: true, feedback: null, route: null, created_at: day(-4, 10, 1) },
+        {
+          id: 23,
+          role: "assistant",
+          content: "Plenty of vegetables, whole grains and lean protein; go easy on alcohol, sugar and fried food until the re-test.",
+          status: "done",
+          private: true,
+          feedback: null,
+          route: base(local({ request_id: 8, matched_by: "private", reasons: ["Private is on → stays on this machine", "First choice of rule “private”", "Runs on your GPU; nothing leaves the machine"] })),
+          created_at: day(-4, 10, 1),
+        },
+      ],
     },
     {
       id: "6f1c2a10-0000-4000-8000-000000000004",
@@ -334,8 +395,34 @@ function words(text: string): string[] {
   return text.match(/\S+\s*|\s+/g) ?? [];
 }
 
-function scenario(text: string, priv: boolean, target: string): { route: RouteInfo; events: Ev[]; content: string; status: ChatMessage["status"] } {
+function scenario(
+  text: string,
+  priv: boolean,
+  target: string,
+  extra: { secret?: boolean; noAuto?: boolean } = {},
+): { route: RouteInfo; events: Ev[]; content: string; status: ChatMessage["status"] } {
   const lower = text.toLowerCase();
+  const ev: Ev = ["route", { target: "model:local", label: "Ollama · qwen3:4b", local: true, free_tier: true }];
+  if (extra.secret) {
+    const route = base(
+      local({
+        matched_by: "secret",
+        reasons: ["Contains a secret (masked) → kept on this machine", "First choice of rule “private”", "Runs on your GPU; nothing leaves the machine"],
+        sensitive: { source: "secret", category: "secret", overridable: false },
+      }),
+    );
+    return { route, content: "That key is now in this chat's history on your computer only. Rotate it in the provider's console to be safe.", status: "done", events: [ev] };
+  }
+  if (!priv && !extra.noAuto && lower.includes("blood test")) {
+    const route = base(
+      local({
+        matched_by: "auto_private",
+        reasons: ["Looks sensitive (health) → kept on this machine", "First choice of rule “private”", "Runs on your GPU; nothing leaves the machine"],
+        sensitive: { source: "classifier", category: "health", overridable: true },
+      }),
+    );
+    return { route, content: "Slightly raised liver values are common and often harmless; your doctor's re-test will tell.", status: "done", events: [ev] };
+  }
   if (priv || lower.startsWith("/private")) {
     const content = "Noted. This stays on your computer: nothing was sent to a cloud model.";
     const route = base({
@@ -406,7 +493,7 @@ function scenario(text: string, priv: boolean, target: string): { route: RouteIn
 
 export function stream(path: string, body: unknown, signal: AbortSignal): Response {
   const s = store();
-  const b = (body ?? {}) as { thread_id?: string | null; text?: string; target?: string; private?: boolean };
+  const b = (body ?? {}) as { thread_id?: string | null; text?: string; target?: string; private?: boolean; cloud_override?: boolean };
   const enc = new TextEncoder();
   let thread: FxThread | undefined;
   let text = String(b.text ?? "");
@@ -428,7 +515,22 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
       };
       s.threads.push(thread);
     }
-    thread.messages.push({ id: s.nextMsg++, role: "user", content: text, status: "done", private: !!b.private, feedback: null, route: null, created_at: new Date().toISOString() });
+    const secret = SECRET.test(text);
+    SECRET.lastIndex = 0;
+    const stored = secret ? text.replace(SECRET, "[secret masked: API key]") : text;
+    thread.messages.push({
+      id: s.nextMsg++,
+      role: "user",
+      content: stored,
+      status: "done",
+      private: !!b.private || secret,
+      feedback: null,
+      route: null,
+      secret: secret ? { kinds: ["api_key"] } : null,
+      created_at: new Date().toISOString(),
+    });
+    if (secret) Object.assign(thread, { private: true, private_source: "secret" });
+    text = stored; // the raw secret is never kept (title, history)
   } else if (m) {
     thread = s.threads.find((x) => x.id === m[1]);
     if (!thread) return Response.json({ error: "thread not found" }, { status: 404 });
@@ -438,14 +540,22 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
     if (m[2] === "edit-last") last.content = text;
     text = last.content;
     thread.messages = thread.messages.filter((x) => x.id <= last.id);
+    if (b.cloud_override) {
+      if (thread.private_source !== "auto") return Response.json({ error: "only a thread that auto-detection made private can be switched to the cloud" }, { status: 409 });
+      Object.assign(thread, { private: false, private_source: null });
+      for (const x of thread.messages) x.private = false;
+    }
   } else {
     return new Response("not found", { status: 404 });
   }
+  const lastUser = thread.messages.filter((x) => x.role === "user").at(-1);
+  const secret = !!lastUser?.secret;
   const priv = !!b.private || thread.private || text.toLowerCase().startsWith("/private");
-  if (priv) thread.private = true;
-  const sc = scenario(text, priv, b.target ?? "auto");
+  const sc = scenario(text, priv && !secret, b.target ?? "auto", { secret, noAuto: !!b.cloud_override });
+  const privNow = priv || secret || sc.route.private;
+  if (privNow && !thread.private) Object.assign(thread, { private: true, private_source: sc.route.matched_by === "auto_private" ? "auto" : "user" });
   const requestId = s.nextReq++;
-  const reply: ChatMessage = { id: s.nextMsg++, role: "assistant", content: "", status: "streaming", private: priv, feedback: null, route: null, created_at: new Date().toISOString() };
+  const reply: ChatMessage = { id: s.nextMsg++, role: "assistant", content: "", status: "streaming", private: privNow, feedback: null, route: null, created_at: new Date().toISOString() };
   thread.messages.push(reply);
   const firstTurn = thread.title_source === "none";
   if (firstTurn) Object.assign(thread, { title: text.replace(/^\/\w+\s*/, "").split(/\s+/).slice(0, 6).join(" "), title_source: "words" });
@@ -463,7 +573,8 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
       };
       const stopped = () => signal.aborted || s.stops.has(requestId);
       const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      send("start", { thread_id: t.id, user_message_id: reply.id - 1, message_id: reply.id, request_id: requestId, private: priv, title: t.title, rule: sc.route.rule, job_suggested: sc.route.job_suggested });
+      const masked = secret && lastUser ? { user_text: lastUser.content, secret: lastUser.secret } : {};
+      send("start", { thread_id: t.id, user_message_id: reply.id - 1, message_id: reply.id, request_id: requestId, private: privNow, title: t.title, rule: sc.route.rule, job_suggested: sc.route.job_suggested, ...masked });
       for (const ev of sc.events) {
         const [name, arg] = ev;
         if (typeof arg === "number") await wait(arg);

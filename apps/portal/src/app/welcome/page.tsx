@@ -3,12 +3,19 @@ import { RouterDown } from "@/components/connections/RouterDown";
 import { Wizard } from "@/components/wizard/Wizard";
 import { STEPS } from "@/lib/wizard";
 import { loadConnections, loadOnboarding } from "@/lib/server/data";
+import { routerGet } from "@/lib/server/router";
+import type { LocalProfileView } from "@/lib/router-types";
 import { tWizard } from "@/i18n/wizard";
 
 export const metadata: Metadata = { title: tWizard("wizard.title") };
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ step?: string; again?: string }> }) {
-  const [ob, conn, sp] = await Promise.all([loadOnboarding(), loadConnections(), searchParams]);
+  const [ob, conn, sp, local] = await Promise.all([
+    loadOnboarding(),
+    loadConnections(),
+    searchParams,
+    routerGet<LocalProfileView>("/system/local-profile"),
+  ]);
   if (!ob.ok) {
     return (
       <div className="mx-auto max-w-3xl">
@@ -29,6 +36,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ s
       modelsByProvider={conn.ok ? conn.data.modelsByProvider : {}}
       startStep={startStep}
       again={sp.again === "1"}
+      localProfile={local.ok ? local.data : null}
     />
   );
 }
