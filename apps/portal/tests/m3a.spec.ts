@@ -44,7 +44,7 @@ test.describe("chat · privacy notes", () => {
     // masked in the message and in the words title alike
     await expect(page.getByText("why does [secret masked: API key] return 401?")).toBeVisible();
     await expect(page.getByText("Looks like you pasted a secret — kept local and masked. Consider rotating it.")).toBeVisible();
-    await expect(lastReply(page).getByText("Kept local: this looks sensitive (a secret).")).toBeVisible();
+    await expect(lastReply(page).getByText("Kept local: your message had a secret in it, so this chat stays on this machine.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Not sensitive — use cloud" })).toHaveCount(0);
     await expect(page.locator("body")).not.toContainText(KEY);
   });

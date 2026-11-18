@@ -41,7 +41,7 @@ async def test_summary_written_after_reply_and_used_next_turn(client, stack, sma
     tid, events = await chat_until_summary(client, stack)
     first_summary = next(i for i, ev in enumerate(events) if any(e == "summary" for e, _ in ev))
     s = next(d for e, d in events[first_summary] if e == "summary")["summary"]
-    assert s["text"].startswith("- The user is planning") and s["model"] == "ollama/qwen3:4b"
+    assert s["text"].startswith("- The user is planning") and s["model"] == "ollama/llama3.2:3b"
     msgs = (
         await session.execute(select(Message).where(Message.thread_id == tid).order_by(Message.id))
     ).scalars()
@@ -50,7 +50,7 @@ async def test_summary_written_after_reply_and_used_next_turn(client, stack, sma
     assert len(msgs) - len(covered) >= 6  # the newest six are never folded in
     # the summarizer ran with thinking off on the local tasks model
     call = next(c for c in stack.ollama.calls if c["messages"][0]["content"].startswith("You keep a running"))
-    assert call["model"] == "qwen3:4b" and call["think"] is False
+    assert call["model"] == "llama3.2:3b" and call["think"] is False
     # the next turn sends the note + only the uncovered messages
     await turn(client, text="and now?", thread_id=tid)
     sent = stack.stream_calls[-1]["messages"]

@@ -20,8 +20,14 @@ export function SensitiveNote({ s, onOverride }: { s: SensitiveInfo; onOverride?
     <div data-note="sensitive" className="flex flex-wrap items-center gap-2 rounded-control border border-hairline p-2 text-sm">
       <ShieldCheck aria-hidden className="size-4 shrink-0 text-ok" />
       <span className="min-w-0 flex-1">
-        <span className="font-semibold">{tPriv("sensitive.kept", { category })}</span>{" "}
-        <span className="text-ink-muted">{tPriv("sensitive.why")}</span>
+        {s.source === "secret" ? (
+          <span className="font-semibold">{tPriv("sensitive.secretKept")}</span>
+        ) : (
+          <>
+            <span className="font-semibold">{tPriv("sensitive.kept", { category })}</span>{" "}
+            <span className="text-ink-muted">{tPriv("sensitive.why")}</span>
+          </>
+        )}
       </span>
       {s.overridable && onOverride && (
         <Button

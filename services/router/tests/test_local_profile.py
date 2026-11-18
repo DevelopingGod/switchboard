@@ -60,7 +60,7 @@ async def test_profile_api(client, litellm, session, hw):
     await local_profile.init(session)
     v = (await client.get("/system/local-profile")).json()
     assert v["active"] == "small" and v["detected"]["vram_gb"] == 4.0
-    assert v["missing"] == ["hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M"]
+    assert v["missing"] == ["hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M", "llama3.2:3b"]
     assert {p["name"] for p in v["profiles"]} == {"none", "small", "medium", "large"}
     r = await client.put("/system/local-profile", json={"profile": "large"}, headers=ADMIN)
     assert r.status_code == 200 and r.json()["active"] == "large" and r.json()["overridden"]

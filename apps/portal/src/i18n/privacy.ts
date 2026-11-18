@@ -6,6 +6,7 @@ export const privacyStrings = {
   sensitive: {
     kept: "Kept local: this looks sensitive ({category}).",
     why: "Messages about health, money, legal matters or other private details stay on this machine, and so does the rest of this chat. Turn this off in Settings → Privacy.",
+    secretKept: "Kept local: your message had a secret in it, so this chat stays on this machine.",
     override: "Not sensitive — use cloud",
     overriding: "Switching to the cloud…",
     category: { health: "health", finance: "money", legal: "legal", personal: "personal details", secret: "a secret" },

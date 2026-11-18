@@ -198,9 +198,9 @@ const g = globalThis as unknown as { __sbFixture?: Store };
 const ARCH = "hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M";
 const LOCAL_PROFILES: LocalProfile[] = [
   { name: "none", label: "CPU only / under 4 GB", min_vram_gb: 0, classifier: null, general: "llama3.2:3b", tasks: null, coder: "llama3.2:3b", cpu: true, max_loaded: 1, models: ["llama3.2:3b"] },
-  { name: "small", label: "4–6 GB GPU", min_vram_gb: 4, classifier: ARCH, general: "qwen3:4b", tasks: "qwen3:4b", coder: "qwen3:4b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:4b"] },
-  { name: "medium", label: "8–12 GB GPU", min_vram_gb: 8, classifier: ARCH, general: "qwen3:8b", tasks: "qwen3:8b", coder: "qwen3:8b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:8b"] },
-  { name: "large", label: "16 GB+ GPU", min_vram_gb: 16, classifier: ARCH, general: "qwen3:14b", tasks: "qwen3:14b", coder: "qwen2.5-coder:14b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:14b", "qwen2.5-coder:14b"] },
+  { name: "small", label: "4–6 GB GPU", min_vram_gb: 4, classifier: ARCH, general: "qwen3:4b", tasks: "llama3.2:3b", coder: "qwen3:4b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:4b", "llama3.2:3b"] },
+  { name: "medium", label: "8–12 GB GPU", min_vram_gb: 8, classifier: ARCH, general: "qwen3:8b", tasks: "llama3.2:3b", coder: "qwen3:8b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:8b", "llama3.2:3b"] },
+  { name: "large", label: "16 GB+ GPU", min_vram_gb: 16, classifier: ARCH, general: "qwen3:14b", tasks: "llama3.2:3b", coder: "qwen2.5-coder:14b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:14b", "llama3.2:3b", "qwen2.5-coder:14b"] },
 ];
 const INSTALLED = ["qwen3:4b", "llama3.2:3b", ARCH];
 

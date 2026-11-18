@@ -33,7 +33,10 @@ profiles:
     min_vram_gb: 4
     classifier: *arch
     general: qwen3:4b
-    tasks: qwen3:4b              # thinking disabled for titles and summaries
+    # Titles and summaries: llama3.2:3b. qwen3:4b was the plan, but it writes its reasoning into the
+    # answer even with think:false ("Okay, the user wants me to...", verified 2026-11-18, docs/m3a.md),
+    # so every title fell back to the first words.
+    tasks: llama3.2:3b
     coder: null
     max_loaded: 2
   medium:
@@ -41,7 +44,7 @@ profiles:
     min_vram_gb: 8
     classifier: *arch
     general: qwen3:8b
-    tasks: qwen3:8b
+    tasks: llama3.2:3b
     coder: null
     max_loaded: 2
   large:
@@ -49,7 +52,7 @@ profiles:
     min_vram_gb: 16
     classifier: *arch
     general: qwen3:14b
-    tasks: qwen3:14b
+    tasks: llama3.2:3b
     coder: qwen2.5-coder:14b
     max_loaded: 2
 
