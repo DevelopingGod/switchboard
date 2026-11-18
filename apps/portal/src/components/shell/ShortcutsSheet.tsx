@@ -3,12 +3,12 @@
 import * as React from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { SHORTCUTS, isMac, type Shortcut } from "@/lib/shortcuts";
-import { tShell } from "@/i18n/shell";
+import { tShortcuts } from "@/i18n/shortcuts";
 
 const GROUPS: Shortcut["group"][] = ["general", "chat", "list"];
 
 function Keys({ keys }: { keys: string[] }) {
-  const mod = isMac() ? tShell("shortcuts.mod.mac") : tShell("shortcuts.mod.other");
+  const mod = isMac() ? tShortcuts("mod.mac") : tShortcuts("mod.other");
   return (
     <span className="flex shrink-0 items-center gap-1">
       {keys.map((k, i) => (
@@ -29,18 +29,18 @@ export function ShortcutsSheet({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(94vw,34rem)]">
         <div className="grid gap-1 pr-8">
-          <DialogTitle className="font-display text-2xl font-bold tracking-tight">{tShell("shortcuts.title")}</DialogTitle>
-          <DialogDescription className="text-sm text-ink-muted">{tShell("shortcuts.description")}</DialogDescription>
+          <DialogTitle className="font-display text-2xl font-bold tracking-tight">{tShortcuts("title")}</DialogTitle>
+          <DialogDescription className="text-sm text-ink-muted">{tShortcuts("description")}</DialogDescription>
         </div>
         {GROUPS.map((g) => (
           <section key={g} aria-labelledby={`sc-${g}`} className="grid gap-1.5">
             <h3 id={`sc-${g}`} className="label">
-              {tShell(`shortcuts.group.${g}`)}
+              {tShortcuts(`group.${g}`)}
             </h3>
             <dl className="grid divide-y divide-hairline rounded-control border border-hairline">
               {SHORTCUTS.filter((s) => s.group === g).map((s) => (
                 <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                  <dt>{tShell(`shortcuts.item.${s.id}`)}</dt>
+                  <dt>{tShortcuts(`item.${s.id}`)}</dt>
                   <dd>
                     <Keys keys={s.keys} />
                   </dd>

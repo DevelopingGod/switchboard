@@ -4,7 +4,8 @@
  * only when it is actually cut off). This delegated layer, loaded after first paint, is the whole
  * implementation, so routes pay nothing for tooltips. Rules:
  * - opens after 500 ms of hover (300 ms skip window when moving between triggers), closes after 100 ms;
- * - keyboard focus (:focus-visible) shows it at once; Esc closes it; one at a time;
+ * - keyboard navigation (Tab / arrows, then :focus-visible) shows it at once; focus that a dialog
+ *   or menu moves by itself does not; Esc closes it; one at a time;
  * - collision-aware: above the trigger, flipped below near the top edge, clamped to the viewport;
  * - never on touch (touch pointers and coarse-only devices are ignored);
  * - text only, one short sentence (enforced by review; the label is set by our components).
@@ -54,6 +55,7 @@ export function installTooltips(): () => void {
   let closeTimer = 0;
   let lastClosedAt = 0;
   let suppressed: HTMLElement | null = null; // Esc: stay closed until the pointer leaves or focus moves
+  let navKeyAt = -Infinity; // last Tab/arrow press: only focus the person moved shows a tooltip
 
   const clearTimers = () => {
     window.clearTimeout(openTimer);
@@ -134,6 +136,7 @@ export function installTooltips(): () => void {
   const onFocusIn = (e: FocusEvent) => {
     const el = target(e.target);
     if (!el || !(e.target as Element).matches(":focus-visible")) return;
+    if (performance.now() - navKeyAt > 300) return;
     suppressed = null;
     show(el);
   };
@@ -141,6 +144,7 @@ export function installTooltips(): () => void {
     if (target(e.target) === current) hide();
   };
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Tab" || e.key.startsWith("Arrow")) navKeyAt = performance.now();
     if (e.key === "Escape" && current) {
       suppressed = current;
       hide();

@@ -80,10 +80,11 @@ export function AppFooter() {
       <div className="surface-strong flex h-11 items-center gap-3 rounded-chip px-4 text-[0.8125rem] sm:gap-4">
         <Link
           href="/status"
-          aria-label={tShell("footer.health.open")}
           data-tip={tShell("footer.health.open")}
           className="-mx-1.5 flex h-8 shrink-0 items-center rounded-chip px-1.5 hover:bg-accent-soft"
         >
+          {/* The link is named by its content (visible labels must be part of the name). */}
+          <span className="sr-only">{tShell("footer.health.open")}: </span>
           <ul aria-label={tShell("footer.health.label")} className="flex items-center gap-2.5 font-semibold">
             {DOTS.map((k) => (
               <Dot key={k} name={k} state={hydrated ? health(k) : "unknown"} />
@@ -112,8 +113,7 @@ export function AppFooter() {
                 tabIndex={0}
               >
                 <Gauge aria-hidden className="size-3.5" strokeWidth={2.5} />
-                <span className="hidden sm:inline">{tShell(`footer.quota.${quota ?? "ok"}`)}</span>
-                <span className="sr-only sm:hidden">{tShell(`footer.quota.${quota ?? "ok"}`)}</span>
+                <span className="max-sm:sr-only">{tShell(`footer.quota.${quota ?? "ok"}`)}</span>
               </span>
             </>
           ) : failed ? (
