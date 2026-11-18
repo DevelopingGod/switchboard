@@ -13,5 +13,5 @@ export async function unstick(page: Page) {
 
 /** Full-page shots: the chat composer is sticky to the viewport bottom and would cover messages. */
 export async function unstickComposer(page: Page) {
-  await page.addStyleTag({ content: "form.lg\\:sticky{position:static!important}" });
+  await page.addStyleTag({ content: ".chat-composer{position:relative!important}" });
 }

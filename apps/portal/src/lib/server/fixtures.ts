@@ -3,6 +3,7 @@ import type {
   CatalogModel,
   ComponentsResponse,
   ConnectionRow,
+  SettingsView,
   SystemComponent,
   InstallPlan,
   OnboardingResponse,
@@ -186,6 +187,7 @@ interface Store {
   onboarding: OnboardingState | null;
   plans: Map<string, string>;
   jobs: Map<string, Job>;
+  settings: Partial<SettingsView>;
 }
 
 const g = globalThis as unknown as { __sbFixture?: Store };
@@ -221,6 +223,7 @@ function store(): Store {
         : null,
       plans: new Map(),
       jobs: new Map(),
+      settings: {},
     };
   }
   return g.__sbFixture;
@@ -351,6 +354,18 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     return ok({ ok: true });
   }
   if (method === "GET" && p === "/system/components") return ok(components(s));
+  if (p === "/settings" && (method === "GET" || method === "PUT")) {
+    const defaults = { max_cost_usd: 0.5, daily_cap_usd: 1, private_by_default: false };
+    if (method === "PUT") {
+      for (const [k, v] of Object.entries(b)) {
+        if (!(k in defaults)) continue;
+        if (typeof v === "number" && (v < 0 || v > 100)) return fail(422, "Input should be between 0 and 100");
+        if (v === null) delete s.settings[k as keyof SettingsView];
+        else (s.settings as Record<string, unknown>)[k] = v;
+      }
+    }
+    return ok({ ...defaults, ...s.settings, defaults, overridden: Object.keys(s.settings).sort() });
+  }
   if (method === "GET" && p === "/system/summary")
     return ok({
       health: { router: "ok", litellm: "ok", ollama: "ok", paperclip: "down", model_sync: "ok" },

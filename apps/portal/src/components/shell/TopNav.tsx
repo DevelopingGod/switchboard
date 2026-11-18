@@ -15,7 +15,7 @@ import { t } from "@/i18n/strings";
 export function TopNav({ onOpenPalette }: { onOpenPalette: () => void }) {
   const active = activeNavId(usePathname());
   return (
-    <header className="sticky top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4">
+    <header className="topbar sticky top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4">
       <div className="mx-auto flex max-w-[88rem] items-center gap-2 sm:gap-3">
         <Link href="/" aria-label={t("logo.alt")} className="rounded-chip pr-2">
           <Logo className="[&>span]:max-lg:hidden" />

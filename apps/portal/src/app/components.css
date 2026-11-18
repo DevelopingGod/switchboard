@@ -142,3 +142,77 @@
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.35); opacity: 0.65; }
 }
+
+/* ---------- Chat layout (M1.5) ----------
+   Sidebar + centred 760 px reading column. The collapsed state comes from html[data-sidebar], set
+   before paint, so collapsing never shifts the page on load. No layout animation. */
+.chat-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.chat-sidebar { min-width: 0; }
+.sidebar-rail { display: none; }
+.sidebar-full, .sidebar-body { display: flex; }
+@media (min-width: 1024px) {
+  .chat-layout { grid-template-columns: 17rem minmax(0, 1fr); }
+  .chat-sidebar { position: sticky; top: 6rem; }
+  .chat-sidebar .sidebar-full { max-height: calc(100dvh - 8.5rem); }
+  :root[data-sidebar="collapsed"] .chat-layout { grid-template-columns: 3.75rem minmax(0, 1fr); }
+  :root[data-sidebar="collapsed"] .sidebar-full { display: none; }
+  :root[data-sidebar="collapsed"] .sidebar-rail { display: flex; }
+}
+/* Phones and tablets: the list folds behind its "Chats" button. */
+@media (max-width: 1023.98px) {
+  .sidebar-body:not([data-open]) { display: none; }
+}
+
+/* Row "more" button and reply actions: shown on hover / keyboard focus with a fine pointer; always
+   shown on touch. They stay in the tab order and accessibility tree (opacity only). */
+@media (hover: hover) and (pointer: fine) {
+  .row-more { opacity: 0; transition: opacity var(--d-fast) var(--ease-out); }
+  .group\/row:hover .row-more,
+  .group\/row:focus-within .row-more,
+  .row-more.is-open { opacity: 1; }
+
+  .msg-actions:not(.is-last) { opacity: 0; transition: opacity var(--d-fast) var(--ease-out); }
+  .reply:hover .msg-actions,
+  .reply:focus-within .msg-actions,
+  .msg-actions:has([aria-pressed="true"]) { opacity: 1; }
+}
+
+/* Date separator between messages. */
+.date-sep {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.date-sep::before,
+.date-sep::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+.date-sep span { padding: 0.125rem 0.625rem; border-radius: 999px; background: var(--glass-strong); }
+
+/* Smooth stream reveal: each new Markdown block fades/rises in once, as it is added. */
+.reply[aria-busy="true"] .md > * { animation: block-in var(--d-base) var(--ease-out) both; }
+@keyframes block-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Top bar scrim (M1.5): content scrolling under the sticky nav disappears behind a copy of the
+   same sky (fixed attachment lines it up with the page sky) that fades out at its lower edge, instead
+   of showing through the gaps between the nav pills. No blur, so the two-blur-layer rule holds. */
+.topbar { isolation: isolate; }
+.topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -1.25rem 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--sky-bloom-a), var(--sky-bloom-b), var(--sky-gradient);
+  background-attachment: fixed;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent);
+}
+:root[data-sky="image"] .topbar::before { background: url("/sky/day.avif") center / cover fixed; }
+:root[data-sky="image"][data-theme="dark"] .topbar::before { background-image: url("/sky/dusk.avif"); }

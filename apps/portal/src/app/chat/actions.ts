@@ -14,6 +14,12 @@ export async function renameThread(id: string, title: string): Promise<ActionRes
   return r.ok ? { ok: true, data: r.data } : bad(r.error);
 }
 
+export async function pinThread(id: string, pinned: boolean): Promise<ActionResult<ChatThread>> {
+  if (!UUID.test(id) || typeof pinned !== "boolean") return bad("Unknown chat.");
+  const r = await routerSend<ChatThread>("PATCH", `/chat/threads/${id}`, { pinned });
+  return r.ok ? { ok: true, data: r.data } : bad(r.error);
+}
+
 export async function deleteThread(id: string): Promise<ActionResult> {
   if (!UUID.test(id)) return bad("Unknown chat.");
   const r = await routerSend("DELETE", `/chat/threads/${id}`);

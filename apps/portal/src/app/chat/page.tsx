@@ -34,5 +34,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
     );
   }
   // Keyed by thread so switching chats starts fresh (and aborts a stream in flight).
-  return <ChatScreen key={r.data.current?.thread.id ?? "new"} threads={r.data.threads} current={r.data.current} />;
+  return <ChatScreen key={r.data.current?.thread.id ?? "new"} threads={r.data.threads} current={r.data.current} privateDefault={r.data.privateDefault} />;
 }

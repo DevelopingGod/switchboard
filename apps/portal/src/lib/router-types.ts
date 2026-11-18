@@ -135,6 +135,8 @@ export interface ChatThread {
   title: string;
   title_source: "none" | "words" | "local" | "user";
   private: boolean;
+  /** Pinned threads sort first in the sidebar (M1.5). */
+  pinned: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -290,4 +292,13 @@ export interface SystemSummary {
     credits_out: string[];
   };
   version: string;
+}
+
+/** Settings page (GET/PUT /settings): owner overrides over config/rules.yaml defaults. */
+export interface SettingsView {
+  max_cost_usd: number;
+  daily_cap_usd: number;
+  private_by_default: boolean;
+  defaults: { max_cost_usd: number; daily_cap_usd: number; private_by_default: boolean };
+  overridden: string[];
 }

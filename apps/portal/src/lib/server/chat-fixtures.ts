@@ -22,11 +22,20 @@ interface Store {
   threads: FxThread[];
   nextMsg: number;
   nextReq: number;
+  nextThread: number;
   stops: Set<number>;
 }
 
 const g = globalThis as unknown as { __sbChat?: Store };
-const T0 = "2026-11-17T09:00:00Z";
+/** Fixture times are relative to server start (local time), so the sidebar's Today / Yesterday /
+ * Previous 7 days / Older groups are the same on every run (M1.5). */
+const day = (offset: number, hour = 9, minute = 0) => {
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  d.setDate(d.getDate() + offset);
+  return d.toISOString();
+};
+const T0 = day(0);
 
 const base = (over: Partial<RouteInfo>): RouteInfo => ({
   request_id: 1,
@@ -109,8 +118,9 @@ function seed(): FxThread[] {
       title: "Why the sky is blue",
       title_source: "local",
       private: false,
+      pinned: false,
       created_at: T0,
-      updated_at: "2026-11-17T09:05:00Z",
+      updated_at: day(0, 9, 5),
       messages: [
         { id: 1, role: "user", content: "In two lines: why is the sky blue?", status: "done", private: false, feedback: null, route: null, created_at: T0 },
         { id: 2, role: "assistant", content: SKY, status: "done", private: false, feedback: "up", route: base({ request_id: 1 }), created_at: T0 },
@@ -154,8 +164,9 @@ function seed(): FxThread[] {
       title: "Launch post for LinkedIn",
       title_source: "local",
       private: false,
-      created_at: "2026-11-16T15:00:00Z",
-      updated_at: "2026-11-16T15:02:00Z",
+      pinned: false,
+      created_at: day(-1, 15),
+      updated_at: day(-1, 15, 2),
       messages: [],
     },
     {
@@ -163,15 +174,26 @@ function seed(): FxThread[] {
       title: "Notes on my health check",
       title_source: "words",
       private: true,
-      created_at: "2026-11-15T10:00:00Z",
-      updated_at: "2026-11-15T10:01:00Z",
+      pinned: false,
+      created_at: day(-4, 10),
+      updated_at: day(-4, 10, 1),
+      messages: [],
+    },
+    {
+      id: "6f1c2a10-0000-4000-8000-000000000004",
+      title: "Trip ideas for a long weekend in Goa with friends who like quiet beaches and good seafood",
+      title_source: "local",
+      private: false,
+      pinned: false,
+      created_at: day(-20, 18),
+      updated_at: day(-20, 18, 30),
       messages: [],
     },
   ];
 }
 
 function store(): Store {
-  if (!g.__sbChat) g.__sbChat = { threads: seed(), nextMsg: 100, nextReq: 100, stops: new Set() };
+  if (!g.__sbChat) g.__sbChat = { threads: seed(), nextMsg: 100, nextReq: 100, nextThread: 100, stops: new Set() };
   return g.__sbChat;
 }
 
@@ -251,8 +273,28 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
   const p = new URL(path, "http://fixture").pathname;
   const b = (body ?? {}) as Record<string, unknown>;
   if (method === "GET" && p === "/chat/threads") {
-    const list = [...s.threads].sort((a, z) => z.updated_at.localeCompare(a.updated_at));
+    const list = [...s.threads].sort((a, z) => Number(z.pinned) - Number(a.pinned) || z.updated_at.localeCompare(a.updated_at));
     return ok({ threads: list.map(strip) });
+  }
+  if (method === "DELETE" && p === "/chat/threads") {
+    if (b.confirm !== "delete all chats") return fail(422, "confirm with the phrase");
+    const n = s.threads.length;
+    s.threads = [];
+    return ok({ deleted: n });
+  }
+  if (method === "GET" && p === "/chat/export") {
+    const url = new URL(path, "http://fixture");
+    const all = url.searchParams.get("include_private") === "true";
+    const list = s.threads.filter((x) => all || !x.private);
+    if (url.searchParams.get("format") === "md") {
+      const md = ["# Switchboard chats", ""];
+      for (const th of list) {
+        md.push(`## ${th.title || "New chat"}`, "");
+        for (const msg of th.messages) md.push(msg.role === "user" ? "**You**" : "**Assistant**", "", msg.content, "");
+      }
+      return ok({ markdown: md.join("\n") });
+    }
+    return ok({ format: "switchboard.chats.v1", threads: list });
   }
   if (method === "GET" && p === "/chat/targets") return ok(targets());
   let m = p.match(/^\/chat\/threads\/([\w-]+)$/);
@@ -261,7 +303,8 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     if (!t) return fail(404, "thread not found");
     if (method === "GET") return ok({ thread: strip(t), messages: t.messages });
     if (method === "PATCH") {
-      Object.assign(t, { title: String(b.title ?? "").slice(0, 80), title_source: "user" });
+      if (typeof b.title === "string") Object.assign(t, { title: b.title.slice(0, 80), title_source: "user" });
+      if (typeof b.pinned === "boolean") t.pinned = b.pinned;
       return ok(strip(t));
     }
     if (method === "DELETE") {
@@ -372,12 +415,13 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
     thread = b.thread_id ? s.threads.find((x) => x.id === b.thread_id) : undefined;
     if (b.thread_id && !thread) return Response.json({ error: "thread not found" }, { status: 404 });
     if (!thread) {
-      const n = s.threads.length + 1;
+      const n = s.nextThread++; // monotonic: deleting a thread must never let a new one reuse its id
       thread = {
         id: `6f1c2a10-0000-4000-8000-${String(n).padStart(12, "0")}`,
         title: "",
         title_source: "none",
         private: !!b.private,
+        pinned: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         messages: [],
