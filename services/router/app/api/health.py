@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import hostprobe_client, sync
 from app.config import get_settings
 from app.db import get_session
+from app.local_profile import load_profiles
 from app.registry import load_registry
 from app.routing.rules import load_rules
 from app.startup import env_keys_still_present, key_checks
@@ -27,7 +28,9 @@ async def health(request: Request, session: AsyncSession = Depends(get_session))
         db = "down"
     litellm_ok = await request.app.state.litellm.alive()
     try:
-        rules = f"ok ({len(load_rules().rules)} rules)"
+        rs = load_rules()
+        rules = f"ok ({len(rs.rules)} rules, {len(rs.classifier.routes)} classifier routes)"
+        load_profiles()  # config/local-models.yaml (M3a)
     except Exception as e:  # a broken config/rules.yaml must show up in doctor.sh, not crash health
         rules = f"error: {str(e)[:160]}"
     return {
@@ -37,6 +40,7 @@ async def health(request: Request, session: AsyncSession = Depends(get_session))
         "hostprobe": "ok" if await hostprobe_client.alive() else "down",
         "rules": rules,
         "fault_injection": get_settings().router_fault_injection,
+        "quota_test_limits": get_settings().router_quota_test_limits or None,
     }
 
 

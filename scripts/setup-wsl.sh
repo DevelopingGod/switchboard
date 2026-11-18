@@ -2,6 +2,8 @@
 # Switchboard setup for WSL2 (Ubuntu). Safe to re-run.
 #   scripts/setup-wsl.sh          interactive (asks before onboarding Paperclip)
 #   scripts/setup-wsl.sh --yes    non-interactive
+#   scripts/setup-wsl.sh --pull-models   only: detect the GPU, pick the local-model profile and pull its
+#                                        missing Ollama models (the stack must be running)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,13 +13,66 @@ NVM_VERSION=v0.41.0
 NODE_MAJOR=24
 GITLEAKS_VERSION=v8.30.1
 YES=false
-[[ "${1:-}" == "--yes" ]] && YES=true
+PULL_ONLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --yes) YES=true ;;
+    --pull-models) PULL_ONLY=true ;;
+    *) printf 'unknown option %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
 export PATH="$HOME/.local/bin:$PATH"   # gitleaks, paperclipai shim
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*"; }
 die()  { printf '\033[1;31mxx\033[0m  %s\n' "$*" >&2; exit 1; }
 confirm() { $YES && return 0; read -r -p "$1 [y/N] " a; [[ "$a" =~ ^[Yy]$ ]]; }
+
+# --- Local-model profile + Ollama models (M3a, config/local-models.yaml) -----------------
+# The router detects the GPU through hostprobe (nvidia-smi), picks a profile (a profile you chose in
+# Settings is kept) and pulls the profile's missing models through Ollama's API. WSL can't reach the
+# Windows Ollama on localhost, which is why this goes through the router (inside Docker).
+local_models() {
+  local R="http://127.0.0.1:${ROUTER_PORT:-8100}" auth=(-H "Authorization: Bearer ${ROUTER_ADMIN_TOKEN:-}")
+  local v
+  if ! v=$(curl -fsS -m 30 -X POST "${auth[@]}" "$R/system/local-profile/detect"); then
+    warn "Router not answering on $R; start the stack, then run scripts/setup-wsl.sh --pull-models"
+    return 0
+  fi
+  say "$(printf '%s' "$v" | python3 -c '
+import json, sys
+d = json.load(sys.stdin); x = d["detected"]
+seen = ("Detected %g GB VRAM" % x["vram_gb"]) if x.get("vram_gb") is not None else "GPU not detected"
+print("%s -> local-model profile %s%s; models: %s" % (seen, d["active"], " (your pick)" if d["overridden"] else "",
+      ", ".join(next(p for p in d["profiles"] if p["name"] == d["active"])["models"])))')"
+  local missing
+  missing=$(printf '%s' "$v" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["missing"]))')
+  if [[ -z "$missing" ]]; then say "All local models are pulled"; return 0; fi
+  if [[ $(printf '%s' "$v" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ollama"])') != ok ]]; then
+    warn "Ollama not reachable; start Ollama on Windows, then run scripts/setup-wsl.sh --pull-models"
+    return 0
+  fi
+  confirm "Pull $missing with Ollama now (about 1-10 GB)?" || { warn "Skipped; run scripts/setup-wsl.sh --pull-models later"; return 0; }
+  curl -fsS -m 30 -X POST "${auth[@]}" "$R/system/models/pull" >/dev/null || { warn "Pull request failed"; return 0; }
+  local status=running line
+  while [[ "$status" == running ]]; do
+    sleep 3
+    line=$(curl -fsS -m 10 "$R/system/local-profile" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)["pull"]
+print(p["status"], p.get("model") or "", p.get("percent") if p.get("percent") is not None else "", p.get("error") or "")')
+    read -r status model pct err <<<"$line"
+    [[ "$status" == running ]] && printf '\r  pulling %s %s%%   ' "$model" "${pct:-0}"
+  done
+  printf '\n'
+  [[ "$status" == done ]] && say "Local models pulled" || warn "Model pull ended: $status ${err:-}"
+}
+
+if $PULL_ONLY; then
+  set -a; . "$ENV_FILE"; set +a
+  local_models
+  exit 0
+fi
 
 # --- 1. Prerequisites -------------------------------------------------------
 grep -qi microsoft /proc/version || warn "Not running under WSL; continuing anyway."
@@ -111,6 +166,7 @@ say "Checking Ollama at $OLLAMA_API_BASE (from inside the litellm container)"
 if "${COMPOSE[@]}" exec -T litellm python -c \
     "import urllib.request,os; urllib.request.urlopen(os.environ['OLLAMA_API_BASE']+'/api/version', timeout=5)" 2>/dev/null; then
   say "Ollama reachable"
+  local_models
 else
   warn "Ollama not reachable. Start Ollama on Windows, then re-run scripts/doctor.sh."
 fi
