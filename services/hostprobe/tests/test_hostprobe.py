@@ -580,3 +580,47 @@ class EnvFileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HardwareTests(unittest.TestCase):
+    """M3a: GPU memory + RAM for the local-model profile."""
+
+    def test_parse_nvidia_smi_takes_the_largest_gpu(self):
+        out = "NVIDIA GeForce RTX 3050 Laptop GPU, 4096\nNVIDIA RTX 4090, 24564\n"
+        self.assertEqual(hostprobe.parse_nvidia_smi(out), ("NVIDIA RTX 4090", 24564))
+        self.assertEqual(hostprobe.parse_nvidia_smi("garbage"), (None, None))
+
+    def test_parse_meminfo(self):
+        self.assertEqual(hostprobe.parse_meminfo("MemTotal:       14235296 kB\nMemFree: 1 kB\n"), 13901)
+        self.assertIsNone(hostprobe.parse_meminfo(""))
+
+    def test_probe_hw_runs_one_fixed_argv(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake_bin(Path(d), "nvidia-smi", 'echo "Test GPU, 8192"')
+            with mock.patch.object(hostprobe, "NVIDIA_SMI_DIRS", [d]):
+                hw = hostprobe.probe_hw()
+        self.assertEqual((hw["gpu"], hw["vram_mb"], hw["source"]), ("Test GPU", 8192, "nvidia-smi"))
+
+    def test_no_gpu(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(hostprobe, "NVIDIA_SMI_DIRS", [d]):
+            hw = hostprobe.probe_hw()
+        self.assertIsNone(hw["vram_mb"])
+        self.assertIn("nvidia-smi missing", hw["error"])
+
+    def test_hw_endpoint_needs_token_and_is_cached(self):
+        probe = hostprobe.Probe(TOKEN)
+        calls = []
+        probe.hw_fn = lambda: calls.append(1) or {"gpu": "G", "vram_mb": 4096, "ram_mb": 1, "source": "x"}
+        server = ThreadingHTTPServer(("127.0.0.1", 0), hostprobe.make_handler(probe))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}/hw"
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(e.exception.code, 401)
+        for _ in range(2):
+            req = urllib.request.Request(url, headers={"X-Probe-Token": TOKEN})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                self.assertEqual(json.loads(r.read())["vram_mb"], 4096)
+        self.assertEqual(len(calls), 1)
