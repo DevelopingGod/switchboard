@@ -231,3 +231,44 @@
   from { opacity: 0.5; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* Ambient cursor (M1.5, lib/enhance/cursor.ts). The native cursor is untouched. A soft glow sits
+   behind the content (above the sky), and the edge of the glass card under the pointer lights up.
+   Only while html[data-cursor-live] (fine pointer, motion allowed, Settings switch on). */
+.glow-edge { position: relative; }
+.sb-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, var(--cursor-glow), transparent);
+  opacity: 0;
+  transition: opacity var(--d-slow) var(--ease-out);
+  will-change: transform;
+}
+.sb-glow[data-on] { opacity: 1; }
+:root[data-cursor-live] .glow-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: radial-gradient(240px circle at var(--mx, -999px) var(--my, -999px), var(--cursor-edge), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity var(--d-base) var(--ease-out);
+}
+:root[data-cursor-live] .glow-edge:hover::after { opacity: 1; }
+
+/* Hover lift for interactive cards (M1.5): 1 px rise and a deeper shadow; transform only. */
+.lift { transition: transform var(--d-fast) var(--ease-out), box-shadow var(--d-fast) var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .lift:hover { transform: translateY(-1px); box-shadow: var(--shadow-pop); }
+}

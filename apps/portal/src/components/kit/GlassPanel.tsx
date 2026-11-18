@@ -41,7 +41,7 @@ export const GlassPanel = React.forwardRef<HTMLElement, GlassPanelProps>(functio
     <Tag
       ref={ref}
       data-blur={tone === "glass" ? (overBudget ? "0" : String(blur)) : undefined}
-      className={cn(toneClass, padded && "p-(--pad)", className)}
+      className={cn(toneClass, tone !== "solid" && "glow-edge", padded && "p-(--pad)", className)}
       {...rest}
     >
       {children}

@@ -57,7 +57,7 @@ export function CliProviderCard({ row }: { row: ConnectionRow }) {
   };
 
   return (
-    <GlassPanel as="article" aria-labelledby={`${ids}-h`} className="grid content-start gap-4">
+    <GlassPanel as="article" aria-labelledby={`${ids}-h`} className="lift grid content-start gap-4">
       <header className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span aria-hidden className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft text-accent-strong">

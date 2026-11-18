@@ -5,8 +5,9 @@
  */
 import { installScrollActivity } from "./scroll-activity";
 import { installTooltips } from "./tooltips";
+import { installCursor } from "./cursor";
 
 export function install(): () => void {
-  const off = [installScrollActivity(), installTooltips()];
+  const off = [installScrollActivity(), installTooltips(), installCursor()];
   return () => off.forEach((f) => f());
 }

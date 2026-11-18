@@ -185,3 +185,61 @@ test.describe("splash and loading", () => {
     expect(anim).toBe("page-in");
   });
 });
+
+test.describe("ambient cursor and motion", () => {
+  test.use({ reducedMotion: "no-preference" });
+
+  test("glow follows a fine pointer; the native cursor and the text I-beam are untouched", async ({ page }) => {
+    await page.goto("/chat?nosplash");
+    await page.waitForFunction(() => document.documentElement.hasAttribute("data-cursor-live"));
+    await page.mouse.move(400, 400);
+    await page.mouse.move(600, 500, { steps: 8 });
+    await expect(page.locator(".sb-glow")).toHaveAttribute("data-on", "");
+    expect(await page.evaluate(() => getComputedStyle(document.body).cursor)).toBe("auto");
+    expect(await page.locator("textarea[data-composer]").evaluate((el) => getComputedStyle(el).cursor)).toBe("text");
+    expect(await page.evaluate(() => [...document.querySelectorAll("*")].some((el) => getComputedStyle(el).cursor === "none"))).toBe(false);
+  });
+
+  test("Settings switch, reduced motion and touch all turn it off", async ({ page, browser }) => {
+    await page.goto("/chat?nosplash");
+    await page.waitForFunction(() => document.documentElement.hasAttribute("data-cursor-live"));
+    await page.evaluate(() => (document.documentElement.dataset.cursor = "off"));
+    await expect(page.locator(".sb-glow")).toHaveCount(0);
+    await page.evaluate(() => (document.documentElement.dataset.cursor = "on"));
+    await expect(page.locator(".sb-glow")).toHaveCount(1);
+    await page.evaluate(() => (document.documentElement.dataset.motion = "reduce"));
+    await expect(page.locator(".sb-glow")).toHaveCount(0);
+
+    for (const opts of [{ reducedMotion: "reduce" as const }, { hasTouch: true, isMobile: true, viewport: { width: 390, height: 800 } }]) {
+      const ctx = await browser.newContext(opts);
+      const p = await ctx.newPage();
+      await p.goto("http://127.0.0.1:3210/chat?nosplash");
+      await p.waitForFunction(() => !!document.getElementById("sb-tip"));
+      await expect(p.locator(".sb-glow")).toHaveCount(0);
+      await ctx.close();
+    }
+  });
+
+  test("no long tasks (> 50 ms) while the pointer moves over cards and hover effects run", async ({ page }) => {
+    await page.goto("/connections?nosplash");
+    await page.waitForFunction(() => document.documentElement.hasAttribute("data-cursor-live"));
+    await page.evaluate(() => {
+      (window as unknown as { __lt: number[] }).__lt = [];
+      new PerformanceObserver((l) => l.getEntries().forEach((e) => (window as unknown as { __lt: number[] }).__lt.push(e.duration))).observe({ type: "longtask" });
+    });
+    for (let i = 0; i < 4; i++) {
+      await page.mouse.move(40, 200 + i * 60);
+      await page.mouse.move(1240, 260 + i * 60, { steps: 40 });
+    }
+    await page.waitForTimeout(300);
+    const long = await page.evaluate(() => (window as unknown as { __lt: number[] }).__lt);
+    expect(long.filter((d) => d > 50)).toEqual([]);
+  });
+
+  test("everything animated stops under Settings → Motion: Reduce", async ({ page }) => {
+    await page.goto("/settings?nosplash&motion=reduce");
+    await ready(page);
+    const anim = await page.locator(".stagger > *").first().evaluate((el) => getComputedStyle(el).animationName);
+    expect(anim).toBe("none");
+  });
+});

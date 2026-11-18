@@ -317,7 +317,7 @@ export function ThreadList({ threads, current, actions }: { threads: ChatThread[
               {tChat("chat.sidebar.noMatch", { query })}
             </p>
           ) : (
-            <div data-thread-scroll onKeyDown={onListKey} className="-mx-1 min-h-0 overflow-x-hidden overflow-y-auto px-1 pb-1">
+            <div data-thread-scroll onKeyDown={onListKey} className="stagger -mx-1 min-h-0 overflow-x-hidden overflow-y-auto px-1 pb-1">
               {groups.map((g) => (
                 <section key={g.id} aria-labelledby={`tg-${g.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-0.5 pb-3 last:pb-0">
                   <h3 id={`tg-${g.id}`} className="label px-2.5 pt-1 pb-1 text-[0.625rem]">
