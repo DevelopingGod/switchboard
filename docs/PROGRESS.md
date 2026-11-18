@@ -16,7 +16,7 @@
 | Provider fixes | ✅ Merged | provider-fixes / #7 | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
 | M1.5 Design polish + self-healing | ✅ Merged | m15 / #8 | Opus 5.5 | doctor never hangs; self-healing LiteLLM sync + plain errors + Status view; footer, splash, shortcuts, chat sidebar/column, Why fix, Settings, motion v2, ambient cursor, one tooltip; see M1.5 outcome |
 | M3 Rules UI + classifier | 🔨 Split into M3a + M3b | — | Opus 5.5, high | Done when M3b merges |
-| M3a Routing brain | 🔎 In review | m3a / PR pending | Opus 5.5 | Arch-Router 96.2% (held-out 92.5%), recommender, quota guard, generic adapter (test-only proof), summaries, local-model profiles, auto-private + secret masking; see M3a outcome |
+| M3a Routing brain | 🔎 In review | m3a / #9 | Opus 5.5 | Arch-Router 96.2% (held-out 92.5%), recommender, quota guard, generic adapter (test-only proof), summaries, local-model profiles, auto-private + secret masking; see M3a outcome |
 | M3b Rules UI | ⏳ | — | Opus 5.5 | Rules editor, DB overrides + versioning, dry-run tester |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
