@@ -440,7 +440,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
         providers: [{ provider: "groq", name: "Groq", model: "openai/gpt-oss-120b", fraction: 0.31, window: "day", kind: "requests", used: 310, limit: 1000, resets_at: null, source: "counter", estimate: false }],
         top: null,
       },
-      version: "0.1.5",
+      version: "0.4.0",
     });
   m = p.match(/^\/connections\/([\w-]+)\/credits$/);
   if (m && method === "PUT") {

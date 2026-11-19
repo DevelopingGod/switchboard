@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 
 from app import secrets
+from app.config import get_settings
 from app.routing.engine import Candidate, Decision, Skip
 from app.routing.health import CREDIT_S, ERROR_S, NOT_FOUND_S, RATE_LIMIT_S, TIMEOUT_S, Cooldowns
 
@@ -197,6 +198,10 @@ async def _stream_one(
         "temperature": dec.temperature,
         "max_tokens": cand.max_tokens,
     }
+    tag = get_settings().router_request_tag
+    if tag:  # demo recordings: LiteLLM spend logs carry it so Metrics can exclude them
+        body["user"] = tag
+        body["metadata"] = {"tags": [tag]}
     timeout = httpx.Timeout(connect=5, read=read_timeout, write=10, pool=5)
     splitter = ThinkSplitter()
     try:

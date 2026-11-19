@@ -41,6 +41,7 @@ from app.chat.dispatch import (
     Usage,
     dispatch,
 )
+from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
 from app.models import Cost, Message, Request, Thread
 from app.reconcile import reconcile
@@ -374,7 +375,7 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             autonomy=dec.autonomy,
             status="running",
             thread_id=prep.thread_id,
-            decision_json=dec.as_dict(),
+            decision_json=_tagged(dec.as_dict()),
         )
         s.add(req)
         await s.flush()
@@ -492,9 +493,17 @@ async def _maybe_summarize(s: AsyncSession, client: httpx.AsyncClient, ctx: Cont
 _bg: set[asyncio.Task] = set()
 
 
+def _tagged(d: dict[str, Any]) -> dict[str, Any]:
+    """Demo router: mark the request (ROUTER_REQUEST_TAG) so Metrics can exclude it."""
+    tag = get_settings().router_request_tag
+    return {**d, "tag": tag} if tag else d
+
+
 def _refresh_catalog_soon(target: str) -> None:
     """A 404 usually means the provider retired the model: refresh that provider's catalog now so the
     recommender stops picking it (the target is also cooling down for 6 h)."""
+    if not get_settings().router_sync_enabled:
+        return
     provider = target.removeprefix("model:").split("/", 1)[0]
 
     async def run() -> None:
@@ -627,7 +636,7 @@ async def _no_dispatch(s, ctx: Context, dec: Decision, req: Request, asst: Messa
             },
         )
     req.fallbacks_tried_json = [k.as_dict() for k in dec.skipped]
-    req.decision_json = {**dec.as_dict(), "chosen": None}
+    req.decision_json = _tagged({**dec.as_dict(), "chosen": None})
     thread.updated_at = datetime.now(UTC)
     await s.commit()
     yield event
@@ -741,12 +750,14 @@ async def _finalize(
     req.latency_ms, req.ttft_ms = latency, st.ttft_ms
     req.error = secrets.redact(st.error) if st.error else None
     req.fallbacks_tried_json = [k.as_dict() for k in dec.skipped]
-    req.decision_json = {
-        **dec.as_dict(),
-        "chosen": chip.get("target"),
-        "reasons": chip["reasons"],
-        "chip": chip,
-    }
+    req.decision_json = _tagged(
+        {
+            **dec.as_dict(),
+            "chosen": chip.get("target"),
+            "reasons": chip["reasons"],
+            "chip": chip,
+        }
+    )
     asst.content = text
     asst.status = {"ok": "done", "stopped": "stopped", "error": "error", "failed": "error"}[st.status]
     if st.status in ("failed", "error"):
