@@ -126,6 +126,8 @@ async def refresh_provider(
             await session.commit()
             return {"provider": p.id, "skipped": "no_key"}
     conn.last_checked = datetime.now(UTC)
+    if p.params:
+        p = p.with_params(await secrets.load_params(session, p.id))
     try:
         fetched = await fetch(client, p, key)
     except FetchError as e:

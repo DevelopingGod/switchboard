@@ -34,6 +34,8 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
   const [busy, setBusy] = React.useState<Busy>(null);
   const [note, setNote] = React.useState<Note | null>(null);
   const [balance, setBalance] = React.useState("");
+  // Generic providers (providers.yaml `params:`) also need e.g. an account id with the key.
+  const [params, setParams] = React.useState<Record<string, string>>(row.param_values ?? {});
   const credits = row.credits;
 
   const connected = row.status === "connected";
@@ -44,7 +46,7 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
     e.preventDefault();
     setBusy("save");
     setError(null);
-    const r = await saveKey(row.provider, key);
+    const r = await saveKey(row.provider, key, row.params?.length ? params : undefined);
     setBusy(null);
     if (!r.ok) {
       setError(r.error);
@@ -223,6 +225,22 @@ export function ApiProviderCard({ row, models }: { row: ConnectionRow; models: C
           <p id={`${ids}-help`} className="text-xs text-ink-muted">
             {tConn("card.keyHelp", { name: row.name })}
           </p>
+          {row.params?.map((p) => (
+            <React.Fragment key={p}>
+              <label htmlFor={`${ids}-p-${p}`} className="label">
+                {tConn("card.paramLabel", { name: row.name, param: p.replace(/_/g, " ") })}
+              </label>
+              <input
+                id={`${ids}-p-${p}`}
+                value={params[p] ?? ""}
+                onChange={(e) => setParams((v) => ({ ...v, [p]: e.target.value }))}
+                autoComplete="off"
+                spellCheck={false}
+                required
+                className="min-h-(--ctl) w-full rounded-control border border-hairline bg-glass-strong px-3 font-mono text-sm text-ink"
+              />
+            </React.Fragment>
+          ))}
           {error && (
             <p id={`${ids}-err`} role="alert" className="text-sm text-err">
               {error}

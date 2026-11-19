@@ -86,6 +86,17 @@ async def load_key(session: AsyncSession, provider: str) -> str | None:
     return key
 
 
+async def load_params(session: AsyncSession, provider: str) -> dict[str, str]:
+    """Non-secret values stored with a key for a generic provider (`params:` in providers.yaml), e.g.
+    an account id that goes into the URL. Kept on the connection row, not in the secret store."""
+    from app.models import Connection  # local: models import nothing from here
+
+    row = (
+        await session.execute(select(Connection).where(Connection.provider == provider))
+    ).scalar_one_or_none()
+    return dict(((row.meta_json or {}).get("params") or {}) if row else {})
+
+
 async def delete_key(session: AsyncSession, provider: str) -> bool:
     row = await session.get(ProviderSecret, provider)
     if row is None:

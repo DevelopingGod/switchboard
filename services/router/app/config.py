@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Dev only (never in compose): lets a chat request carry `fault` to fail a target with a 429 or a
     # timeout, to check fallbacks live (docs/m2.md).
     router_fault_injection: bool = False
+    # Dev only (never in compose defaults): low quota limits to demo the quota guard live, e.g.
+    # "groq:openai/gpt-oss-120b=rpd:3" (docs/m3a.md). doctor.sh warns while it is set.
+    router_quota_test_limits: str = ""
 
 
 @lru_cache

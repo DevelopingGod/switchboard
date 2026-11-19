@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { RotateCcw } from "lucide-react";
 import { ErrorNote } from "@/components/kit/ErrorNote";
-import type { Preset, SettingsView } from "@/lib/router-types";
+import type { LocalProfileView, Preset, SettingsView } from "@/lib/router-types";
 import { tSet } from "@/i18n/settings";
 import { Section } from "./Section";
 
@@ -15,9 +15,11 @@ const GoalsSection = dynamic(() => import("./GoalsSection"));
 const AppearanceSection = dynamic(() => import("./AppearanceSection"));
 const PrivacySection = dynamic(() => import("./PrivacySection"));
 const BudgetsSection = dynamic(() => import("./BudgetsSection"));
+const RoutingSection = dynamic(() => import("./RoutingSection"));
+const LocalModelsSection = dynamic(() => import("./LocalModelsSection"));
 const DataSection = dynamic(() => import("./DataSection"));
 
-const SECTIONS = ["profile", "goals", "appearance", "privacy", "budgets", "data", "setup"] as const;
+const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "data", "setup"] as const;
 
 export interface SettingsData {
   name: string;
@@ -26,6 +28,8 @@ export interface SettingsData {
   available: string[];
   settings: SettingsView | null;
   spentToday: number | null;
+  /** M3a: null when the router or Ollama can't be asked. */
+  localProfile: LocalProfileView | null;
   /** Router unreachable: router-backed sections show a plain error instead. */
   routerCode: string | null;
 }
@@ -60,7 +64,21 @@ export function SettingsScreen({ data }: { data: SettingsData }) {
           <AppearanceSection />
         </div>
         <div>
-          {data.settings ? <PrivacySection privateDefault={data.settings.private_by_default} /> : <Section id="privacy" title={tSet("section.privacy")}>{down}</Section>}
+          {data.settings ? (
+            <PrivacySection privateDefault={data.settings.private_by_default} autoPrivate={data.settings.auto_private} />
+          ) : (
+            <Section id="privacy" title={tSet("section.privacy")}>{down}</Section>
+          )}
+        </div>
+        <div>
+          {data.settings ? <RoutingSection explore={data.settings.explore} /> : <Section id="routing" title={tSet("section.routing")}>{down}</Section>}
+        </div>
+        <div>
+          {data.localProfile ? (
+            <LocalModelsSection key={`${data.localProfile.active}-${data.localProfile.missing.length}`} view={data.localProfile} />
+          ) : (
+            <Section id="local" title={tSet("section.local")}>{down}</Section>
+          )}
         </div>
         <div>
           {data.settings ? (

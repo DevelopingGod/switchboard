@@ -9,13 +9,13 @@ import { useToast } from "@/components/kit/Toast";
 import { ErrorNote } from "@/components/kit/ErrorNote";
 import { Button } from "@/components/ui/button";
 import { cliCheck, testConnection } from "@/app/connections/actions";
-import { resyncModels } from "@/app/status/actions";
+import { pullModels, resyncModels } from "@/app/status/actions";
 import { usePrefs } from "@/lib/prefs";
 import type { ActionResult, ComponentsResponse, SystemComponent } from "@/lib/router-types";
 import { type StatusKey, statusStrings, tStatus } from "@/i18n/status";
 import { tErr } from "@/i18n/errors";
 
-type InAppFix = "resync" | "recheck_cli" | "retest";
+type InAppFix = "resync" | "recheck_cli" | "retest" | "pull_models";
 
 const knownId = (id: string): id is keyof typeof statusStrings.name => id in statusStrings.name;
 
@@ -23,16 +23,35 @@ function label(c: SystemComponent): string {
   return knownId(c.id) ? tStatus(`name.${c.id}`) : (c.name ?? c.id.replace(/^provider:/, ""));
 }
 
+/** HH:MM in the viewer's time zone. */
+const hhmm = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+
+const hasReason = (code: string): code is keyof typeof statusStrings.reason => code in statusStrings.reason;
+
 function sentence(c: SystemComponent): string {
   const key = knownId(c.id) ? c.id : "provider";
+  if (key === "local_profile") {
+    const vram = c.vram_gb != null ? `${c.vram_gb} GB` : tStatus("unknownGpu");
+    return c.status === "ok"
+      ? tStatus("ok.local_profile", { vram, label: c.label ?? c.profile ?? "" })
+      : tStatus("degraded.local_profile", { label: c.label ?? c.profile ?? "", models: (c.missing ?? []).join(", ") });
+  }
   if (c.status === "ok") return tStatus(`ok.${key}` as StatusKey);
   if (c.status === "degraded" && key === "model_sync") return tStatus("degraded.model_sync");
+  if (c.code === "quota_high" && c.quota) {
+    const pct = Math.round(c.quota.fraction * 100);
+    return tStatus(c.quota.window === "day" ? "reason.quota_day" : "reason.quota_minute", { pct, time: hhmm(c.until) });
+  }
+  if (c.code && !c.until && c.code in statusStrings.now) return tStatus(`now.${c.code as keyof typeof statusStrings.now}`);
+  if (c.code && hasReason(c.code)) return tStatus(`reason.${c.code}`, { time: hhmm(c.until) });
+  if (key === "classifier") return tStatus("degraded.classifier");
   return tStatus(`down.${key}` as StatusKey);
 }
 
 function fixOf(c: SystemComponent): { kind: InAppFix; arg?: string } | { instruction: string } | null {
   if (!c.fix) return null;
-  if (c.fix === "resync" || c.fix === "recheck_cli") return { kind: c.fix };
+  if (c.fix === "resync" || c.fix === "recheck_cli" || c.fix === "pull_models") return { kind: c.fix };
   if (c.fix.startsWith("retest:")) return { kind: "retest", arg: c.fix.slice(7) };
   return c.fix in statusStrings.instruction ? { instruction: tStatus(`instruction.${c.fix}` as StatusKey) } : null;
 }
@@ -52,6 +71,7 @@ export function StatusScreen({ data }: { data: ComponentsResponse }) {
     let r: ActionResult<unknown>;
     if (kind === "resync") r = await resyncModels();
     else if (kind === "recheck_cli") r = await cliCheck();
+    else if (kind === "pull_models") r = await pullModels();
     else {
       const t = await testConnection(arg ?? "");
       r = t.ok && !t.data.ok ? { ok: false, error: t.data.error ?? "", code: t.data.error_code, detail: t.data.error } : t;
@@ -89,7 +109,10 @@ export function StatusScreen({ data }: { data: ComponentsResponse }) {
                   />
                 </div>
                 <div className="grid min-w-0 gap-1.5 text-sm">
-                  <p className={c.status === "ok" ? "text-ink-muted" : "text-ink"}>{sentence(c)}</p>
+                  {/* Times are formatted in the viewer's zone; the server may render another. */}
+                  <p className={c.status === "ok" ? "text-ink-muted" : "text-ink"} suppressHydrationWarning>
+                    {sentence(c)}
+                  </p>
                   {fix && "instruction" in fix && (
                     <p className="flex items-start gap-1.5 text-ink-muted">
                       <Wrench aria-hidden className="mt-0.5 size-4 shrink-0" />

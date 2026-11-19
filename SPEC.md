@@ -102,7 +102,7 @@ Subscription CLIs talk directly to their vendors, so LiteLLM never sees that tra
 | `fast` | Groq (e.g. gpt-oss-120b) → Cerebras | Quick chat, classification | Groq states no training on API data |
 | `smart-free` | Gemini Flash (AI Studio free) | Long context, analysis | Free tier may train on data outside EEA/UK/CH |
 | `general` | Mistral (free/experiment) | Summaries, extraction | May train unless opted out |
-| `explore` | OpenRouter `:free` models | Fallback / testing | ~50 req/day free (more after $10 credit) |
+| `explore` | OpenRouter `:free` models | Fallback / testing | ~50 req/day free (more after $10 credit). M3a: dynamic, the best available `:free` chat model in the live catalog (`pick: best-free`), because pinned free models kept being retired |
 | `code-free` | OpenCode Zen free models | Code chat | Rotating availability |
 | `grok` | xAI API (paid, optional) | Grok text, Imagine image/video | Pay per token / per image / per second |
 | `local` / `private` | Ollama | Private tasks, routing | Never leaves the machine |
@@ -135,6 +135,12 @@ Routing chooses the **provider and the model**, not just the provider.
 
 **Explainability.** The "Why this?" chip shows provider, model, the top 3 reasons, and the runner-up.
 
+**Implemented in M3a** (`services/router/app/routing/recommend.py`, docs/m3a.md):
+- **Score.** `score = Σ weight·term / Σ weight`. The terms run 0..1: capability (has the tag, +0.3 for the task's own tag), feedback (`(up+1)/(up+down+2)` per task type), latency (`1 − p50/8 s`), success (`(ok+1)/(n+2)`), quota headroom, cost (free = 1) and privacy (no-training/local 1, varies 0.5, may-train 0.3). The weights are in `rules.yaml` → `recommender`.
+- **Samples.** "Samples" are a model's real answers over every task type (the 1-token test pings count only for latency).
+- **Explore.** "Explore" is the Settings → Routing switch: unproven models then compete on score, and the reason says so.
+- **Where it applies.** The recommender serves `best:<capability>` targets and dynamic aliases (`explore`).
+
 **UI**
 - Connections provider cards list recommended models with badges ("Best for code", "Fastest", "Largest context", "Free") and a "Use for…" action that writes a rule override.
 - The Composer's model picker groups models by provider with the same badges.
@@ -152,7 +158,9 @@ Routing chooses the **provider and the model**, not just the provider.
 
 1. **Explicit override wins**: model/agent picked in the composer, or a slash command: `/chat /code /research /image /video /private /bulk`.
 2. **Hard rules**: attachments (image in + "edit" → image edit; repo path → code job), `private` toggle → local only.
-3. **Classifier**: Arch-Router-1.5B on Ollama with route descriptions from `rules.yaml`. Fallback: `fast` model with a JSON-schema classification prompt.
+3. **Classifier**: Arch-Router-1.5B on Ollama with route descriptions from `rules.yaml`. ~~Fallback: `fast` model with a JSON-schema classification prompt.~~ M3a: strong keyword signals decide first, with no model call. The fallback, when the classifier is down, reloading, slower than 1.5 s or unclear, is the keyword heuristics, including a first-person sensitive check (docs/m3a.md).
+   - **Auto-private (M3a).** A message classified as sensitive (health, finance, legal, personal) goes local and makes the thread private, with a "Not sensitive — use cloud" override. Settings → Privacy can turn it off.
+   - **Secrets (M3a).** A pasted secret (API key, token, private key, password, card number) always goes local, with no override, and is masked in everything stored.
 4. **Rule match** → target + fallbacks + autonomy + temperature + caps.
 5. **Health/quota check**: skip targets that are down, out of quota, cooling down after 429, or over budget.
 6. **Dispatch** and **log the decision** (inputs, matched rule, chosen target, skipped targets with reasons, latency).
@@ -209,6 +217,8 @@ rules:
 ```
 
 Per-user overrides stored in DB; admin rules are the base. Rule edits are versioned (keep history, allow rollback).
+
+M3a adds these `rules.yaml` blocks: `classifier:` (timeout, breaker, `routes` with descriptions and facts), `recommender:` (weights, `min_samples`), `quota:` (`reroute_at` 0.8, `block_at` 1.0) and `summary:` (`start_at` 0.75, `keep_last` 6). The local-model profiles live in `config/local-models.yaml`.
 
 Implemented in M2 as `config/rules.yaml` (docs/m2.md). It adds `defaults.daily_cap_usd`, `max_context_tokens`, `max_output_tokens`, a `slash:` map (command → rule), `presets:` (free / balanced / best overlays and a paid policy), `when: { command: … }` and `job: true`. Until M4, `agent:` targets are skipped with a reason, and the chat models at the end of a rule's fallbacks answer in chat. DB overrides and versioning come with the Rules UI (M3).
 
@@ -451,7 +461,8 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `user_overrides(user_id, rule_id, json)`
 - `requests(id, user_id, kind[chat|media|job], prompt_hash, rule_id, target, fallbacks_tried_json, temperature, autonomy, private, status, latency_ms, created_at, thread_id, intent, model, model_catalog_id, ttft_ms, error, decision_json)`: the M2 columns record the deployment that answered and the full decision
 - `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd, list_price_usd)`: `cost_usd` counts toward caps (free-tier calls are $0); `list_price_usd` keeps the provider's price as "value" (M2)
-- `threads(id uuid, title, title_source[none|words|local|user], private, created_at, updated_at)`: `private` is sticky (M2)
+- `threads(id uuid, title, title_source[none|words|local|user], private, created_at, updated_at, private_source, summary_json)`: `private` is sticky (M2). `private_source` is user | slash | auto | secret, and only `auto` can be overridden. `summary_json` holds the running summary of older turns (M3a)
+- `quota_usage(provider, scope_key, window[m|d], window_start, requests, tokens)`, `quota_headers(provider, scope_key, data, seen_at)`, `cooldowns(target, provider, code, reason, until)`: the quota guard and persisted cooldowns (M3a)
 - `messages(id, thread_id, role, content, status[streaming|done|stopped|error|notice|blocked], request_id, private, feedback, meta_json, created_at)`: reasoning text is never stored; `meta_json` holds the "Why this?" data (M2)
 - `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`
 - `media(request_id, type, provider, file_path, cost_usd)`
@@ -499,6 +510,8 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M2 | Chat + Router (rules only, no classifier yet) | Manual pick and slash commands work; fallback on 429 verified; decision chip shown |
 | M1.5 | Design polish + self-healing (§8b, §8c), built after M2: shell (footer, splash, shortcuts, transitions), chat sidebar and reading column, Settings, motion v2, ambient cursor, one tooltip; idempotent LiteLLM sync, plain-language errors, Status view | Every UI item in §8c below works in both themes; axe clean; Lighthouse ≥ 90; JS ≤ 200 KB per route; CLS < 0.05; LiteLLM restart or a lost deployment resyncs with no user action |
 | M3 | Rules UI + Arch-Router classifier | Dry-run tester; ≥ 85% correct on a 50-prompt labelled set in `tests/routing.jsonl`; `best:<capability>` targets resolve via the recommender, the "Why this?" chip shows model + top reasons, and feedback updates `model_stats` |
+| M3a | Routing brain (backend first): Arch-Router classifier, recommender scoring, quota guard, generic OpenAI-compatible adapter, long-thread summaries, local-model profiles, auto-private + secret masking | ≥ 85% on ≥ 60 labelled prompts (`services/router/tests/routing.jsonl`); quota guard reroutes before a 429 (test + live demo); a provider added with YAML only (test); summaries work; M1.5 carry-overs fixed |
+| M3b | Rules UI: table + form editor over `rules.yaml`, DB overrides and versioning with rollback, dry-run tester | Edit a rule in the UI, test a prompt, roll back; history kept |
 | M4 | Jobs via Paperclip | "Fix tests in repo X" creates a Paperclip issue for the right agent; live status, approve/reject, diff view |
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |

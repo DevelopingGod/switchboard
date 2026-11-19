@@ -123,6 +123,11 @@ class Thread(Base):
     title_source: Mapped[str] = mapped_column(String(16), default="none")  # none | words | local | user
     private: Mapped[bool] = mapped_column(Boolean, default=False)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # M3a: why the thread is private: user (toggle) | slash (/private) | auto (looked sensitive; the
+    # person may override) | secret (a pasted secret; never overridable). None when not private.
+    private_source: Mapped[str | None] = mapped_column(String(16))
+    # M3a long threads: {text, upto_message_id, covers, model, created_at} (app/chat/summary.py)
+    summary_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -194,3 +199,43 @@ class Cost(Base):
     cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
     list_price_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class QuotaUsage(Base):
+    """Requests and tokens per provider/model per minute or day bucket (M3a quota guard)."""
+
+    __tablename__ = "quota_usage"
+    __table_args__ = (
+        UniqueConstraint("provider", "scope_key", "window", "window_start", name="uq_quota_bucket"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    scope_key: Mapped[str] = mapped_column(String(255))  # model id, or "*" for a provider-wide limit
+    window: Mapped[str] = mapped_column(String(1))  # m | d
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CooldownRow(Base):
+    """A target skipped after a 429/timeout/credit error, kept across restarts (M3a)."""
+
+    __tablename__ = "cooldowns"
+
+    target: Mapped[str] = mapped_column(String(255), primary_key=True)
+    provider: Mapped[str | None] = mapped_column(String(64))
+    code: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(Text)
+    until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class QuotaHeaders(Base):
+    """Latest provider rate-limit headers per provider/model (x-ratelimit-*), M3a."""
+
+    __tablename__ = "quota_headers"
+
+    provider: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    data: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

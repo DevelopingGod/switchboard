@@ -86,6 +86,35 @@ const pages: Record<string, { path: string; skies: Record<string, string>; act?:
     },
   },
   ...Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`welcome-${n}`, { path: `/welcome?step=${n}`, skies: cssOnly }])),
+  // M3a (fixture data; the two chat ones send one message each)
+  "chat-summary": {
+    path: "/chat?t=6f1c2a10-0000-4000-8000-000000000003",
+    skies: cssOnly,
+    act: async (p) => {
+      await p.getByRole("button", { name: "Summary of earlier messages" }).click();
+    },
+  },
+  "chat-sensitive": {
+    path: "/chat",
+    skies: cssOnly,
+    viewport: true,
+    act: async (p) => {
+      await p.getByLabel("Message").fill("My blood test shows high ALT, what does it mean?");
+      await p.getByLabel("Message").press("Enter");
+      await p.getByRole("button", { name: "Not sensitive — use cloud" }).waitFor();
+    },
+  },
+  "chat-secret": {
+    path: "/chat",
+    skies: cssOnly,
+    viewport: true,
+    act: async (p) => {
+      await p.getByLabel("Message").fill("why does sk-abcdefghijklmnopqrstuvwxyz0123456789 return 401?");
+      await p.getByLabel("Message").press("Enter");
+      await p.getByText(/Looks like you pasted a secret/).waitFor();
+      await p.getByRole("button", { name: /Routed to Ollama/ }).waitFor();
+    },
+  },
 };
 const themes = { day: "light", dusk: "dark" } as const;
 

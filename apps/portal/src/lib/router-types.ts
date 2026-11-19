@@ -29,6 +29,9 @@ export interface ConnectionRow {
   key_last4?: string | null;
   /** One-time free credits (Cerebras): tracked against a balance you enter. Absent for other providers. */
   credits?: CreditsInfo;
+  /** M3a generic providers: extra non-secret values the key form asks for (e.g. an account id). */
+  params?: string[];
+  param_values?: Record<string, string>;
   models_available?: number;
   installed?: boolean | null;
   version?: string | null;
@@ -137,6 +140,9 @@ export interface ChatThread {
   private: boolean;
   /** Pinned threads sort first in the sidebar (M1.5). */
   pinned: boolean;
+  /** M3a: user | slash | auto (looked sensitive; may be overridden) | secret. */
+  private_source?: "user" | "slash" | "auto" | "secret" | null;
+  summary?: ThreadSummary | null;
   created_at: string;
   updated_at: string;
 }
@@ -152,7 +158,7 @@ export interface RouteSkip {
 export interface RouteInfo {
   request_id: number | null;
   rule: string;
-  matched_by: "manual" | "slash" | "private" | "intent" | "default";
+  matched_by: "manual" | "slash" | "private" | "intent" | "default" | "auto_private" | "secret";
   intent: string;
   preset: string;
   private: boolean;
@@ -181,6 +187,26 @@ export interface RouteInfo {
   error_code?: string | null;
   notice?: "image" | "video" | "audio";
   blocked?: BlockedInfo;
+  /** M3a: why a reply stayed local without the Private toggle. */
+  sensitive?: SensitiveInfo | null;
+  score?: number | null;
+}
+
+export interface SensitiveInfo {
+  source: "classifier" | "secret";
+  category: "health" | "finance" | "legal" | "personal" | "secret";
+  overridable: boolean;
+  overridden?: boolean;
+  already_private?: boolean;
+}
+
+/** M3a: running summary of the older turns of a long thread. */
+export interface ThreadSummary {
+  text: string;
+  upto_message_id: number;
+  covers: number;
+  model: string | null;
+  created_at: string;
 }
 
 export interface BlockedInfo {
@@ -201,6 +227,8 @@ export interface ChatMessage {
   private: boolean;
   feedback: "up" | "down" | null;
   route: RouteInfo | null;
+  /** M3a: a pasted secret was masked in this (user) message. */
+  secret?: { kinds: string[] } | null;
   created_at: string;
 }
 
@@ -249,6 +277,8 @@ export interface ChatStreamBody {
   private: boolean;
   temperature?: number | null;
   autonomy?: number | null;
+  /** M3a: "Not sensitive — use cloud" (regenerate only). */
+  cloud_override?: boolean;
 }
 
 /** Status view (GET /system/components). */
@@ -260,6 +290,7 @@ export type ComponentFix =
   | "open_ollama"
   | "start_paperclip"
   | "start_hostprobe"
+  | "pull_models"
   | `retest:${string}`;
 
 export interface SystemComponent {
@@ -271,6 +302,15 @@ export interface SystemComponent {
   code?: string | null;
   last_ok_at?: string | null;
   next_retry_at?: string | null;
+  /** M3a: when a cooldown or a quota window ends (ISO). */
+  until?: string | null;
+  quota?: QuotaUsage;
+  /** local_profile row */
+  profile?: string;
+  label?: string;
+  vram_gb?: number | null;
+  missing?: string[];
+  overridden?: boolean;
 }
 
 export interface ComponentsResponse {
@@ -290,8 +330,26 @@ export interface SystemSummary {
     cooling_down: string[];
     credits_low: string[];
     credits_out: string[];
+    /** M3a quota guard: every connected provider with limits, closest to its limit first. */
+    providers?: QuotaUsage[];
+    /** The provider closest to a free limit, once it is at 50% or more. */
+    top?: QuotaUsage | null;
   };
   version: string;
+}
+
+export interface QuotaUsage {
+  provider: string;
+  name: string;
+  model: string | null;
+  fraction: number;
+  window: "minute" | "day";
+  kind: "requests" | "tokens";
+  used: number;
+  limit: number;
+  resets_at: string | null;
+  source: "counter" | "headers";
+  estimate: boolean;
 }
 
 /** Settings page (GET/PUT /settings): owner overrides over config/rules.yaml defaults. */
@@ -299,6 +357,36 @@ export interface SettingsView {
   max_cost_usd: number;
   daily_cap_usd: number;
   private_by_default: boolean;
-  defaults: { max_cost_usd: number; daily_cap_usd: number; private_by_default: boolean };
+  /** M3a: try models with few samples (recommender). */
+  explore: boolean;
+  /** M3a: keep messages that look sensitive on this machine. */
+  auto_private: boolean;
+  defaults: { max_cost_usd: number; daily_cap_usd: number; private_by_default: boolean; explore: boolean; auto_private: boolean };
   overridden: string[];
+}
+
+/** Settings → Local models (GET /system/local-profile, M3a). */
+export interface LocalProfile {
+  name: string;
+  label: string;
+  min_vram_gb: number;
+  classifier: string | null;
+  general: string;
+  tasks: string | null;
+  coder: string;
+  cpu: boolean;
+  max_loaded: number;
+  models: string[];
+}
+
+export interface LocalProfileView {
+  active: string;
+  recommended: string;
+  overridden: boolean;
+  detected: { vram_gb: number | null; ram_gb: number | null; gpu?: string | null; source: string };
+  profiles: LocalProfile[];
+  installed: string[] | null;
+  missing: string[];
+  ollama: "ok" | "down";
+  pull: { status: "idle" | "running" | "done" | "error"; model: string | null; percent: number | null; error: string | null };
 }

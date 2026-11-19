@@ -41,6 +41,9 @@ export const wizardStrings = {
       body: "Only the providers your goals use. You can skip any of them and add them later in Connections.",
       none: "Pick at least one goal first, and the providers you need will show up here.",
       forGoals: "Needed for: {goals}",
+      /** M3a: the local-model profile picked from the detected GPU. */
+      localProfile: "Detected {gpu} → local profile “{label}” ({models}). Change it in Settings → Local models.",
+      noGpu: "no NVIDIA GPU",
     },
     preset: {
       title: "Pick a starting preset",

@@ -18,6 +18,9 @@ PaidPolicy = Literal["never", "manual", "allowed"]
 PRESETS = ("free", "balanced", "best")
 DEFAULT_PRESET = "balanced"
 WHEN_KEYS = {"private", "intent", "size", "quality", "command"}
+FACT_KEYS = {"intent", "size", "quality", "sensitive"}
+INTENTS = {"chat", "code", "research", "writing", "image", "video", "audio"}
+SENSITIVE = {"health", "finance", "legal", "personal"}
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,55 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class Route:
+    """One Arch-Router route: what the classifier reads, and the facts it maps to."""
+
+    name: str
+    description: str
+    facts: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ClassifierCfg:
+    timeout_s: float = 1.5
+    breaker_s: float = 60
+    max_chars: int = 2000
+    routes: tuple[Route, ...] = ()
+
+    def route(self, name: str) -> Route | None:
+        return next((r for r in self.routes if r.name == name), None)
+
+
+DEFAULT_WEIGHTS = {
+    "capability": 0.25,
+    "feedback": 0.15,
+    "latency": 0.15,
+    "success": 0.15,
+    "headroom": 0.10,
+    "cost": 0.10,
+    "privacy": 0.10,
+}
+
+
+@dataclass(frozen=True)
+class RecommenderCfg:
+    min_samples: int = 5
+    weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+
+
+@dataclass(frozen=True)
+class QuotaCfg:
+    reroute_at: float = 0.8
+    block_at: float = 1.0
+
+
+@dataclass(frozen=True)
+class SummaryCfg:
+    start_at: float = 0.75
+    keep_last: int = 6
+
+
+@dataclass(frozen=True)
 class RuleSet:
     defaults: Defaults
     rules: tuple[Rule, ...]
@@ -55,6 +107,10 @@ class RuleSet:
     preset: str
     paid: PaidPolicy
     presets: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
+    classifier: ClassifierCfg = field(default_factory=ClassifierCfg)
+    recommender: RecommenderCfg = field(default_factory=RecommenderCfg)
+    quota: QuotaCfg = field(default_factory=QuotaCfg)
+    summary: SummaryCfg = field(default_factory=SummaryCfg)
 
     def get(self, rule_id: str) -> Rule | None:
         return next((r for r in self.rules if r.id == rule_id), None)
@@ -129,9 +185,69 @@ def parse(data: dict[str, Any]) -> RuleSet:
         raise ValueError(f"slash commands point at unknown rules: {sorted(missing)}")
     presets = {str(k): dict(v or {}) for k, v in (data.get("presets") or {}).items()}
     base = RuleSet(
-        defaults=defaults, rules=tuple(rules), slash=slash, preset="", paid="manual", presets=presets
+        defaults=defaults,
+        rules=tuple(rules),
+        slash=slash,
+        preset="",
+        paid="manual",
+        presets=presets,
+        classifier=_classifier(data.get("classifier") or {}),
+        recommender=_recommender(data.get("recommender") or {}),
+        quota=_quota(data.get("quota") or {}),
+        summary=_summary(data.get("summary") or {}),
     )
     return base.with_preset(DEFAULT_PRESET)
+
+
+def _classifier(c: dict[str, Any]) -> ClassifierCfg:
+    routes: list[Route] = []
+    for r in c.get("routes") or []:
+        name, facts = str(r["name"]), dict(r.get("facts") or {})
+        if not name.replace("_", "").isalnum() or name == "other":
+            raise ValueError(f"classifier route name {name!r}: letters, digits and _ only (not `other`)")
+        if bad := set(facts) - FACT_KEYS:
+            raise ValueError(f"classifier route {name}: unknown facts {sorted(bad)}")
+        if "intent" in facts and facts["intent"] not in INTENTS:
+            raise ValueError(f"classifier route {name}: unknown intent {facts['intent']!r}")
+        if "sensitive" in facts and facts["sensitive"] not in SENSITIVE:
+            raise ValueError(f"classifier route {name}: sensitive must be one of {sorted(SENSITIVE)}")
+        if not facts:
+            raise ValueError(f"classifier route {name}: needs facts")
+        routes.append(Route(name, " ".join(str(r.get("description") or "").split()), facts))
+    if len({r.name for r in routes}) != len(routes):
+        raise ValueError("duplicate classifier route names")
+    timeout = float(c.get("timeout_s", 1.5))
+    if not 0.1 <= timeout <= 30:
+        raise ValueError("classifier.timeout_s must be between 0.1 and 30")
+    return ClassifierCfg(
+        timeout_s=timeout,
+        breaker_s=float(c.get("breaker_s", 60)),
+        max_chars=int(c.get("max_chars", 2000)),
+        routes=tuple(routes),
+    )
+
+
+def _recommender(c: dict[str, Any]) -> RecommenderCfg:
+    weights = {**DEFAULT_WEIGHTS, **{str(k): float(v) for k, v in (c.get("weights") or {}).items()}}
+    if bad := set(weights) - set(DEFAULT_WEIGHTS):
+        raise ValueError(f"recommender.weights: unknown terms {sorted(bad)}")
+    if any(w < 0 for w in weights.values()) or sum(weights.values()) <= 0:
+        raise ValueError("recommender.weights must be >= 0 and not all 0")
+    return RecommenderCfg(min_samples=int(c.get("min_samples", 5)), weights=weights)
+
+
+def _quota(c: dict[str, Any]) -> QuotaCfg:
+    q = QuotaCfg(reroute_at=float(c.get("reroute_at", 0.8)), block_at=float(c.get("block_at", 1.0)))
+    if not 0 < q.reroute_at <= q.block_at <= 1.5:
+        raise ValueError("quota: need 0 < reroute_at <= block_at")
+    return q
+
+
+def _summary(c: dict[str, Any]) -> SummaryCfg:
+    s = SummaryCfg(start_at=float(c.get("start_at", 0.75)), keep_last=int(c.get("keep_last", 6)))
+    if not 0.2 <= s.start_at <= 1 or s.keep_last < 2:
+        raise ValueError("summary: start_at between 0.2 and 1, keep_last >= 2")
+    return s
 
 
 _cache: dict[Path, tuple[float, RuleSet]] = {}

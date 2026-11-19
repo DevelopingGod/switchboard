@@ -52,5 +52,6 @@ export async function POST(req: Request) {
 
   if (mode === "send") return routerChatStream("/chat/send", { ...opts, thread_id: threadId, text }, req.signal);
   if (mode === "edit") return routerChatStream(`/chat/threads/${threadId}/edit-last`, { ...opts, text }, req.signal);
-  return routerChatStream(`/chat/threads/${threadId}/regenerate`, opts, req.signal);
+  // M3a: "Not sensitive — use cloud" re-runs the last message with normal routing (regenerate only).
+  return routerChatStream(`/chat/threads/${threadId}/regenerate`, { ...opts, cloud_override: b.cloud_override === true }, req.signal);
 }

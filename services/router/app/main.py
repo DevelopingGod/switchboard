@@ -8,12 +8,14 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import db, secrets, sync
+from app import db, local_profile, secrets, sync
 from app.api import catalog, chat, connections, health, onboarding, settings, system
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
 from app.registry import load_registry
+from app.routing import classifier
+from app.routing.health import cooldowns
 from app.startup import ensure_connections, import_env_keys, record_fingerprints
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -34,6 +36,13 @@ async def lifespan(app: FastAPI):
             await ensure_connections(session, registry)
             await record_fingerprints(session)
             await import_env_keys(session, registry)
+            # M3a: local-model profile (detects the GPU on first start), cooldowns from before a restart
+            await local_profile.init(session)
+            await system.refresh_profile_state(session)
+            restored = await cooldowns.load(session)
+            if restored:
+                log.info("restored %d cooldown(s) from before the restart", restored)
+        classifier.warm_up_in_background()  # load Arch-Router now, not on the first message
         # Self-healing LiteLLM sync: startup, every 5 min, and at once on drift or a LiteLLM restart.
         tasks.append(asyncio.create_task(sync.run_forever(db.sessionmaker(), app.state.litellm)))
         tasks.append(asyncio.create_task(run_forever(db.sessionmaker(), s.catalog_interval_s)))
@@ -46,7 +55,7 @@ async def lifespan(app: FastAPI):
     await db.dispose()
 
 
-app = FastAPI(title="Switchboard Router", version="0.1.5", lifespan=lifespan)
+app = FastAPI(title="Switchboard Router", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,

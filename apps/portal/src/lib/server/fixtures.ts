@@ -8,6 +8,8 @@ import type {
   InstallPlan,
   OnboardingResponse,
   OnboardingState,
+  LocalProfile,
+  LocalProfileView,
 } from "../router-types";
 import type { Result } from "./router";
 
@@ -188,9 +190,34 @@ interface Store {
   plans: Map<string, string>;
   jobs: Map<string, Job>;
   settings: Partial<SettingsView>;
+  localProfile?: string;
 }
 
 const g = globalThis as unknown as { __sbFixture?: Store };
+
+const ARCH = "hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M";
+const LOCAL_PROFILES: LocalProfile[] = [
+  { name: "none", label: "CPU only / under 4 GB", min_vram_gb: 0, classifier: null, general: "llama3.2:3b", tasks: null, coder: "llama3.2:3b", cpu: true, max_loaded: 1, models: ["llama3.2:3b"] },
+  { name: "small", label: "4–6 GB GPU", min_vram_gb: 4, classifier: ARCH, general: "qwen3:4b", tasks: "llama3.2:3b", coder: "qwen3:4b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:4b", "llama3.2:3b"] },
+  { name: "medium", label: "8–12 GB GPU", min_vram_gb: 8, classifier: ARCH, general: "qwen3:8b", tasks: "llama3.2:3b", coder: "qwen3:8b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:8b", "llama3.2:3b"] },
+  { name: "large", label: "16 GB+ GPU", min_vram_gb: 16, classifier: ARCH, general: "qwen3:14b", tasks: "llama3.2:3b", coder: "qwen2.5-coder:14b", cpu: false, max_loaded: 2, models: [ARCH, "qwen3:14b", "llama3.2:3b", "qwen2.5-coder:14b"] },
+];
+const INSTALLED = ["qwen3:4b", "llama3.2:3b", ARCH];
+
+function localProfile(active: string): LocalProfileView {
+  const prof = LOCAL_PROFILES.find((x) => x.name === active) ?? LOCAL_PROFILES[1];
+  return {
+    active: prof.name,
+    recommended: "small",
+    overridden: prof.name !== "small",
+    detected: { vram_gb: 4, ram_gb: 13.6, gpu: "NVIDIA GeForce RTX 3050 Laptop GPU", source: "nvidia-smi" },
+    profiles: LOCAL_PROFILES,
+    installed: INSTALLED,
+    missing: prof.models.filter((x) => !INSTALLED.includes(x)),
+    ollama: "ok",
+    pull: { status: "idle", model: null, percent: null, error: null },
+  };
+}
 
 /** Status view fixture: Paperclip is down (an instruction, not an in-app fix); a provider whose
  * registration failed shows "Resync models". */
@@ -203,6 +230,28 @@ function components(s: Store): ComponentsResponse {
     { id: "ollama", status: "ok", fix: null, detail: null },
     { id: "paperclip", status: "down", fix: "start_paperclip", detail: "ConnectError" },
     { id: "hostprobe", status: "ok", fix: "recheck_cli", detail: null },
+    // M3a
+    { id: "local_profile", status: "ok", fix: null, detail: null, profile: "small", label: "4–6 GB GPU", vram_gb: 4, missing: [], overridden: false },
+    { id: "classifier", status: "ok", fix: null, detail: null, code: null },
+    {
+      id: "provider:openrouter",
+      name: "OpenRouter",
+      status: "degraded",
+      fix: null,
+      detail: "Rate limited (429)",
+      code: "rate_limited",
+      until: "2026-11-18T14:05:00Z",
+    },
+    {
+      id: "provider:groq",
+      name: "Groq",
+      status: "degraded",
+      fix: null,
+      detail: null,
+      code: "quota_high",
+      until: "2026-11-19T00:00:00Z",
+      quota: { provider: "groq", name: "Groq", model: "openai/gpt-oss-120b", fraction: 0.82, window: "day", kind: "requests", used: 820, limit: 1000, resets_at: "2026-11-19T00:00:00Z", source: "counter", estimate: false },
+    },
   ];
   for (const r of s.rows) {
     if (r.sync_error) comps.push({ id: `provider:${r.provider}`, name: r.name, status: "down", fix: "resync", detail: r.sync_error, code: "gateway_sync" });
@@ -354,8 +403,17 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     return ok({ ok: true });
   }
   if (method === "GET" && p === "/system/components") return ok(components(s));
+  if (p === "/system/local-profile" && (method === "GET" || method === "PUT")) {
+    if (method === "PUT") {
+      const name = (b as { profile?: string | null }).profile ?? null;
+      if (name !== null && !LOCAL_PROFILES.some((x) => x.name === name)) return fail(400, "unknown profile");
+      s.localProfile = name ?? "small";
+    }
+    return ok(localProfile(s.localProfile ?? "small"));
+  }
+  if (method === "POST" && p === "/system/models/pull") return ok({ started: false, missing: [], pull: { status: "idle" } });
   if (p === "/settings" && (method === "GET" || method === "PUT")) {
-    const defaults = { max_cost_usd: 0.5, daily_cap_usd: 1, private_by_default: false };
+    const defaults = { max_cost_usd: 0.5, daily_cap_usd: 1, private_by_default: false, explore: false, auto_private: true };
     if (method === "PUT") {
       for (const [k, v] of Object.entries(b)) {
         if (!(k in defaults)) continue;
@@ -371,7 +429,17 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
       health: { router: "ok", litellm: "ok", ollama: "ok", paperclip: "down", model_sync: "ok" },
       spend_today_usd: 0.0123,
       value_saved_usd: 0.0841,
-      quota: { status: "ok", daily_cap_usd: 1, daily_cap_used: 0.012, cooling_down: [], credits_low: [], credits_out: [] },
+      // Groq at 31% stays under the footer's 50% threshold (visual baselines keep "Quota OK").
+      quota: {
+        status: "ok",
+        daily_cap_usd: 1,
+        daily_cap_used: 0.012,
+        cooling_down: [],
+        credits_low: [],
+        credits_out: [],
+        providers: [{ provider: "groq", name: "Groq", model: "openai/gpt-oss-120b", fraction: 0.31, window: "day", kind: "requests", used: 310, limit: 1000, resets_at: null, source: "counter", estimate: false }],
+        top: null,
+      },
       version: "0.1.5",
     });
   m = p.match(/^\/connections\/([\w-]+)\/credits$/);

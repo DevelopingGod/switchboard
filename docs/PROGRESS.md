@@ -14,8 +14,10 @@
 | M1b Connections UI + wizard | ✅ Merged | m1b / #5 | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
 | M2 Chat + Router | ✅ Merged | m2 / #6 | Opus 5.5, high | Rules engine, streaming chat, fallbacks with reasons, caps, private; see M2 outcome |
 | Provider fixes | ✅ Merged | provider-fixes / #7 | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
-| M1.5 Design polish + self-healing | 🔎 In review | m15 / #8 | Opus 5.5 | doctor never hangs; self-healing LiteLLM sync + plain errors + Status view; footer, splash, shortcuts, chat sidebar/column, Why fix, Settings, motion v2, ambient cursor, one tooltip; see M1.5 outcome |
-| M3 Rules UI + classifier | ⏳ | — | Opus 5.5, high | |
+| M1.5 Design polish + self-healing | ✅ Merged | m15 / #8 | Opus 5.5 | doctor never hangs; self-healing LiteLLM sync + plain errors + Status view; footer, splash, shortcuts, chat sidebar/column, Why fix, Settings, motion v2, ambient cursor, one tooltip; see M1.5 outcome |
+| M3 Rules UI + classifier | 🔨 Split into M3a + M3b | — | Opus 5.5, high | Done when M3b merges |
+| M3a Routing brain | 🔎 In review | m3a / #9 | Opus 5.5 | Arch-Router 96.2% (held-out 92.5%), recommender, quota guard, generic adapter (test-only proof), summaries, local-model profiles, auto-private + secret masking; see M3a outcome |
+| M3b Rules UI | ⏳ | — | Opus 5.5 | Rules editor, DB overrides + versioning, dry-run tester |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
@@ -260,3 +262,57 @@ Branch `m15`. Guide: [docs/m15.md](m15.md). Screens: `docs/screens/{chat,chat-ho
 - **Home composer** doesn't read Settings → Privacy yet (`/chat` does).
 - **Lazy Markdown swap** still causes a small shift on `/chat` (0.002).
 - **Still open from earlier (yours):** add the Mistral, OpenRouter, Zen and xAI keys as wanted; verify the CLI login commands after installs; remove `GROQ_API_KEY`/`GEMINI_API_KEY` from `deploy/.env`.
+
+## M3a outcome
+
+Branch `m3a`. Guide: [docs/m3a.md](m3a.md), with the confusion matrix, measurements and live demo transcripts. Screens: `docs/screens/{chat-sensitive,chat-secret,chat-summary,settings,status,footer}-{day,dusk}.webp` (fixture data) and `{footer-quota,status-live}-*` (live, Groq at a test limit). Commits: (I) hostprobe `/hw`; backend A–F + I; (E) labelled set, eval and classifier fixes; (I) setup/doctor; (G, G2) portal; fixes from the live demos; tasks model.
+
+- **Classifier:**
+  - Arch-Router-1.5B on Ollama with route descriptions in `rules.yaml`. A keyword pre-filter decides strong signals, and the heuristics are the fallback (down, reloading, slower than 1.5 s, unknown route) with a 60 s breaker.
+  - On 80 labelled prompts (`services/router/tests/routing.jsonl`, written before tuning): **96.2% overall, 92.5% on the held-out half** (target ≥ 85%). Heuristics alone: 60% (72.5% with the new sensitive fallback, an optimistic figure).
+  - The Q4 GGUF answers with single quotes, so the first run measured 60% until the parser accepted them.
+- **Recommender (SPEC §6.4):** hard filters, then a weighted score over capability, feedback, latency, success, quota headroom, cost and privacy. Fewer than 5 samples never wins unless Settings → Routing → Explore is on. "Why this?" shows the score, the top factors and the runner-up with its score. It drives `best:<capability>` and the dynamic `explore` alias.
+- **Quota guard:**
+  - `limits:` in `providers.yaml` (Groq and OpenRouter verified 2026-11-18; Gemini estimated). Counters per minute and per day live in the DB, plus `x-ratelimit-*` headers (LiteLLM forwards them).
+  - At 80%, automatic routing moves elsewhere (the last 20% is kept for manual picks) and spreads to `equivalent:` stand-ins. Cooldowns are persisted.
+  - The footer reads "Groq 72% of today's limit"; Status says "Rate-limited until 14:05", "82% of today's free limit used. Resets at…".
+  - **Live:** with `ROUTER_QUOTA_TEST_LIMITS=groq:openai/gpt-oss-120b=rpd:3`, the 4th message went to `groq/openai/gpt-oss-20b` with no 429.
+- **Generic OpenAI-compatible adapter:** `adapter: openai-compatible` plus `models_url`, `models_fields`, `params` (`{account_id}`-style URL placeholders, asked for in the key form) and `limits`. It is proved by a YAML-only end-to-end test. **No provider added** (your call): GitHub Models was retired on 2026-07-30; see Future providers below.
+- **Long threads:** a summary starts at 75% of `max_context_tokens`, keeps the last 6 messages verbatim, is incremental, stored on the thread, and shown as a collapsible note. A private thread never uses a cloud model. Verified live.
+- **Auto-private + secrets (your safeguards):**
+  - Sensitive messages stay local with a notice and a one-click "Not sensitive — use cloud". Settings toggle, on by default. Overrides are logged.
+  - Secrets always stay local and are masked everywhere, with a test per surface. Live found: the local model repeated the key, so replies are masked too.
+  - Live found: after a private chat the classifier was evicted and a health question fell back to the heuristics and went to Groq. The heuristics now keep first-person sensitive messages local.
+- **Local-model profiles** (`config/local-models.yaml`): none / small / medium / large from detected VRAM (hostprobe `/hw` → nvidia-smi). Shown in setup, doctor, the wizard, Status and Settings → Local models (picker, pull).
+  - **Measured on 4 GB:** Arch-Router and qwen3:4b (or llama3.2:3b) don't fit together; Ollama swaps them whatever `keep_alive` says (classifier reload ≈ 3 s). The router reloads the classifier in the background and skips it while it reloads.
+  - **qwen3:4b with `think:false` still reasons in its answer**, so the tasks model is llama3.2:3b. `local-code` now follows the profile (qwen3:4b on small).
+- **M1.5 carry-overs done:**
+  - `explore` resolves from the catalog; a 404 means a 6 h cooldown plus a catalog refresh.
+  - The Home composer honours private-by-default.
+  - Status rows give specific reasons.
+- **Checks:**
+  - Router 227 pytest (89 new), ruff clean. hostprobe 58.
+  - Portal 61 vitest, 195 Playwright (axe in both themes); baselines regenerated for settings and status only.
+  - `/chat` 197.7 KB. Lighthouse ≥ 90 everywhere (`/chat` 91–94). Bundle check passes. doctor all green.
+- **Deviations from the plan, and why:**
+  - **GitHub Models.** Retired, so the proof is test-only.
+  - **Tasks model.** llama3.2:3b instead of qwen3:4b (reasoning leak).
+  - **At most 2 loaded.** Can't hold on 4 GB (measured), so swap handling replaced it.
+  - **Commits.** The A–F backend went in one commit; it was too intertwined to split by section.
+
+## Carry-over to M3b
+
+- Rules UI: table + form editor over `rules.yaml`, DB overrides and versioning with rollback, and the dry-run tester. `POST /route/dry-run` already returns the classifier result, scores and reasons.
+- The classifier's two held-out private misses (a bank statement summary, a secret told in confidence) are both "general_chat". Tune the `sensitive_*` descriptions in the Rules UI, then re-run `scripts/eval-routing.py` and report on the held-out half.
+- Run `scripts/eval-routing.py --overrides` after a few weeks of use: auto-private precision against your overrides.
+- Small GPUs: consider `classifier_options: { num_gpu: 0 }` for the `small` profile (always loaded, ~0.9 s, 95%) if the first-message-after-private heuristic fallback bothers you.
+- The gallery `composer`/`provider-card` (light) visual capture flakes in full runs (passes alone). `/chat` Lighthouse performance is 91–94.
+- Gemini free limits are estimates: check aistudio.google.com/rate-limit and edit `providers.yaml`.
+- **Still open from earlier (yours):** Mistral/Zen/xAI keys as wanted; CLI login checks after installs; remove `GROQ_API_KEY`/`GEMINI_API_KEY` from `deploy/.env`.
+
+## Future providers
+
+- **Cloudflare Workers AI**: 10,000 Neurons/day free, no card per the pricing page. The URL needs your account id (supported now through `params:`), and there's no OpenAI-style `/models`, so it needs a `models_url` plus `models_fields` mapping. Check its data terms first.
+- **NVIDIA NIM** (integrate.api.nvidia.com/v1): trial only. The terms forbid production use and personal, health or financial data, and it runs on credits. Opt-in only if ever added, kept off every automatic chain.
+- Not usable today: GitHub Models (retired 2026-07-30), Hugging Face Inference Providers (no free credits for free accounts), Ollama Cloud (no free usage tier).
+

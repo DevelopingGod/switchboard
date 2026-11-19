@@ -18,6 +18,9 @@ const JobHint = dynamic(() => import("./MessageExtras").then((m) => m.JobHint), 
 const Notice = dynamic(() => import("./MessageExtras").then((m) => m.Notice), { ssr: false });
 const Blocked = dynamic(() => import("./MessageExtras").then((m) => m.Blocked), { ssr: false });
 const ReplyError = dynamic(() => import("./MessageExtras").then((m) => m.ReplyError), { ssr: false });
+// M3a notes (auto-private, masked secret) are rare too: their own chunk, strings included.
+const SensitiveNote = dynamic(() => import("./PrivacyNotes").then((m) => m.SensitiveNote), { ssr: false });
+const SecretNote = dynamic(() => import("./PrivacyNotes").then((m) => m.SecretNote), { ssr: false });
 
 /** Client-only streaming state; never persisted (thinking text especially). */
 export interface Live {
@@ -94,6 +97,8 @@ export interface MessageActions {
   onRegenerate?: () => void;
   onEdit?: (text: string) => void;
   onFeedback?: (id: number, value: "up" | "down" | null) => void;
+  /** "Not sensitive — use cloud" on the last reply that auto-detection kept local (M3a). */
+  onCloudOverride?: () => void;
 }
 
 export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy: boolean; actions: MessageActions }) {
@@ -120,6 +125,9 @@ export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: bo
         <div className="text-[0.9375rem] leading-relaxed">
           <Markdown text={m.content} />
         </div>
+      )}
+      {!streaming && r?.sensitive && !r.sensitive.already_private && (
+        <SensitiveNote s={r.sensitive} onOverride={last && !busy ? actions.onCloudOverride : undefined} />
       )}
       {m.status === "notice" && r?.notice && <Notice kind={r.notice} />}
       {m.status === "blocked" && r?.blocked && <Blocked b={r.blocked} />}
@@ -226,6 +234,7 @@ function UserMessage({ m, editable, onEdit }: { m: UiMessage; editable: boolean;
         <span className="sr-only">{tChat("chat.you")}: </span>
         {m.content}
       </p>
+      {m.secret && m.secret.kinds.length > 0 && <SecretNote kinds={m.secret.kinds} />}
       {editable && onEdit && (
         <Button type="button" size="sm" variant="ghost" onClick={() => (setDraft(m.content), setEditing(true))}>
           <Pencil aria-hidden className="size-3.5" /> {tChat("chat.edit")}

@@ -1,0 +1,60 @@
+# Local-model profiles (M3a). Switchboard runs on many machines, so nothing is tied to one GPU:
+# setup and doctor detect the GPU memory (nvidia-smi through hostprobe) and pick a profile; you can
+# change it in Settings → Local models. The active profile decides:
+#   classifier  Arch-Router model for intent routing (null = keyword heuristics only)
+#   general     the `local` / `private` aliases (private chats, last-resort fallback)
+#   tasks       titles and long-thread summaries (null = a free cloud model, never for private threads)
+#   coder       the `local-code` alias (null = `general`)
+# At most `max_loaded` models stay in GPU memory at once; the classifier is kept resident and the
+# router unloads anything else it loaded beyond that (Ollama would otherwise evict the classifier).
+#   classifier_options   extra Ollama options for the classifier, e.g. { num_gpu: 0 } to run it on
+#                        the CPU so it never competes with the general model for GPU memory
+#                        (measured on a 4 GB card in docs/m3a.md: ~0.9 s per call instead of ~0.09 s)
+#
+# Measured on a 4 GB GPU (docs/m3a.md): the classifier (1.1 GB) and qwen3:4b (3.4 GB) don't fit
+# together, so Ollama swaps them whatever keep_alive says. The router reloads the classifier in the
+# background right after the tasks model or a local reply ran outside a private thread, so the next
+# message finds it loaded (~0.1 s) instead of waiting ~3 s and falling back to the heuristics.
+
+arch_router: &arch hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M
+
+profiles:
+  none:
+    label: CPU only / under 4 GB
+    min_vram_gb: 0
+    classifier: null
+    general: llama3.2:3b         # runs on CPU here: private replies are slow
+    tasks: null
+    coder: null
+    cpu: true
+    max_loaded: 1
+  small:
+    label: 4–6 GB GPU
+    min_vram_gb: 4
+    classifier: *arch
+    general: qwen3:4b
+    # Titles and summaries: llama3.2:3b. qwen3:4b was the plan, but it writes its reasoning into the
+    # answer even with think:false ("Okay, the user wants me to...", verified 2026-11-18, docs/m3a.md),
+    # so every title fell back to the first words.
+    tasks: llama3.2:3b
+    coder: null
+    max_loaded: 2
+  medium:
+    label: 8–12 GB GPU
+    min_vram_gb: 8
+    classifier: *arch
+    general: qwen3:8b
+    tasks: llama3.2:3b
+    coder: null
+    max_loaded: 2
+  large:
+    label: 16 GB+ GPU
+    min_vram_gb: 16
+    classifier: *arch
+    general: qwen3:14b
+    tasks: llama3.2:3b
+    coder: qwen2.5-coder:14b
+    max_loaded: 2
+
+# Used when detection fails (no NVIDIA GPU visible, hostprobe down) until you pick one in Settings.
+fallback: small

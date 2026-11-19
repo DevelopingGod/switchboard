@@ -12,12 +12,23 @@ const NOT_CHAT = new Set(["embedding", "moderation", "audio", "image", "video"])
 
 /**
  * Providers that price each model separately, so "free" is per model (OpenRouter `:free`, Zen zero
- * cost). Only their free models are recommended (badged); a paid one that is still shown anywhere is
- * labelled Paid, because automatic routing never uses it (provider-fixes, M1.5).
+ * cost, any generic provider listing both). Derived from the catalog rows themselves (M3a: no provider
+ * ids in code): a provider whose models are partly free and partly paid. Only their free models are
+ * recommended (badged); a paid one that is still shown anywhere is labelled Paid, because automatic
+ * routing never uses it.
  */
-export const PER_MODEL_PRICED = new Set(["openrouter", "opencode-zen"]);
+export function perModelPriced(models: CatalogModel[]): Set<string> {
+  const seen = new Map<string, { free: boolean; paid: boolean }>();
+  for (const m of models) {
+    const s = seen.get(m.provider) ?? { free: false, paid: false };
+    if (m.free) s.free = true;
+    else s.paid = true;
+    seen.set(m.provider, s);
+  }
+  return new Set([...seen].filter(([, s]) => s.free && s.paid).map(([p]) => p));
+}
 
-export const isFreeModel = (m: CatalogModel) => m.free || (m.provider === "openrouter" && m.model_id.endsWith(":free"));
+export const isFreeModel = (m: CatalogModel) => m.free;
 
 const isChat = (m: CatalogModel) =>
   m.status === "available" && m.tags.includes("chat") && !m.tags.some((t) => NOT_CHAT.has(t));
@@ -39,7 +50,8 @@ const measured = (m: CatalogModel) => (m.test && m.test.last_ok && m.test.p50_ms
  * For per-model-priced providers (OpenRouter, Zen) only free models are candidates.
  */
 export function recommend(models: CatalogModel[], limit = 3): { picks: Recommended[]; untagged: number } {
-  const chat = models.filter((m) => isChat(m) && (!PER_MODEL_PRICED.has(m.provider) || isFreeModel(m)));
+  const perModel = perModelPriced(models);
+  const chat = models.filter((m) => isChat(m) && (!perModel.has(m.provider) || isFreeModel(m)));
   const untagged = models.filter((m) => m.status === "available" && m.tags.length === 0).length;
 
   const code = chat
@@ -67,7 +79,7 @@ export function recommend(models: CatalogModel[], limit = 3): { picks: Recommend
   const picks = [...picked.values()].slice(0, limit);
   for (const p of picks) {
     if (isFreeModel(p.model)) p.badges.push("free");
-    else if (PER_MODEL_PRICED.has(p.model.provider)) p.badges.push("paid");
+    else if (perModel.has(p.model.provider)) p.badges.push("paid");
   }
   return { picks, untagged };
 }

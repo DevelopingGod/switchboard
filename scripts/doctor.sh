@@ -206,11 +206,34 @@ tags=$(dc exec -T litellm python -c \
   "import urllib.request,os; print(urllib.request.urlopen(os.environ['OLLAMA_API_BASE']+'/api/tags', timeout=3).read().decode())" 2>/dev/null)
 if [[ -n "$tags" ]]; then
   green "Ollama reachable" "$OLLAMA_API_BASE"
-  have() { echo "$tags" | json "any(m['name']=='$1' for m in d['models'])" | grep -q True; }
-  if have qwen3:4b; then green "Model qwen3:4b" "pulled"; else red "Model qwen3:4b" "missing — ollama pull qwen3:4b"; fi
-  if have hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M; then green "Arch-Router (M3)" "pulled"
-  else yellow "Arch-Router (M3)" "not pulled yet"; fi
 else red "Ollama reachable" "no answer from $OLLAMA_API_BASE$(dc_why) — start Ollama on Windows"; fi
+
+# M3a: local-model profile (config/local-models.yaml): detected GPU -> profile, its models pulled?
+# Prints lines "<state>|<label>|<detail>" (state: ok / warn / bad).
+PROFILE_PY='
+import json, sys
+d = json.load(sys.stdin)
+det = d.get("detected") or {}
+act = next(p for p in d["profiles"] if p["name"] == d["active"])
+if det.get("vram_gb") is not None:
+    seen = "Detected %g GB VRAM" % det["vram_gb"] + (" (%s)" % det["gpu"] if det.get("gpu") else "")
+else:
+    seen = "GPU not detected"
+print("ok|Local-model profile|%s -> %s%s" % (seen, d["active"], " (your pick)" if d["overridden"] else ""))
+for m in act["models"]:
+    if m not in d["missing"]:
+        print("ok|Model %s|pulled" % m)
+    elif m == act["classifier"]:
+        print("warn|Model %s|classifier missing (routing uses keyword heuristics): scripts/setup-wsl.sh --pull-models" % m)
+    else:
+        print("bad|Model %s|missing: scripts/setup-wsl.sh --pull-models (or Settings, Local models)" % m)
+'
+begin "Local-model profile"
+if prof=$(http -f "$ROUTER/system/local-profile" 2>/dev/null) && [[ -n "$prof" ]]; then
+  while IFS='|' read -r state label detail; do
+    case "$state" in ok) green "$label" "$detail" ;; warn) yellow "$label" "$detail" ;; *) red "$label" "$detail" ;; esac
+  done < <(echo "$prof" | run "$T_CMD" python3 -c "$PROFILE_PY" 2>/dev/null)
+else yellow "Local-model profile" "router not answering (see Router API below)"; fi
 
 section "Router API (M1a)"
 begin "Router API"
@@ -222,6 +245,10 @@ if h=$(http -f "$ROUTER/health" 2>/dev/null); then
   [[ $(echo "$h" | json 'd.get("fault_injection")') == True ]] \
     && yellow "Fault injection" "ON (dev only): unset ROUTER_FAULT_INJECTION and restart the router" \
     || green "Fault injection" "off"
+  qtl=$(echo "$h" | json 'd.get("quota_test_limits") or ""')
+  [[ -n "$qtl" ]] \
+    && yellow "Quota test limits" "ON (dev only: $qtl): unset ROUTER_QUOTA_TEST_LIMITS and restart the router" \
+    || green "Quota test limits" "off"
 else red "Router API" "no answer on $ROUTER$(why_failed) — docker compose -f deploy/docker-compose.yml up -d router"; fi
 
 begin "Router DB migrations"

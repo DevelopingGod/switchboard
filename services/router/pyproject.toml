@@ -1,6 +1,6 @@
 [project]
 name = "switchboard-router"
-version = "0.1.5"
+version = "0.3.0"
 description = "Switchboard Router API: connections, model catalog, routing (SPEC §5)"
 requires-python = ">=3.12"
 license = "MIT"
@@ -49,4 +49,4 @@ known-first-party = ["app", "tests", "hostprobe"]
 known-third-party = ["alembic"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/*" = ["S105", "S106", "S310"]
+"**/tests/*" = ["S105", "S106", "S310", "F811"]  # F811: fixtures imported from other test modules

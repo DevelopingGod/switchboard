@@ -203,6 +203,58 @@ class TokenBucket:
             return False
 
 
+# --- Hardware (M3a): GPU memory and RAM for the local-model profile ---------------------------------
+# One fixed argv (nvidia-smi query, no shell) plus /proc/meminfo. WSL ships nvidia-smi in
+# /usr/lib/wsl/lib; native Linux has it on PATH. No NVIDIA GPU -> vram_mb null (the router then uses
+# the configured fallback profile and the owner picks one in Settings).
+NVIDIA_SMI_DIRS = ["/usr/lib/wsl/lib", "/usr/bin", "/usr/local/bin"]
+NVIDIA_SMI_ARGS = ("--query-gpu=name,memory.total", "--format=csv,noheader,nounits")
+HW_CACHE_TTL_S = 300
+
+
+def parse_nvidia_smi(out: str) -> tuple[str | None, int | None]:
+    """`NVIDIA GeForce RTX 3050 Laptop GPU, 4096` (one line per GPU) -> (first name, largest MiB)."""
+    best: tuple[str | None, int | None] = (None, None)
+    for line in out.strip().splitlines():
+        name, _, mem = line.rpartition(",")
+        try:
+            mib = int(float(mem.strip()))
+        except ValueError:
+            continue
+        if best[1] is None or mib > best[1]:
+            best = (name.strip() or None, mib)
+    return best
+
+
+def parse_meminfo(text: str) -> int | None:
+    m = re.search(r"^MemTotal:\s+(\d+)\s+kB", text, re.M)
+    return int(m.group(1)) // 1024 if m else None
+
+
+def probe_hw() -> dict:
+    smi = which("nvidia-smi", NVIDIA_SMI_DIRS)
+    gpu, vram, err = None, None, None
+    if smi:
+        code, out = run([smi, *NVIDIA_SMI_ARGS], NVIDIA_SMI_DIRS)
+        if code == 0:
+            gpu, vram = parse_nvidia_smi(out)
+        else:
+            err = "nvidia-smi failed"
+    else:
+        err = "no NVIDIA GPU found (nvidia-smi missing)"
+    try:
+        ram = parse_meminfo(Path("/proc/meminfo").read_text())
+    except OSError:
+        ram = None
+    return {
+        "gpu": gpu,
+        "vram_mb": vram,
+        "ram_mb": ram,
+        "source": "nvidia-smi" if vram else "none",
+        "error": err,
+    }
+
+
 class Probe:
     """Holds config, cache and rate limits; one per server."""
 
@@ -223,6 +275,18 @@ class Probe:
         self.cache: tuple[float, dict] | None = None
         self.lock = threading.Lock()
         self.installer = installer or Installer(on_success=self.invalidate)
+        self.hw_fn = probe_hw
+        self.hw_cache: tuple[float, dict] | None = None
+
+    def hw(self) -> tuple[int, dict]:
+        with self.lock:
+            if self.hw_cache and time.monotonic() - self.hw_cache[0] < HW_CACHE_TTL_S:
+                return 200, self.hw_cache[1]
+            if not self.probes.take():
+                return 429, {"error": "rate limited"}
+            data = self.hw_fn()
+            self.hw_cache = (time.monotonic(), data)
+            return 200, data
 
     def invalidate(self) -> None:
         with self.lock:
@@ -748,6 +812,8 @@ def make_handler(probe: Probe):
                 return self._send(200, {"status": "ok"})
             if url.path == "/cli":
                 return self._send(*probe.cli(fresh=query.get("fresh") == ["1"]))
+            if url.path == "/hw":
+                return self._send(*probe.hw())
             m = re.fullmatch(r"/install/jobs/([\w-]+)(/events)?", url.path)
             if m:
                 try:

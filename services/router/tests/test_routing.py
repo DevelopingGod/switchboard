@@ -111,11 +111,13 @@ def test_mistral_is_paid_only_and_off_every_automatic_chain():
 
 
 def test_writing_goes_gemini_then_openrouter_free():
-    dec = decide(
-        RouteRequest("write a linkedin post about my launch"), ctx(connected=("groq", "gemini", "openrouter"))
-    )
+    c = ctx(connected=("groq", "gemini", "openrouter"))
+    c.catalog = [*CATALOG, *OR_CATALOG]
+    dec = decide(RouteRequest("write a linkedin post about my launch"), c)
     assert dec.rule_id == "writing"
-    assert targets(dec)[:2] == ["model:smart-free", "model:explore"]
+    # `explore` is dynamic (M3a): the best free OpenRouter model in the live catalog
+    assert targets(dec)[:2] == ["model:smart-free", "model:openrouter/openai/gpt-oss-120b:free"]
+    assert dec.candidates[1].note == "alias:explore"
 
 
 OR_CATALOG = [

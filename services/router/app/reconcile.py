@@ -56,11 +56,13 @@ def wildcard_spec(p: Provider) -> tuple[str, str, dict[str, Any], dict[str, Any]
     return key, name, params, {"sb_key": key, "provider": p.id, "privacy": p.privacy}
 
 
-def credential_values(registry: Registry, provider: str, key: str) -> dict[str, str]:
-    p = registry.providers[provider]
+def credential_values(
+    registry: Registry, provider: str, key: str, params: dict[str, str] | None = None
+) -> dict[str, str]:
+    p = registry.providers[provider].with_params(params)
     values = {"api_key": key}
-    if p.raw.get("chat_base_url"):
-        values["api_base"] = p.raw["chat_base_url"]
+    if p.chat_base_url:
+        values["api_base"] = p.chat_base_url
     return values
 
 
@@ -83,7 +85,7 @@ async def desired_deployments(
     Credit providers whose balance is used up get none (LiteLLM can't pick them)."""
     used_up = set(await credits.exhausted(session, registry))
     desired: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
-    for d in registry.aliases:
+    for d in registry.static_aliases():
         p = registry.providers[d.provider]
         if (p.kind == "api_key" and d.provider not in keys) or d.provider in used_up:
             continue
@@ -135,7 +137,8 @@ async def _reconcile(session: AsyncSession, admin: LiteLLMAdmin, registry: Regis
 
     # 1. Credentials: one per keyed provider; drop ours for providers whose key was removed.
     for pid, k in keys.items():
-        await admin.upsert_credential(pid, credential_values(registry, pid, k))
+        params = await secrets.load_params(session, pid) if registry.providers[pid].params else None
+        await admin.upsert_credential(pid, credential_values(registry, pid, k, params))
     ours = {credential_name(p.id): p.id for p in registry.api_providers()}
     for name in await admin.credential_names():
         if name in ours and ours[name] not in keys:

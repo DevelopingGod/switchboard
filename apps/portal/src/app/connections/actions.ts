@@ -19,10 +19,16 @@ async function run<T>(p: ReturnType<typeof routerSend<T>>, refresh = true): Prom
   return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
 }
 
-export async function saveKey(provider: string, apiKey: string): Promise<ActionResult<{ key_last4: string }>> {
+export async function saveKey(provider: string, apiKey: string, params?: Record<string, string>): Promise<ActionResult<{ key_last4: string }>> {
   if (!ID.test(provider)) return bad("Unknown provider.");
   if (typeof apiKey !== "string" || apiKey.trim().length < 8 || apiKey.length > 512) return bad("That does not look like an API key.");
-  return run(routerSend<{ key_last4: string }>("PUT", `/connections/${provider}/key`, { api_key: apiKey.trim() }, 90_000));
+  const extra: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params ?? {})) {
+    if (!/^\w{1,40}$/.test(k) || typeof v !== "string" || v.length > 200) return bad("Invalid value.");
+    extra[k] = v.trim();
+  }
+  const body = Object.keys(extra).length ? { api_key: apiKey.trim(), params: extra } : { api_key: apiKey.trim() };
+  return run(routerSend<{ key_last4: string }>("PUT", `/connections/${provider}/key`, body, 90_000));
 }
 
 /** Cerebras-style one-time credits: set the starting balance; spend counts from now. */

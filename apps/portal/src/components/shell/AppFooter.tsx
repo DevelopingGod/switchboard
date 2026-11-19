@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { useHydrated } from "@/lib/use-hydrated";
 import type { SystemSummary } from "@/lib/router-types";
 import { tShell } from "@/i18n/shell";
+import { footerQuota } from "@/lib/footer-quota";
 import { useShell } from "./shell-context";
 
 const POLL_MS = 60_000;
@@ -113,7 +114,7 @@ export function AppFooter() {
                 tabIndex={0}
               >
                 <Gauge aria-hidden className="size-3.5" strokeWidth={2.5} />
-                <span className="max-sm:sr-only">{tShell(`footer.quota.${quota ?? "ok"}`)}</span>
+                <span className="max-sm:sr-only">{footerQuota(data.quota)}</span>
               </span>
             </>
           ) : failed ? (

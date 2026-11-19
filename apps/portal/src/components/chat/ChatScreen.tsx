@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ArrowDown, MessageSquare } from "lucide-react";
 import { Composer, type ComposerSend } from "@/components/kit/Composer";
@@ -18,6 +19,9 @@ import { MessageItem, type Live, type UiMessage } from "./MessageItem";
 import { TargetPicker } from "./TargetPicker";
 import { ThreadList } from "./ThreadList";
 import { StaticHeader, ThreadHeader } from "./ThreadHeader";
+
+// M3a: shown only in long threads; its own chunk with its strings.
+const SummaryNote = dynamic(() => import("./PrivacyNotes").then((m) => m.SummaryNote), { ssr: false });
 
 const newLive = (): Live => ({ thinking: "", thinkStart: null, thinkEnd: null, label: null, note: null });
 
@@ -140,7 +144,13 @@ export function ChatScreen({
                 created_at: new Date().toISOString(),
                 live: newLive(),
               };
-              setMessages((ms) => [...ms.map((m) => (m.id === tempUserId ? { ...m, id: d.user_message_id as number } : m)), stub]);
+              // A pasted secret (M3a): show the stored, masked text instead of what was typed.
+              const masked = typeof d.user_text === "string" ? { content: d.user_text, secret: d.secret as UiMessage["secret"] } : {};
+              const userId = d.user_message_id as number;
+              setMessages((ms) => [
+                ...ms.map((m) => (m.id === tempUserId || (tempUserId === null && m.id === userId) ? { ...m, id: userId, ...masked } : m)),
+                stub,
+              ]);
               if (d.private) setPrivateOn(true);
               const now = new Date().toISOString();
               const known = threadRef.current?.id === tid;
@@ -183,6 +193,13 @@ export function ChatScreen({
                 live: m.live ? { ...m.live, thinkEnd: m.live.thinkEnd ?? (m.live.thinkStart ? Date.now() : null) } : undefined,
               }));
               break;
+            case "summary": {
+              const summary = d.summary as ChatThread["summary"];
+              setThread((th) => (th && th.id === d.thread_id ? { ...th, summary } : th));
+              const cur = threadRef.current;
+              if (cur && cur.id === d.thread_id) threadRef.current = { ...cur, summary };
+              break;
+            }
             case "title": {
               const title = d.title as string;
               setThread((th) => (th && th.id === d.thread_id ? { ...th, title } : th));
@@ -280,6 +297,19 @@ export function ChatScreen({
     void run({ mode: "regenerate", thread_id: th.id, ...options(privateOn, autonomy, temperature) }, null);
   };
 
+  // M3a: the last reply stayed local because it looked sensitive; the person says it isn't.
+  const cloudOverride = () => {
+    const th = threadRef.current;
+    if (!th) return;
+    setPrivateOn(false);
+    const open = { ...th, private: false, private_source: null };
+    threadRef.current = open;
+    setThread(open);
+    setThreads((list) => list.map((x) => (x.id === th.id ? open : x)));
+    setMessages((ms) => (ms.at(-1)?.role === "assistant" ? ms.slice(0, -1) : ms));
+    void run({ mode: "regenerate", thread_id: th.id, ...options(false, autonomy, temperature), cloud_override: true }, null);
+  };
+
   const edit = (newText: string) => {
     const th = threadRef.current;
     if (!th) return;
@@ -370,9 +400,14 @@ export function ChatScreen({
                     m={m}
                     last={m.id === lastId || (m.role === "user" && m.id === lastUserId)}
                     busy={streaming}
-                    actions={{ onRegenerate: regenerate, onEdit: edit, onFeedback: feedback }}
+                    actions={{ onRegenerate: regenerate, onEdit: edit, onFeedback: feedback, onCloudOverride: cloudOverride }}
                   />
                 </li>
+                {thread?.summary && thread.summary.upto_message_id === m.id && (
+                  <li className="grid grid-cols-[minmax(0,1fr)]">
+                    <SummaryNote s={thread.summary} />
+                  </li>
+                )}
               </React.Fragment>
             ))}
           </ol>

@@ -77,6 +77,9 @@ services:
       # Dev only, off unless you export it for one run: lets a chat request force a 429/timeout on a
       # target to check fallbacks live (docs/m2.md). Never set it in deploy/.env.
       ROUTER_FAULT_INJECTION: ${ROUTER_FAULT_INJECTION:-false}
+      # Dev only, like fault injection: low free limits to demo the quota guard (docs/m3a.md), e.g.
+      # ROUTER_QUOTA_TEST_LIMITS="groq:openai/gpt-oss-120b=rpd:3". Never set it in deploy/.env.
+      ROUTER_QUOTA_TEST_LIMITS: ${ROUTER_QUOTA_TEST_LIMITS:-}
       # Imported once into the encrypted store on first start (docs/m1a.md).
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

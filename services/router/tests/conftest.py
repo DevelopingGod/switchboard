@@ -76,7 +76,7 @@ def database():
 
 TABLES = (
     "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
-    "costs, requests"
+    "costs, requests, quota_usage, cooldowns, quota_headers"
 )
 
 
@@ -337,6 +337,106 @@ class FakeLiteLLM:
         return [m for m in self.models.values() if alias is None or m["model_name"] == alias]
 
 
+class FakeOllama:
+    """Ollama's native API (M3a): the classifier, titles/summaries (tasks model), tags, ps, pull."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.route: str | None = None  # classifier answer; None -> 404 (not pulled): heuristics
+        self.routes: dict[str, str] = {}  # substring of the user message -> route
+        self.classifier_delay = 0.0
+        self.title = "Centering a div in CSS"
+        self.title_status = 200
+        self.summary = "- The user is planning a trip to Japan in April.\n- Budget: 2000 USD."
+        self.summary_status = 200
+        self.down = False
+        self.installed = ["qwen3:4b", "llama3.2:3b", "hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M"]
+        self.loaded: list[str] = []
+        self.unloaded: list[str] = []
+
+    def install(self, mock: respx.MockRouter) -> None:
+        base = "http://ollama.test"
+        mock.post(f"{base}/api/chat").mock(side_effect=self.chat)
+        mock.get(f"{base}/api/tags").mock(side_effect=self.tags)
+        mock.get(f"{base}/api/ps").mock(side_effect=self.ps)
+        mock.post(f"{base}/api/generate").mock(side_effect=self.generate)
+
+    def _down(self):
+        if self.down:
+            raise httpx.ConnectError("connection refused")
+
+    async def chat(self, request):
+        self._down()
+        body = json.loads(request.content)
+        self.calls.append(body)
+        model, text = body["model"], body["messages"][-1]["content"]
+        r = await self._answer(model, text)
+        if r.status_code == 200 and model not in self.loaded:
+            self.loaded.append(model)
+        return r
+
+    async def _answer(self, model, text):
+        if "Arch-Router" in model:
+            if self.classifier_delay:
+                import asyncio
+
+                await asyncio.sleep(self.classifier_delay)
+            conv = text.split("<conversation>", 1)[-1]
+            route = next((r for k, r in self.routes.items() if k in conv), self.route)
+            if route is None:
+                return httpx.Response(404, json={"error": f"model '{model}' not found"})
+            return httpx.Response(200, json={"message": {"content": json.dumps({"route": route})}})
+        if text.startswith("Write a title"):
+            if self.title_status != 200:
+                return httpx.Response(self.title_status, json={"error": "down"})
+            return httpx.Response(200, json={"message": {"content": self.title}})
+        if text.startswith("You keep a running summary"):
+            if self.summary_status != 200:
+                return httpx.Response(self.summary_status, json={"error": "down"})
+            return httpx.Response(200, json={"message": {"content": self.summary}})
+        return httpx.Response(200, json={"message": {"content": "hi"}})
+
+    def tags(self, request):
+        self._down()
+        return httpx.Response(200, json={"models": [{"name": n} for n in self.installed]})
+
+    def ps(self, request):
+        self._down()
+        return httpx.Response(200, json={"models": [{"name": n} for n in self.loaded]})
+
+    def generate(self, request):
+        body = json.loads(request.content)
+        if body.get("keep_alive") == 0 and body["model"] in self.loaded:
+            self.loaded.remove(body["model"])
+            self.unloaded.append(body["model"])
+        return httpx.Response(200, json={"done": True})
+
+    def classifier_calls(self) -> list[dict]:
+        return [c for c in self.calls if "Arch-Router" in c["model"]]
+
+
+@pytest.fixture(autouse=True)
+def _reset_m3a_state():
+    """Module-level state that must not leak between tests."""
+    from app import local_profile
+    from app.routing import classifier
+    from app.routing.health import cooldowns
+
+    classifier.reset()
+    local_profile.set_active("small")
+    cooldowns.clear()
+    yield
+    classifier.reset()
+    local_profile.set_active("small")
+
+
+@pytest.fixture
+def ollama_fake(mock_http):
+    fake = FakeOllama()
+    fake.install(mock_http)
+    return fake
+
+
 @pytest.fixture
 def mock_http():
     with respx.mock(assert_all_called=False, assert_all_mocked=True) as mock:
@@ -344,9 +444,10 @@ def mock_http():
 
 
 @pytest.fixture
-def litellm(mock_http):
+def litellm(mock_http, ollama_fake):
     fake = FakeLiteLLM()
     fake.install(mock_http)
+    fake.ollama = ollama_fake
     return fake
 
 

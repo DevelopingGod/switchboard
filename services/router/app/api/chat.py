@@ -20,6 +20,7 @@ from app.db import get_session
 from app.deps import litellm, require_admin
 from app.litellm_admin import LiteLLMAdmin
 from app.models import Message, ModelStats, Request, Thread
+from app.routing import secrets_detect
 from app.routing.context import build_context
 from app.routing.engine import NON_CHAT_TAGS, RouteRequest, decide, reasons
 
@@ -40,6 +41,8 @@ class TurnOptionsIn(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     autonomy: int | None = Field(default=None, ge=0, le=3)
     fault: FaultIn | None = None
+    # M3a: "Not sensitive — use cloud" on an auto-private reply (regenerate only)
+    cloud_override: bool = False
 
     def options(self) -> service.TurnOptions:
         fault = None
@@ -47,7 +50,9 @@ class TurnOptionsIn(BaseModel):
             if not get_settings().router_fault_injection:
                 raise HTTPException(400, "fault injection is off (ROUTER_FAULT_INJECTION=1, dev only)")
             fault = Fault(self.fault.target, self.fault.kind)
-        return service.TurnOptions(self.target, self.private, self.temperature, self.autonomy, fault)
+        return service.TurnOptions(
+            self.target, self.private, self.temperature, self.autonomy, fault, self.cloud_override
+        )
 
 
 class SendIn(TurnOptionsIn):
@@ -86,7 +91,9 @@ def _thread_json(t: Thread) -> dict[str, Any]:
         "title": t.title or "New chat",
         "title_source": t.title_source,
         "private": t.private,
+        "private_source": t.private_source if t.private else None,
         "pinned": t.pinned,
+        "summary": t.summary_json or None,
         "created_at": t.created_at,
         "updated_at": t.updated_at,
     }
@@ -100,7 +107,8 @@ def _message_json(m: Message) -> dict[str, Any]:
         "status": m.status,
         "private": m.private,
         "feedback": {1: "up", -1: "down"}.get(m.feedback or 0),
-        "route": m.meta_json or None,
+        "route": (m.meta_json or None) if m.role == "assistant" else None,
+        "secret": ((m.meta_json or {}).get("secret") or None) if m.role == "user" else None,
         "created_at": m.created_at,
     }
 
@@ -203,6 +211,8 @@ async def send(
     body: SendIn, session: AsyncSession = Depends(get_session), admin: LiteLLMAdmin = Depends(litellm)
 ) -> StreamingResponse:
     opts = body.options()
+    if opts.cloud_override:
+        raise HTTPException(422, "cloud_override is only for regenerate")
     prep = await service.prepare_turn(session, "send", body.thread_id, body.text, opts)
     return _stream(service.run_turn(admin.client, prep, opts))
 
@@ -317,6 +327,24 @@ async def targets(session: AsyncSession = Depends(get_session)) -> dict[str, Any
         if name == "private":  # same model as `local`; the Private switch is the way to use it
             continue
         deps = reg.alias(name)
+        if deps and deps[0].dynamic:  # explore: chosen per request from the live catalog
+            d = deps[0]
+            p = reg.providers[d.provider]
+            ok = d.provider in ctx.connected
+            aliases.append(
+                {
+                    "target": f"model:{name}",
+                    "alias": name,
+                    "label": f"{p.name.split(' (')[0]} · best free model",
+                    "available": ok,
+                    "reason": None if ok else f"Add a key for {p.name} in Connections",
+                    "local": False,
+                    "free_tier": d.pick == "best-free",
+                    "paid": p.paid and d.pick != "best-free",
+                    "privacy": p.privacy,
+                }
+            )
+            continue
         live = [d for d in deps if d.provider in ctx.connected]
         first = (live or deps)[0]
         p = reg.providers[first.provider]
@@ -383,8 +411,20 @@ async def targets(session: AsyncSession = Depends(get_session)) -> dict[str, Any
 async def dry_run(body: DryRunIn, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     """Which rule fires and which targets would be tried, without calling a model (M3 tester)."""
     ctx = await build_context(session)
+    masked, kinds = secrets_detect.mask(body.text)
+    intent, cinfo = await service.classify_for(masked, ctx, body.private, bool(kinds))
     try:
-        dec = decide(RouteRequest(text=body.text, target=body.target, private=body.private), ctx)
+        dec = decide(
+            RouteRequest(
+                text=masked,
+                target=body.target,
+                private=body.private and not kinds,
+                classified=intent,
+                classifier_info=cinfo,
+                secret_kinds=tuple(kinds),
+            ),
+            ctx,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     first = dec.candidates[0] if dec.candidates else None
@@ -393,4 +433,9 @@ async def dry_run(body: DryRunIn, session: AsyncSession = Depends(get_session)) 
         "chosen": first.summary() if first else None,
         "reasons": reasons(dec, first, ctx.registry, ctx.catalog) if first else [],
         "runner_up": dec.candidates[1].label if len(dec.candidates) > 1 else None,
+        "scores": [
+            {"label": c.label, "score": c.scored.score, "proven": c.scored.proven, "parts": c.scored.parts}
+            for c in dec.candidates
+            if c.scored is not None
+        ],
     }

@@ -20,7 +20,7 @@ import httpx
 
 from app import secrets
 from app.routing.engine import Candidate, Decision, Skip
-from app.routing.health import CREDIT_S, ERROR_S, RATE_LIMIT_S, TIMEOUT_S, Cooldowns
+from app.routing.health import CREDIT_S, ERROR_S, NOT_FOUND_S, RATE_LIMIT_S, TIMEOUT_S, Cooldowns
 
 INJECTED_TIMEOUT_S = 0.05
 
@@ -58,6 +58,14 @@ class Served:
 
 
 @dataclass
+class RateHeaders:
+    """Provider rate-limit headers (x-ratelimit-*), on success or a 429 (M3a quota guard)."""
+
+    candidate: Candidate
+    headers: dict[str, str]
+
+
+@dataclass
 class Failed:
     candidate: Candidate
     reason: str  # after the first token: the reply ends here
@@ -77,6 +85,7 @@ class UpstreamError(Exception):
     def __init__(self, code: str, reason: str, cooldown_s: float = 0):
         super().__init__(reason)
         self.code, self.reason, self.cooldown_s = code, reason, cooldown_s
+        self.headers: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -154,7 +163,11 @@ def classify(status: int, body: str, retry_after: str | None) -> UpstreamError:
         sync.request("chat found a deployment missing in LiteLLM")
         return UpstreamError("not_connected", "Not registered in LiteLLM yet (reconcile pending)", ERROR_S)
     if status == 404:
-        return UpstreamError("error", "Model not found at the provider (404)", ERROR_S)
+        # Usually a retired model (OpenRouter's free lineup rotates): skip it until the catalog
+        # refresh that the router starts right away marks it missing.
+        return UpstreamError(
+            "not_found", "Model not found at the provider (404); skipped for 6 h", NOT_FOUND_S
+        )
     if status in (408, 504):
         return UpstreamError("timeout", f"Provider timed out ({status})", TIMEOUT_S)
     if status >= 500:
@@ -188,9 +201,14 @@ async def _stream_one(
     splitter = ThinkSplitter()
     try:
         async with client.stream("POST", "/v1/chat/completions", json=body, timeout=timeout) as r:
+            rate = {k: v for k, v in r.headers.items() if "ratelimit" in k.lower()}
             if r.status_code >= 400:
                 raw = (await r.aread()).decode(errors="replace")
-                raise classify(r.status_code, raw, r.headers.get("retry-after"))
+                err = classify(r.status_code, raw, r.headers.get("retry-after"))
+                err.headers = rate
+                raise err
+            if rate:
+                yield RateHeaders(cand, rate)
             served = r.headers.get("x-litellm-model-name")
             if served:
                 yield Served(served)
@@ -240,7 +258,8 @@ async def dispatch(
     cooldowns: Cooldowns,
     fault: Fault | None = None,
 ) -> AsyncIterator[object]:
-    """Yields Route, Fallback, Thinking, Delta, Served, Usage, then ends; or Failed / Exhausted."""
+    """Yields Route, Fallback, Thinking, Delta, Served, Usage, RateHeaders, then ends; or Failed /
+    Exhausted."""
     for i, cand in enumerate(dec.candidates):
         yield Route(cand)
         committed = False
@@ -252,7 +271,9 @@ async def dispatch(
             return
         except UpstreamError as e:
             if e.cooldown_s:
-                cooldowns.set(cand.target, e.code, e.reason, e.cooldown_s)
+                cooldowns.set(cand.target, e.code, e.reason, e.cooldown_s, provider=cand.provider)
+            if e.headers:
+                yield RateHeaders(cand, e.headers)
             if committed:
                 yield Failed(cand, e.reason, e.code)
                 return

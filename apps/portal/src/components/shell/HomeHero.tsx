@@ -19,8 +19,18 @@ const chips: { id: ChipId; icon: LucideIcon }[] = [
   { id: "research", icon: Search },
 ];
 
-export function HomeHero({ setupPending = false, serverName = "" }: { setupPending?: boolean; serverName?: string }) {
+export function HomeHero({
+  setupPending = false,
+  serverName = "",
+  privateDefault = false,
+}: {
+  setupPending?: boolean;
+  serverName?: string;
+  /** Settings → Privacy → Private by default (M1.5); the composer starts with it, as on /chat. */
+  privateDefault?: boolean;
+}) {
   const { name } = usePrefs();
+  const [priv, setPriv] = React.useState(privateDefault);
   const phone = useMedia("(max-width: 639px)");
   const { push } = useToast();
   const router = useRouter();
@@ -31,7 +41,7 @@ export function HomeHero({ setupPending = false, serverName = "" }: { setupPendi
     if (!handOff(msg)) return push({ tone: "error", title: t("composer.errorDefault") });
     router.push("/chat");
   };
-  const chip = (id: ChipId) => go({ text: t(`home.chips.${id}.prompt` as StringKey), private: false, autonomy: 1, temperature: 0.7 });
+  const chip = (id: ChipId) => go({ text: t(`home.chips.${id}.prompt` as StringKey), private: priv, autonomy: 1, temperature: 0.7 });
 
   return (
     <div className="mx-auto grid max-w-4xl gap-10 pt-[6vh]">
@@ -47,6 +57,8 @@ export function HomeHero({ setupPending = false, serverName = "" }: { setupPendi
           disabledReason={t("home.readOnlyNote")}
           value={text}
           onValueChange={setText}
+          privateOn={priv}
+          onPrivateChange={setPriv}
           onSend={(m) => go(m)}
         />
         <ul aria-label={t("home.chips.label")} className="flex flex-wrap gap-2.5">
