@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -472,6 +473,49 @@ class OpenCodeStatusTests(unittest.TestCase):
 
     def test_a_format_we_do_not_recognise_is_unknown_not_logged_out(self):
         self.assertIsNone(hostprobe.parse_auth("opencode", 0, "something else entirely"))
+
+
+class ClaudeStatusTests(unittest.TestCase):
+    """Real `claude auth status --json` (claude 2.1.326, recorded 2026-11-19). The account fields are
+    placeholders here: only `loggedIn` is ever read."""
+
+    LOGGED_IN = (
+        '{\n  "loggedIn": true,\n  "authMethod": "claude.ai",\n  "apiProvider": "firstParty",\n'
+        '  "email": "someone@example.com",\n  "subscriptionType": "pro"\n}\n'
+    )
+
+    def test_logged_in(self):
+        self.assertIs(hostprobe.parse_auth("claude", 0, self.LOGGED_IN), True)
+
+    def test_logged_out_is_false_whatever_the_exit_code(self):
+        for code in (0, 1):
+            self.assertIs(hostprobe.parse_auth("claude", code, '{"loggedIn": false}'), False)
+
+    def test_unrecognised_output_is_unknown_not_logged_out(self):
+        for out in ("", "Not logged in", "[]", '{"loggedIn": "yes"}', '{"authMethod": "x"}'):
+            self.assertIsNone(hostprobe.parse_auth("claude", 0, out), out)
+
+    def test_the_account_details_are_not_returned(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        fake_bin(
+            d,
+            "claude",
+            'case "$1" in --version) echo "2.1.326 (Claude Code)";; auth) cat <<\'J\'\n' + self.LOGGED_IN + 'J\n;; esac',
+        )
+        r = hostprobe.probe_cli(hostprobe.CLIS["claude"], [str(d)])
+        self.assertIs(r["logged_in"], True)
+        self.assertNotIn("someone@example.com", json.dumps(r))
+
+
+class CodexStatusTests(unittest.TestCase):
+    """Real `codex login status` (codex-cli 0.170.0, Linux build, recorded 2026-11-19)."""
+
+    def test_logged_in(self):
+        self.assertIs(hostprobe.parse_auth("codex", 0, "Logged in using ChatGPT\n"), True)
+
+    def test_logged_out_exits_1(self):
+        self.assertIs(hostprobe.parse_auth("codex", 1, "Not logged in\n"), False)
 
 
 class InstallTableTests(unittest.TestCase):
