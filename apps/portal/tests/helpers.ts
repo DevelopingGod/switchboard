@@ -63,3 +63,8 @@ export async function atTop(page: Page) {
   await page.waitForFunction(() => window.scrollY === 0);
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
 }
+
+/** Pro mode before the page loads (the internals-level tests: rule names, scores, skipped lists). */
+export async function inPro(page: Page) {
+  await page.addInitScript(() => localStorage.setItem("switchboard.prefs.v1", JSON.stringify({ mode: "pro" })));
+}

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { urls } from "../playwright.config";
-import { ready } from "./helpers";
+import { inPro, ready } from "./helpers";
 
 /**
  * Chat (M2) against the fixture router. Sending changes fixture state, so these run on the
@@ -22,6 +22,9 @@ async function send(page: Page, text: string) {
 }
 
 const lastReply = (page: Page) => page.getByRole("article", { name: "Assistant" }).last();
+
+// These assert the full breakdown (rule names, runner-up, skipped), which is Pro mode; Simple mode has its own spec (m3b-simple).
+test.beforeEach(async ({ page }) => inPro(page));
 
 test.describe("chat · sending", () => {
   test("streams a reply with a route chip, cost and a local title", async ({ page }) => {

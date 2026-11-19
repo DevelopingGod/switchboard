@@ -38,10 +38,10 @@ test.describe("sidebar (read-only)", () => {
     await page.goto(SEED);
     await ready(page);
     const nav = sidebar(page);
-    await nav.getByRole("searchbox", { name: "Search chats" }).fill("linkedin");
+    await page.getByRole("searchbox", { name: "Search chats" }).fill("linkedin");
     await expect(nav.getByRole("link", { name: "Launch post for LinkedIn" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Why the sky is blue" })).toHaveCount(0);
-    await nav.getByRole("searchbox", { name: "Search chats" }).fill("zzz");
+    await page.getByRole("searchbox", { name: "Search chats" }).fill("zzz");
     await expect(nav.getByRole("status")).toHaveText("No chats match “zzz”.");
   });
 

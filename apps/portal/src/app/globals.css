@@ -28,8 +28,17 @@
   --radius-hero: var(--radius-hero);
 }
 
+/* Last stop of --sky-gradient (design-tokens.ts): what lies below the painted sky. */
+:root { --sky-end: #ffd9c2; }
+:root[data-theme="dark"] { --sky-end: #3a2480; }
 html {
-  background: var(--surface-solid);
+  /* The sky also lives on the root, so nothing below the first viewport (a full-page capture, overscroll,
+     a very tall page) is ever plain white; the fixed .sky layer paints the same sky over it. */
+  background: var(--sky-bloom-a), var(--sky-bloom-b), var(--sky-gradient);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  background-color: var(--sky-end);
   color: var(--ink);
   font-family: var(--font-ui), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -58,6 +67,12 @@ body {
   background-image: url("/sky/day.avif");
 }
 :root[data-sky="image"][data-theme="dark"] .sky {
+  background-image: url("/sky/dusk.avif");
+}
+:root[data-sky="image"] {
+  background: url("/sky/day.avif") center / cover no-repeat fixed var(--sky-end);
+}
+:root[data-sky="image"][data-theme="dark"] {
   background-image: url("/sky/dusk.avif");
 }
 .sky-cloud {

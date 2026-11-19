@@ -91,6 +91,7 @@ export function Sidebar({
   const prefs = usePrefs();
   const hydrated = useHydrated();
   const idle = useIdle();
+  const [query, setQuery] = React.useState(""); // the one search: it filters the chats below
   const rail = prefs.sidebarCollapsed && !open; // icon rail: tooltips stand in for the labels
   const ref = React.useRef<HTMLElement>(null);
   const closeRef = React.useRef<HTMLButtonElement>(null);
@@ -169,18 +170,37 @@ export function Sidebar({
             <Plus aria-hidden className="size-4 shrink-0" />
             <span className="sb-label">{t("nav.newChat")}</span>
           </Link>
+          {/* One search. Expanded: a field that filters the chats below, with a ⌘K button for the full
+              palette (screens, commands, preferences). Rail: just the palette button. */}
+          <div className="sb-field sb-full">
+            <Search aria-hidden className="size-4 shrink-0 text-ink-muted" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={tShell("sidebar.searchChats")}
+              aria-label={tShell("sidebar.searchChats")}
+              className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-muted focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              aria-label={`${t("palette.shortcut")} ${tShell("sidebar.palette")}`}
+              aria-keyshortcuts="Control+K Meta+K"
+              className="rounded-md border border-hairline px-1.5 font-mono text-xs text-ink-muted hover:text-ink"
+            >
+              {t("palette.shortcut")}
+            </button>
+          </div>
           <button
             type="button"
             onClick={onOpenPalette}
+            aria-label={tShell("sidebar.palette")}
             aria-keyshortcuts="Control+K Meta+K"
-            data-tip={rail ? t("palette.open") : undefined}
-            className="sb-search"
+            data-tip={rail ? tShell("sidebar.palette") : undefined}
+            className="sb-search sb-rail-only"
           >
             <Search aria-hidden className="size-4 shrink-0" />
-            <span className="sb-label flex-1 text-left">{tShell("sidebar.search")}</span>
-            <kbd aria-hidden className="sb-label rounded-md border border-hairline px-1.5 font-mono text-xs">
-              {t("palette.shortcut")}
-            </kbd>
           </button>
         </div>
 
@@ -205,7 +225,7 @@ export function Sidebar({
         <section aria-label={tShell("sidebar.recents")} className="sb-recents sb-full">
           {idle && (!prefs.sidebarCollapsed || open) && (
             <React.Suspense fallback={null}>
-              <Recents />
+              <Recents query={query} />
             </React.Suspense>
           )}
         </section>

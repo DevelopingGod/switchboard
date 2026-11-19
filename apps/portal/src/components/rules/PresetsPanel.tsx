@@ -7,7 +7,7 @@ import { GlassPanel } from "@/components/kit/GlassPanel";
 import { ExplainPopover } from "@/components/kit/ExplainPopover";
 import { Segmented } from "@/components/kit/Segmented";
 import type { Overrides, Preset, RuleProblem, RulesFile, RulesVocab } from "@/lib/router-types";
-import { chainOf, problemMap, problemsUnder, setPath, targetLabel } from "@/lib/rules-model";
+import { chainOf, plainChain, plainPaid, plainRuleName, problemMap, problemsUnder, setPath, targetLabel } from "@/lib/rules-model";
 import { cn } from "@/lib/cn";
 import { tRules, type RulesKey } from "@/i18n/rules";
 import { ChainEditor } from "./ChainEditor";
@@ -80,15 +80,23 @@ function PresetCard({ name, p }: { name: string; p: Props }) {
 
       <div className="grid gap-1.5">
         <h4 className="text-sm font-semibold">{tRules("presets.changes")}</h4>
-        {overlay.length === 0 ? (
+        {overlay.length === 0 && p.pro ? (
           <p className="text-sm text-ink-muted">{tRules("presets.noChanges")}</p>
         ) : (
           <ul className="grid gap-1 text-sm">
-            {overlay.map(([rid, o]) => (
-              <li key={rid} className="rounded-control bg-glass px-3 py-1.5">
-                {tRules("presets.changesRule", { rule: rid, chain: chainOf({ target: o.target ?? p.effective.rules.find((r) => r.id === rid)?.target ?? "", fallbacks: o.fallbacks }).map(targetLabel).join(" → ") })}
-              </li>
-            ))}
+            {!p.pro && (
+              <li className="rounded-control bg-glass px-3 py-1.5">{plainPaid(spec.paid)}</li>
+            )}
+            {overlay.map(([rid, o]) => {
+              const chain = chainOf({ target: o.target ?? p.effective.rules.find((r) => r.id === rid)?.target ?? "", fallbacks: o.fallbacks });
+              return (
+                <li key={rid} className="rounded-control bg-glass px-3 py-1.5">
+                  {p.pro
+                    ? tRules("presets.changesRule", { rule: rid, chain: chain.map(targetLabel).join(" → ") })
+                    : `For ${plainRuleName(rid)}: ${plainChain(chain).replace(/^Tries/, "tries")}`}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

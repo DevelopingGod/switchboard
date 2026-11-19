@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addRule, countChanges, unsavedCount, disableRule, pathLabel, problemsUnder, resetRule, setPath, setRuleField, targetLabel, whenSummary,
+  addRule, countChanges, plainChain, plainPaid, plainRuleName, unsavedCount, disableRule, pathLabel, problemsUnder, resetRule, setPath, setRuleField, targetLabel, whenSummary,
 } from "./rules-model";
 import type { RulesFile } from "./router-types";
 
@@ -61,6 +61,19 @@ describe("unsavedCount", () => {
     expect(unsavedCount({}, saved)).toBe(2); // two removals
     expect(unsavedCount({ rules: { writing: { target: "model:local", temperature: 0.3 } } }, saved)).toBe(1);
     expect(unsavedCount({ ...saved, slash: { q: "default" } }, saved)).toBe(1);
+  });
+});
+
+describe("plain language", () => {
+  it("never leaks alias names, rule ids or arrows", () => {
+    const text = plainChain(["model:smart-free", "model:explore", "model:fast", "model:local"]);
+    expect(text).toBe("Tries a free long-context model, then another free model, then a fast free model, then your local model.");
+    expect(plainChain(["model:fast", "model:local-code", "model:local"])).toBe("Tries a fast free model, then your local model.");
+    expect(plainChain(["best:reasoning", "agent:codex"])).toBe("Tries the best available model for reasoning, then an agent.");
+    expect(plainChain(["model:groq/openai/gpt-oss-20b"])).not.toMatch(/groq|gpt|\//);
+    expect(plainRuleName("writing-premium")).toBe("high-quality writing");
+    expect(plainRuleName("my-new_rule")).toBe("my new rule");
+    expect(plainPaid("never")).toBe("Never uses paid models.");
   });
 });
 

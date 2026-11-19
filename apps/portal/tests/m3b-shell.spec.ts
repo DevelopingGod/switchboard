@@ -191,7 +191,7 @@ test.describe("sidebar contents", () => {
     await expect(sb.getByRole("link", { name: /^Profile/ })).toHaveAttribute("href", "/settings#profile");
     await expect(sb.getByRole("meter", { name: "Today’s budget" })).toBeVisible();
     await expect(sb.getByRole("link", { name: /needs attention|Everything is running|with limits/ })).toBeVisible();
-    await sb.getByRole("button", { name: "Search" }).click();
+    await sb.getByRole("button", { name: "Open command palette" }).click();
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
   });
 

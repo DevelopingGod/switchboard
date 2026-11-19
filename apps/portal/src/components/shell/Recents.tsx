@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, MoreHorizontal, Pencil, Pin, PinOff, Search, Trash2 } from "lucide-react";
+import { Lock, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/kit/Toast";
 import { deleteThread, pinThread, renameThread } from "@/app/chat/actions";
@@ -236,7 +236,7 @@ async function fetchPage(params: { limit?: number; cursor?: string | null; q?: s
 /** The sidebar's recent chats (M3b): global, paginated, searchable on the server, grouped Pinned /
  * Today / Yesterday / Previous 7 days / Older. One tab stop with ↑/↓/Home/End; F2 renames, Delete asks
  * to delete. Loads after the page is idle (its own chunk) and refreshes on `sb:threads-changed`. */
-export default function Recents() {
+export default function Recents({ query }: { query: string }) {
   const router = useRouter();
   const { push } = useToast();
   const current = useSearchParams().get("t");
@@ -244,11 +244,9 @@ export default function Recents() {
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [state, setState] = React.useState<"loading" | "ready" | "failed">("loading");
   const [more, setMore] = React.useState(false);
-  const [query, setQuery] = React.useState("");
   const [searching, setSearching] = React.useState("");
   const [mode, setMode] = React.useState<Mode>(null);
   const [focusId, setFocusId] = React.useState<string | null>(null);
-  const [hasAny, setHasAny] = React.useState(false);
   const loaded = React.useRef(0);
   React.useEffect(() => {
     loaded.current = threads.length;
@@ -269,7 +267,6 @@ export default function Recents() {
       setThreads([...r.page.pinned, ...r.page.threads]);
       setCursor(r.page.next_cursor);
       setState("ready");
-      if (!searching) setHasAny(r.page.pinned.length + r.page.threads.length > 0);
     },
     [searching],
   );
@@ -353,19 +350,6 @@ export default function Recents() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      {(hasAny || query) && (
-        <label className="relative block shrink-0">
-          <span className="sr-only">{tChat("chat.sidebar.search")}</span>
-          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-muted" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={tChat("chat.sidebar.search")}
-            className="w-full rounded-control border border-hairline bg-glass-strong py-2 pr-2 pl-8 text-sm placeholder:text-ink-muted"
-          />
-        </label>
-      )}
       {state === "loading" ? (
         <div aria-hidden className="grid gap-1.5 px-1">
           {[0, 1, 2, 3].map((i) => (
@@ -384,7 +368,7 @@ export default function Recents() {
           {searching ? tChat("chat.sidebar.noMatch", { query: searching }) : tChat("chat.noThreads")}
         </p>
       ) : (
-        <div data-thread-scroll onKeyDown={onListKey} className="-mx-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1 pb-1">
+        <div data-thread-scroll onKeyDown={onListKey} className="recents-scroll -mx-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1 pb-1">
           {groups.map((g) => (
             <section key={g.id} aria-labelledby={`tg-${g.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-0.5 pb-3 last:pb-0">
               <h3 id={`tg-${g.id}`} className="label px-2.5 pt-1 pb-1 text-[0.625rem]">

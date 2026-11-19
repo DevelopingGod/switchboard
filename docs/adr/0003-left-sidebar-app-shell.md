@@ -40,6 +40,12 @@ Option 2. Details that matter:
 - **Page header:** slim and sticky (menu button on phones, section name as plain text because every page keeps its
   own h1, and a slot for page actions via a portal).
 
+## Review amendments (2026-11-19)
+- **One search, not two.** The first cut had a "Search ⌘K" button and a separate "Search chats" field. Options: (a) keep only the palette button (chats searchable inside the palette), (b) keep only the chat field, (c) **one field that filters the chats inline, with a ⌘K button (and the ⌘K shortcut) opening the full palette**. Chosen: (c), the recommended one: filtering the list you are looking at is the common action, and the palette (screens, commands, preferences) stays one keystroke away. The collapsed rail has a single palette button.
+- **Empty groups are never shown.** Grouping only builds groups that have chats (tested, including under a search); the list's bottom edge fades so a group cut off by the scroll area doesn't read as a lone heading.
+- **The sky covers the whole page.** The fixed `.sky` layer only fills the viewport, so a tall page captured in full (and overscroll) turned plain white below ~900 px. The same sky (gradient, or the sky image) is now also the root background, fixed, with the gradient's last colour underneath. Tested in both themes with the sky image on and off (`tests/sky.spec.ts`, which fails without the fix) plus full-page baselines.
+- **Simple mode is plain language** everywhere it shows routing: see docs/m3b.md.
+
 ## Consequences
 - Every new route inherits the shell; a page that needs its own column logic should use container-friendly grids,
   not viewport breakpoints.

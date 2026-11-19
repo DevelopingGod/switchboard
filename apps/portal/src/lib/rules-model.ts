@@ -176,3 +176,51 @@ export function mergeOverrides(base: RulesFile, ov: Overrides): RulesFile {
   }
   return out;
 }
+
+// --- plain language (Simple mode): no alias names, rule ids or arrows -------------------------------
+const PLAIN_ALIAS: Record<string, string> = {
+  fast: "a fast free model",
+  "smart-free": "a free long-context model",
+  explore: "another free model",
+  cerebras: "a fast free model",
+  "code-free": "a free coding model",
+  general: "a general-purpose model",
+  grok: "a premium model",
+  local: "your local model",
+  private: "your local model",
+  "local-code": "your local model",
+};
+const PLAIN_RULE: Record<string, string> = {
+  default: "everything else",
+  writing: "writing",
+  "writing-premium": "high-quality writing",
+  "code-light": "quick code questions",
+  "code-heavy": "big code tasks",
+  research: "research",
+  image: "images",
+  video: "video",
+  audio: "audio",
+  bulk: "bulk work",
+  private: "private chats",
+};
+
+export function plainTarget(t: string): string {
+  const [kind, ...rest] = t.split(":");
+  const name = rest.join(":");
+  if (kind === "model") return PLAIN_ALIAS[name] ?? (name.includes("/") ? "a model you picked" : "another model");
+  if (kind === "best") return `the best available model for ${name.replace(/-/g, " ")}`;
+  if (kind === "agent") return "an agent";
+  return "a media tool";
+}
+
+export const plainRuleName = (id: string) => PLAIN_RULE[id] ?? id.replace(/[-_]/g, " ");
+
+/** "Tries a free long-context model, then another free model, then your local model." */
+export function plainChain(chain: string[]): string {
+  const words = chain.map(plainTarget).filter((w, i, a) => a.indexOf(w) === i);
+  if (words.length === 0) return "";
+  return `Tries ${words.join(", then ")}.`;
+}
+
+export const plainPaid = (p: string | undefined) =>
+  p === "never" ? "Never uses paid models." : p === "allowed" ? "May use paid models on its own, within your spending caps." : "Uses paid models only when you pick one.";

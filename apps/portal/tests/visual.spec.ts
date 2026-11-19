@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { atTop, ready, renderAllSections, settled, unstick, unstickComposer } from "./helpers";
+import { atTop, inPro, ready, renderAllSections, settled, unstick, unstickComposer } from "./helpers";
 
 /** Visual-regression baselines: every gallery section in both themes (default system-follow). */
 const sections = [
@@ -71,6 +71,16 @@ for (const scheme of ["light", "dark"] as const) {
       const pop = page.getByRole("dialog", { name: "Why this route?" });
       await expect(pop).toBeVisible();
       await expect(pop).toHaveScreenshot(`chat-why-${scheme}.png`);
+    });
+
+    test("chat · why this? popover (Pro: the full breakdown)", async ({ page }) => {
+      await inPro(page);
+      await page.goto("/chat?t=6f1c2a10-0000-4000-8000-000000000001");
+      await ready(page);
+      await page.getByRole("button", { name: /Why this\? Routed to Google AI Studio/ }).click();
+      const pop = page.getByRole("dialog", { name: "Why this route?" });
+      await expect(pop).toBeVisible();
+      await expect(pop).toHaveScreenshot(`chat-why-pro-${scheme}.png`);
     });
 
     // M1.5
@@ -167,6 +177,17 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("region", { name: "Balanced" })).toBeVisible();
       await settled(page);
       await expect(page).toHaveScreenshot(`rules-simple-${scheme}.png`, { fullPage: true });
+    });
+
+    // The sky covers the whole page: a tall page captured in full keeps its sky to the very bottom.
+    test("sky · full page, css and image", async ({ page }) => {
+      for (const sky of ["css", "image"]) {
+        await page.goto(`/settings/rules?sky=${sky}`);
+        await ready(page);
+        await settled(page);
+        await atTop(page);
+        await expect(page).toHaveScreenshot(`sky-full-${sky}-${scheme}.png`, { fullPage: true });
+      }
     });
 
     test("rules · pro editor and tester", async ({ page }) => {

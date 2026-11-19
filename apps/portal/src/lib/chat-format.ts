@@ -31,3 +31,14 @@ export function targetName(target: string, t: TargetsResponse | null): string | 
   }
   return target.replace(/^model:/, "");
 }
+
+/** One plain sentence for Simple mode's "Why this?": no rule names, scores or alias words. */
+export function plainReason(r: RouteInfo): "private" | "sensitive" | "manual" | "slash" | "busy" | "code" | "writing" | "research" | "quick" | "everyday" {
+  if (r.sensitive || r.matched_by === "auto_private" || r.matched_by === "secret") return "sensitive";
+  if (r.matched_by === "private" || r.private) return "private";
+  if (r.matched_by === "manual") return "manual";
+  if (r.matched_by === "slash") return "slash";
+  if (r.skipped.some((s) => /cool|rate|quota|limit|busy|timeout/i.test(`${s.code} ${s.reason}`))) return "busy";
+  if (r.intent === "code" || r.intent === "writing" || r.intent === "research") return r.intent;
+  return r.cost_usd === 0 || r.free_tier ? "quick" : "everyday";
+}

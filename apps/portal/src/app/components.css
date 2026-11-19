@@ -189,7 +189,7 @@
 .sb-inner { display: flex; flex-direction: column; gap: 0.75rem; height: 100%; padding: 0.75rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-panel, 1.5rem); }
 .sb-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .sb-logo { display: flex; align-items: center; gap: 0.625rem; min-width: 0; padding: 0.125rem; border-radius: 999px; color: var(--ink); }
-.sb-actions { display: grid; gap: 0.5rem; }
+.sb-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
 .sb-nav { flex-shrink: 0; }
 .sb-recents { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 9rem; }
 .sb-bottom { display: grid; gap: 0.625rem; padding-top: 0.625rem; border-top: 1px solid var(--hairline); }
@@ -224,6 +224,10 @@
   background: var(--accent); color: var(--on-accent); font-weight: 800; font-size: 0.875rem;
 }
 .sb-rail-only { display: none; }
+.sb-field { display: flex; align-items: center; gap: 0.5rem; min-height: 2.5rem; padding: 0 0.625rem 0 0.75rem; border: 1px solid var(--hairline); border-radius: 999px; background: var(--glass); }
+.sb-field:focus-within { border-color: var(--accent-strong); background: var(--pill-active); }
+/* A group cut off at the bottom of the list fades out instead of ending in a lone heading. */
+.recents-scroll { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent); }
 
 /* Breathing health dot: slow scale + glow; static under reduced motion (the global rule zeroes it). */
 .sb-dot { display: block; width: 0.625rem; height: 0.625rem; border-radius: 999px; background: var(--ink-muted); }
@@ -257,7 +261,7 @@
   /* collapsed: icon rail */
   :root[data-sidebar="collapsed"] .app-sidebar .sb-full { display: none; }
   :root[data-sidebar="collapsed"] .app-sidebar .sb-label { max-width: 0; opacity: 0; }
-  :root[data-sidebar="collapsed"] .app-sidebar .sb-rail-only { display: grid; }
+  :root[data-sidebar="collapsed"] .app-sidebar .sb-rail-only { display: flex; }
   :root[data-sidebar="collapsed"] .sb-inner { align-items: center; padding-inline: 0.5rem; }
   :root[data-sidebar="collapsed"] .sb-top { flex-direction: column; }
   :root[data-sidebar="collapsed"] .sb-actions, :root[data-sidebar="collapsed"] .sb-nav, :root[data-sidebar="collapsed"] .sb-bottom { width: 100%; justify-items: center; }

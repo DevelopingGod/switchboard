@@ -34,7 +34,12 @@ test.describe("Simple mode (read-only data)", () => {
     const balanced = page.getByRole("region", { name: "Balanced" });
     await expect(balanced.getByText("Active")).toBeVisible();
     await expect(page.getByRole("region", { name: "Free only" }).getByRole("radiogroup", { name: "Paid models for Free only" }).getByRole("radio", { name: "Never" })).toBeChecked();
-    await expect(page.getByRole("region", { name: "Best quality" })).toContainText("default: best for reasoning");
+    const best = page.getByRole("region", { name: "Best quality" });
+    await expect(best).toContainText("For everything else: tries the best available model for reasoning");
+    await expect(best).toContainText("May use paid models on its own");
+    // plain language only: no alias names, rule ids, arrows or "model:" in Simple
+    const text = (await best.innerText()) + (await page.getByRole("region", { name: "Free only" }).innerText());
+    expect(text).not.toMatch(/→|smart-free|local-code|default:|writing-premium|model:|best for reasoning/);
     await expect(page.locator("summary", { hasText: "Edit this preset’s rules" })).toHaveCount(0); // Pro only
     await expect(page.getByRole("heading", { name: "Try a message" })).toBeVisible();
   });
