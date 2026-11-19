@@ -16,7 +16,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits, hostprobe_client, local_profile, ollama, quota, secrets, sync, user_settings
+from app import (
+    credits,
+    hostprobe_client,
+    local_profile,
+    ollama,
+    quota,
+    rules_versions,
+    secrets,
+    sync,
+    user_settings,
+)
 from app.config import get_settings
 from app.db import get_session
 from app.deps import litellm, require_admin
@@ -27,7 +37,6 @@ from app.registry import load_registry
 from app.routing import classifier
 from app.routing.context import connected_providers, spent_today, value_saved_today
 from app.routing.health import cooldowns
-from app.routing.rules import load_rules
 
 router = APIRouter(tags=["system"])
 
@@ -103,7 +112,7 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
     usage = {
         u["provider"]: u for u in quota.provider_summary(view, await connected_providers(session, registry))
     }
-    rq = load_rules().quota
+    rq = (await rules_versions.effective_rules(session)).quota
     conns = {c.provider: c for c in (await session.execute(select(Connection))).scalars()}
     for p in registry.providers.values():
         if p.kind == "cli":
@@ -256,7 +265,8 @@ async def summary(request: Request, session: AsyncSession = Depends(get_session)
         _reachable("paperclip", s.paperclip_url.rstrip("/") + "/api/health"),
     )
     o = await user_settings.load(session)
-    cap = float(o.get("daily_cap_usd", load_rules().defaults.daily_cap_usd))
+    rules = await rules_versions.effective_rules(session)
+    cap = float(o.get("daily_cap_usd", rules.defaults.daily_cap_usd))
     spent = await spent_today(session)
     cooling = cooldowns.active()
     registry = load_registry()
@@ -270,7 +280,7 @@ async def summary(request: Request, session: AsyncSession = Depends(get_session)
             elif c["starting_usd"] and c["remaining_usd"] / c["starting_usd"] < 0.2:
                 low.append(p.id)
     cap_used = spent / cap if cap > 0 else 1.0
-    near = any(u["fraction"] >= load_rules().quota.reroute_at for u in by_provider)
+    near = any(u["fraction"] >= rules.quota.reroute_at for u in by_provider)
     status = (
         "blocked"
         if cap_used >= 1

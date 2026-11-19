@@ -251,6 +251,20 @@ def _summary(c: dict[str, Any]) -> SummaryCfg:
 
 
 _cache: dict[Path, tuple[float, RuleSet]] = {}
+_raw_cache: dict[Path, tuple[float, dict[str, Any]]] = {}
+
+
+def load_raw(config_dir: Path | None = None) -> dict[str, Any]:
+    """rules.yaml as a plain dict (the base the Rules UI's overrides are merged onto). Treat as
+    read-only: callers that change it must deepcopy."""
+    path = (config_dir or get_settings().config_dir) / "rules.yaml"
+    mtime = path.stat().st_mtime
+    hit = _raw_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    data = yaml.safe_load(path.read_text()) or {}
+    _raw_cache[path] = (mtime, data)
+    return data
 
 
 def load_rules(config_dir: Path | None = None) -> RuleSet:

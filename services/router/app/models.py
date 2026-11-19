@@ -239,3 +239,19 @@ class QuotaHeaders(Base):
     scope_key: Mapped[str] = mapped_column(String(255), primary_key=True)
     data: Mapped[dict[str, Any]] = mapped_column(default=dict)
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RulesVersion(Base):
+    """Rules UI (M3b, ADR 0004): append-only history of override documents layered over rules.yaml.
+    The current version is the newest row; a rollback is a new row that copies an older one, so history
+    is never rewritten. `overrides` is the whole document (not a patch against the previous version)."""
+
+    __tablename__ = "rules_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    source: Mapped[str] = mapped_column(String(16), default="edit")  # edit | rollback | reset
+    note: Mapped[str | None] = mapped_column(String(200))
+    rolled_back_to: Mapped[int | None] = mapped_column(Integer)
+    base_sha: Mapped[str] = mapped_column(String(64), default="")  # sha256 of rules.yaml when saved
+    overrides: Mapped[dict[str, Any]] = mapped_column(default=dict)

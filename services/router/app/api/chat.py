@@ -18,9 +18,10 @@ from app.chat.dispatch import Fault
 from app.config import get_settings
 from app.db import get_session
 from app.deps import litellm, require_admin
+from app.errors import rules_invalid
 from app.litellm_admin import LiteLLMAdmin
 from app.models import Message, ModelStats, Request, Thread
-from app.routing import secrets_detect
+from app.routing import overrides, secrets_detect
 from app.routing.context import build_context
 from app.routing.engine import NON_CHAT_TAGS, RouteRequest, decide, reasons
 
@@ -83,6 +84,8 @@ class DryRunIn(BaseModel):
     text: str = Field(min_length=1, max_length=32_000)
     target: str = Field(default="auto", max_length=220, pattern=TARGET)
     private: bool = False
+    # An unsaved Rules UI override document: test a change before saving it (never persisted).
+    draft: dict[str, Any] | None = None
 
 
 def _thread_json(t: Thread) -> dict[str, Any]:
@@ -410,7 +413,10 @@ async def targets(session: AsyncSession = Depends(get_session)) -> dict[str, Any
 @router.post("/route/dry-run")
 async def dry_run(body: DryRunIn, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     """Which rule fires and which targets would be tried, without calling a model (M3 tester)."""
-    ctx = await build_context(session)
+    try:
+        ctx = await build_context(session, body.draft)
+    except overrides.RulesInvalid as e:
+        raise rules_invalid(e) from e
     masked, kinds = secrets_detect.mask(body.text)
     intent, cinfo = await service.classify_for(masked, ctx, body.private, bool(kinds))
     try:

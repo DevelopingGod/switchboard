@@ -76,7 +76,7 @@ def database():
 
 TABLES = (
     "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
-    "costs, requests, quota_usage, cooldowns, quota_headers"
+    "costs, requests, quota_usage, cooldowns, quota_headers, rules_versions"
 )
 
 

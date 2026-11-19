@@ -6,10 +6,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import user_settings
+from app import rules_versions, user_settings
 from app.db import get_session
 from app.deps import require_admin
-from app.routing.rules import load_rules
 
 router = APIRouter(tags=["settings"])
 
@@ -25,7 +24,7 @@ class SettingsIn(BaseModel):
 
 
 async def _view(session: AsyncSession) -> dict[str, Any]:
-    d = load_rules().defaults
+    d = (await rules_versions.effective_rules(session)).defaults
     o = await user_settings.load(session)
     return {
         "max_cost_usd": o.get("max_cost_usd", d.max_cost_usd),

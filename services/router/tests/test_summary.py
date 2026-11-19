@@ -24,7 +24,9 @@ def small_budget(monkeypatch):
         rs = real(config_dir)
         return replace(rs, defaults=replace(rs.defaults, max_context_tokens=2000))
 
-    monkeypatch.setattr("app.routing.context.load_rules", load)
+    monkeypatch.setattr(
+        "app.routing.rules.load_rules", load
+    )  # the base the effective rules start from (rules_versions)
 
 
 async def chat_until_summary(client, stack, private=False, rounds=4):
