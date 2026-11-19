@@ -17,7 +17,7 @@
 | M1.5 Design polish + self-healing | ✅ Merged | m15 / #8 | Opus 5.5 | doctor never hangs; self-healing LiteLLM sync + plain errors + Status view; footer, splash, shortcuts, chat sidebar/column, Why fix, Settings, motion v2, ambient cursor, one tooltip; see M1.5 outcome |
 | M3 Rules UI + classifier | 🔨 Split into M3a + M3b | — | Opus 5.5, high | Done when M3b merges (M3a merged) |
 | M3a Routing brain | ✅ Merged | m3a / #9 | Opus 5.5 | Arch-Router 96.2% (held-out 92.5%), recommender, quota guard, generic adapter (test-only proof), summaries, local-model profiles, auto-private + secret masking; see M3a outcome |
-| M3b Rules UI + sidebar | 🔎 In review | m3b / PR pending | Sonnet 5.5 | Left-sidebar shell, Rules UI (Simple presets / Pro editor, versions, rollback, dry-run tester), classifier + tasks on the CPU on small GPUs, Gemini limits, flake root-caused, claude/codex login checks; see M3b outcome |
+| M3b Rules UI + sidebar | 🔎 In review | m3b / #10 | Sonnet 5.5 | Left-sidebar shell, Rules UI (Simple presets / Pro editor, versions, rollback, dry-run tester), classifier + tasks on the CPU on small GPUs, Gemini limits, flake root-caused, claude/codex login checks; see M3b outcome |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
