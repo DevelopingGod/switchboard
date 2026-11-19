@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { ready } from "./helpers";
 
 /** The one project version (repo-root VERSION); fixtures.ts must carry the same value. */
-const PROJECT_VERSION = readFileSync(new URL("../../../VERSION", import.meta.url), "utf8").trim();
+const PROJECT_VERSION = readFileSync(join(process.cwd(), "../../VERSION"), "utf8").trim();
 
 /** The enhancement layer (tooltips, scrollbars, cursor) installs on idle; wait for it. */
 async function enhanced(page: Page) {

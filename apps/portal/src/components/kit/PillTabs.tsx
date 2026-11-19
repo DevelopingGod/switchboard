@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import * as m from "motion/react-m";
 import { GlassPanel } from "./GlassPanel";
+import { MotionScope } from "./MotionScope";
 import { cn } from "@/lib/cn";
 import { shared } from "@/design/design-tokens";
 
@@ -85,7 +86,7 @@ export function PillTabs({ items, value, onChange, label, className }: PillTabsP
     requestAnimationFrame(() => document.getElementById(`${group}-${next.id}`)?.focus());
   };
 
-  return asNav ? (
+  const list = asNav ? (
     <GlassPanel as="nav" aria-label={label} padded={false} className={cn("rounded-chip p-1", className)}>
       <ul className="flex items-center gap-0.5">{body}</ul>
     </GlassPanel>
@@ -100,4 +101,5 @@ export function PillTabs({ items, value, onChange, label, className }: PillTabsP
       {items.map((item, i) => React.cloneElement(body[i] as React.ReactElement<{ id?: string }>, { id: `${group}-${item.id}` }))}
     </GlassPanel>
   );
+  return <MotionScope>{list}</MotionScope>;
 }
