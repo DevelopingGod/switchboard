@@ -6,7 +6,6 @@
 export const strings = {
   app: { name: "Switchboard", tagline: "One portal for every model and agent." },
   nav: {
-    label: "Primary",
     chat: "Chat",
     studio: "Studio",
     jobs: "Jobs",
@@ -17,7 +16,6 @@ export const strings = {
     newChat: "New chat",
     home: "Home",
     skip: "Skip to content",
-    mobileLabel: "Primary (mobile)",
   },
   home: {
     greeting: "Hello, {name}.",

@@ -5,7 +5,6 @@ import { lookup, type Leaves, type Vars } from "./strings";
 export const chatStrings = {
   chat: {
     title: "Chat",
-    threads: "Chats",
     sidebar: {
       search: "Search chats",
       noMatch: "No chats match “{query}”.",
