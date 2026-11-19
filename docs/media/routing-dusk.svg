@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-labelledby="t d">
+<title id="t">How Switchboard routes a message</title>
+<desc id="d">A message goes to the classifier, then the rules, then the quota guard, then a model. When the quota guard sees a free limit about 80 percent used, or a model is rate-limited, the message goes to the fallback instead. Agents and jobs arrive in milestone 4.</desc>
+<style>text{font-family:'Plus Jakarta Sans','Manrope','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif}
+.wire{fill:none;stroke:#b3b6fa;stroke-opacity:.45;stroke-width:2.5;stroke-linecap:round}
+.fbwire{stroke:#6fe3a4;stroke-opacity:.9;stroke-dasharray:7 7}
+.g{opacity:0}
+.dot{opacity:0}
+.dot.d1{animation:d1 18s linear infinite}
+.dot.d2{animation:d2 18s linear infinite}
+@keyframes d1{0%{opacity:0;transform:translate(121px,109px)}1%{opacity:1;transform:translate(121px,109px)}9.5%{opacity:1;transform:translate(358px,109px)}10.7%{opacity:1;transform:translate(358px,109px)}19.2%{opacity:1;transform:translate(595px,109px)}20.4%{opacity:1;transform:translate(595px,109px)}28.9%{opacity:1;transform:translate(832px,109px)}30.1%{opacity:1;transform:translate(832px,109px)}38.6%{opacity:1;transform:translate(1069px,109px)}40.6%{opacity:0;transform:translate(1069px,109px)}}
+@keyframes d2{50%{opacity:0;transform:translate(121px,109px)}51%{opacity:1;transform:translate(121px,109px)}59.5%{opacity:1;transform:translate(358px,109px)}60.7%{opacity:1;transform:translate(358px,109px)}69.2%{opacity:1;transform:translate(595px,109px)}70.4%{opacity:1;transform:translate(595px,109px)}78.9%{opacity:1;transform:translate(832px,109px)}80.1%{opacity:1;transform:translate(832px,109px)}88.6%{opacity:1;transform:translate(832px,277px)}89.8%{opacity:1;transform:translate(832px,277px)}98.3%{opacity:1;transform:translate(1069px,277px)}100.3%{opacity:0;transform:translate(1069px,277px)}}
+.n0{animation:g_n0 18s linear infinite}@keyframes g_n0{0%{opacity:0}-0.2%{opacity:0}1%{opacity:1}8%{opacity:0}49.8%{opacity:0}51%{opacity:1}58%{opacity:0}100%{opacity:0}}
+.n1{animation:g_n1 18s linear infinite}@keyframes g_n1{0%{opacity:0}8.3%{opacity:0}9.5%{opacity:1}16.5%{opacity:0}58.3%{opacity:0}59.5%{opacity:1}66.5%{opacity:0}100%{opacity:0}}
+.n2{animation:g_n2 18s linear infinite}@keyframes g_n2{0%{opacity:0}18%{opacity:0}19.2%{opacity:1}26.2%{opacity:0}68%{opacity:0}69.2%{opacity:1}76.2%{opacity:0}100%{opacity:0}}
+.n3{animation:g_n3 18s linear infinite}@keyframes g_n3{0%{opacity:0}27.7%{opacity:0}28.9%{opacity:1}35.9%{opacity:0}77.7%{opacity:0}78.9%{opacity:1}85.9%{opacity:0}100%{opacity:0}}
+.n4{animation:g_n4 18s linear infinite}@keyframes g_n4{0%{opacity:0}37.4%{opacity:0}38.6%{opacity:1}45.6%{opacity:0}100%{opacity:0}}
+.fb{animation:g_fb 18s linear infinite}@keyframes g_fb{0%{opacity:0}87.4%{opacity:0}88.6%{opacity:1}95.6%{opacity:0}100%{opacity:0}}
+.warn{opacity:0;animation:warn 18s linear infinite}
+@keyframes warn{0%,76.9%{opacity:0}78.9%,88.9%{opacity:1}92.9%,100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){.dot{display:none}.g,.warn{animation:none!important}.warn{opacity:1}.fb{opacity:1}}</style>
+<rect width="1200" height="380" rx="28" fill="#1a1850" fill-opacity="0"/>
+<path class="wire " d="M221 109L258 109" />
+<path class="wire " d="M458 109L495 109" />
+<path class="wire " d="M695 109L732 109" />
+<path class="wire " d="M932 109L969 109" />
+<path class="wire fbwire" d="M832 148C832 198 949 277 969 277"/>
+<g class="soon"><rect x="495" y="238" width="200" height="78" rx="18" fill="none" stroke="#b9bdee" stroke-dasharray="6 6" stroke-width="1.5"/>
+<text x="595" y="271" text-anchor="middle" font-size="19" font-weight="700" fill="#b9bdee">Agent or job</text>
+<text x="595" y="294" text-anchor="middle" font-size="13" fill="#b9bdee">coming in M4</text></g>
+<path d="M595 148V238" stroke="#b9bdee" stroke-width="1.5" stroke-dasharray="3 6" fill="none"/>
+<g>
+<rect x="21" y="70" width="200" height="78" rx="18" fill="rgba(22,20,64,0.92)" stroke="rgba(190,190,255,0.16)" stroke-width="1.5"/>
+<rect class="g n0" x="18" y="67" width="206" height="84" rx="21" fill="none" stroke="#b3b6fa" stroke-width="3"/>
+<text x="121" y="103" text-anchor="middle" font-size="20" font-weight="700" fill="#eef0ff">Your message</text>
+<text x="121" y="127" text-anchor="middle" font-size="13.5" fill="#b9bdee">or a /slash command</text></g>
+<g>
+<rect x="258" y="70" width="200" height="78" rx="18" fill="rgba(22,20,64,0.92)" stroke="rgba(190,190,255,0.16)" stroke-width="1.5"/>
+<rect class="g n1" x="255" y="67" width="206" height="84" rx="21" fill="none" stroke="#b3b6fa" stroke-width="3"/>
+<text x="358" y="103" text-anchor="middle" font-size="20" font-weight="700" fill="#eef0ff">Classifier</text>
+<text x="358" y="127" text-anchor="middle" font-size="13.5" fill="#b9bdee">Arch-Router, on-device</text></g>
+<g>
+<rect x="495" y="70" width="200" height="78" rx="18" fill="rgba(22,20,64,0.92)" stroke="rgba(190,190,255,0.16)" stroke-width="1.5"/>
+<rect class="g n2" x="492" y="67" width="206" height="84" rx="21" fill="none" stroke="#b3b6fa" stroke-width="3"/>
+<text x="595" y="103" text-anchor="middle" font-size="20" font-weight="700" fill="#eef0ff">Rules</text>
+<text x="595" y="127" text-anchor="middle" font-size="13.5" fill="#b9bdee">private stays local</text></g>
+<g>
+<rect x="732" y="70" width="200" height="78" rx="18" fill="rgba(22,20,64,0.92)" stroke="rgba(190,190,255,0.16)" stroke-width="1.5"/>
+<rect class="g n3" x="729" y="67" width="206" height="84" rx="21" fill="none" stroke="#b3b6fa" stroke-width="3"/>
+<text x="832" y="103" text-anchor="middle" font-size="20" font-weight="700" fill="#eef0ff">Quota guard</text>
+<text x="832" y="127" text-anchor="middle" font-size="13.5" fill="#b9bdee">reroutes at 80% used</text></g>
+<g>
+<rect x="969" y="70" width="200" height="78" rx="18" fill="rgba(22,20,64,0.92)" stroke="rgba(190,190,255,0.16)" stroke-width="1.5"/>
+<rect class="g n4" x="966" y="67" width="206" height="84" rx="21" fill="none" stroke="#b3b6fa" stroke-width="3"/>
+<text x="1069" y="103" text-anchor="middle" font-size="20" font-weight="700" fill="#eef0ff">Model</text>
+<text x="1069" y="127" text-anchor="middle" font-size="13.5" fill="#b9bdee">Groq, Gemini, local…</text></g>
+<g>
+<rect x="969" y="238" width="200" height="78" rx="18" fill="rgba(22,20,64,0.92)" stroke="rgba(190,190,255,0.16)" stroke-width="1.5"/>
+<rect class="g fb" x="966" y="235" width="206" height="84" rx="21" fill="none" stroke="#6fe3a4" stroke-width="3"/>
+<text x="1069" y="271" text-anchor="middle" font-size="20" font-weight="700" fill="#eef0ff">Fallback</text>
+<text x="1069" y="295" text-anchor="middle" font-size="13.5" fill="#b9bdee">next model in the rule</text></g>
+<g class="warn"><text x="846" y="187" font-size="14" font-weight="700" fill="#ffc766">80% used or 429</text>
+<text x="846" y="205" font-size="13" fill="#b9bdee">so it moves on</text></g>
+<circle class="dot d1" r="9" fill="#8b8fe8" stroke="#eef0ff" stroke-width="3"/>
+<circle class="dot d2" r="9" fill="#8b8fe8" stroke="#eef0ff" stroke-width="3"/>
+<text x="600" y="362" text-anchor="middle" font-size="14" fill="#b9bdee">Every hop is logged. “Why this?” shows the rule, the score, and what was skipped and why.</text>
+</svg>

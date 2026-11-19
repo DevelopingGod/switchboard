@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 440" width="1200" height="440" role="img" aria-labelledby="t d">
+<title id="t">Switchboard</title>
+<desc id="d">One calm portal for every AI — free tiers, subscriptions and local models, routed for you.</desc>
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#a9d4ff"/><stop offset="34%" stop-color="#cfd3ff"/><stop offset="64%" stop-color="#f3cdee"/><stop offset="100%" stop-color="#ffd9c2"/></linearGradient>
+<radialGradient id="bloomA" cx="14%" cy="8%" r="60%"><stop offset="0" stop-color="#fff" stop-opacity="0.8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<radialGradient id="bloomB" cx="90%" cy="40%" r="50%"><stop offset="0" stop-color="#ffd6e8" stop-opacity="0.85"/><stop offset="1" stop-color="#ffd6e8" stop-opacity="0"/></radialGradient>
+<linearGradient id="arc" x1="6" y1="34" x2="36" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#6d72de"/><stop offset="1" stop-color="#b3b6fa"/></linearGradient>
+<path fill="#fff" id="cl" d="M0 60 C0 40 22 32 38 40 C46 14 84 10 98 34 C116 20 150 26 152 52 C176 50 188 70 170 82 L20 82 C4 82 -4 72 0 60Z"/>
+<clipPath id="c0"><rect class="reveal rvc0" x="397.5" y="294" width="405" height="46"/></clipPath>
+<clipPath id="c1"><rect class="reveal rvc1" x="201.8" y="338" width="796.5" height="46"/></clipPath>
+</defs>
+<style>
+text{font-family:'Plus Jakarta Sans','Manrope','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif}
+.drift{animation-name:drift;animation-timing-function:linear;animation-iteration-count:infinite}
+@keyframes drift{from{transform:translateX(-260px)}to{transform:translateX(1500px)}}
+.mark{transform-box:fill-box;transform-origin:center;animation:breathe 5.5s ease-in-out infinite}
+.halo{transform-box:fill-box;transform-origin:center;animation:halo 5.5s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@keyframes halo{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:.8;transform:scale(1.22)}}
+.reveal{transform-box:fill-box;transform-origin:0 50%}
+.rvc0{animation:type0 15s steps(30,end) infinite}
+.rvc1{animation:type1 15s steps(58,end) infinite}
+@keyframes type0{0%,4%{transform:scaleX(0)}20%,88%{transform:scaleX(1)}96%,100%{transform:scaleX(0)}}
+@keyframes type1{0%,20%{transform:scaleX(0)}48%,88%{transform:scaleX(1)}96%,100%{transform:scaleX(0)}}
+.caret{animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion: reduce){.drift,.mark,.halo,.reveal,.caret{animation:none!important}.reveal{transform:none!important}.caret{display:none}}
+</style>
+<rect width="1200" height="440" fill="url(#sky)"/>
+<rect width="1200" height="440" fill="url(#bloomA)"/>
+<rect width="1200" height="440" fill="url(#bloomB)"/>
+<g class="drift far" style="animation-duration:170s;animation-delay:-60s" opacity="0.5"><use href="#cl" transform="translate(0 40) scale(1.5)"/><use href="#cl" transform="translate(380 54) scale(1.5)"/><use href="#cl" transform="translate(780 40) scale(1.5)"/></g>
+<g class="drift mid" style="animation-duration:120s;animation-delay:-70s" opacity="0.62"><use href="#cl" transform="translate(60 150) scale(1.1)"/><use href="#cl" transform="translate(520 164) scale(1.1)"/><use href="#cl" transform="translate(940 150) scale(1.1)"/></g>
+<g class="drift near" style="animation-duration:85s;animation-delay:-20s" opacity="0.7"><use href="#cl" transform="translate(-40 300) scale(1.9)"/><use href="#cl" transform="translate(430 314) scale(1.9)"/><use href="#cl" transform="translate(860 300) scale(1.9)"/></g>
+<g transform="translate(544 36) scale(2.8)">
+<circle class="halo" cx="20" cy="20" r="17" fill="#8b8fe8" opacity=".5"/>
+<g class="mark">
+<path d="M9.39 30.61A15 15 0 1 1 35 20" fill="none" stroke="url(#arc)" stroke-width="5" stroke-linecap="round"/>
+<circle cx="35" cy="20" r="4.4" fill="#8b8fe8" stroke="#fff" stroke-width="2"/>
+<circle cx="20" cy="20" r="4" fill="#171a3d"/>
+<path d="M20 20 12.5 27.5" stroke="#171a3d" stroke-width="2.4" stroke-linecap="round"/>
+</g></g>
+<text x="600" y="232" text-anchor="middle" font-size="68" font-weight="800" letter-spacing="-2.5" fill="#171a3d" textLength="400" lengthAdjust="spacingAndGlyphs">Switchboard</text>
+<text clip-path="url(#c0)" x="397.5" y="328" font-size="27" font-weight="600" fill="#171a3d" textLength="405" lengthAdjust="spacingAndGlyphs">One calm portal for every AI —</text>
+<text clip-path="url(#c1)" x="201.8" y="372" font-size="27" font-weight="600" fill="#171a3d" textLength="796.5" lengthAdjust="spacingAndGlyphs">free tiers, subscriptions and local models, routed for you.</text>
+</svg>

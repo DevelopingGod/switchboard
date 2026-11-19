@@ -23,3 +23,12 @@ At the end of every milestone, update docs/PROGRESS.md (status table, outcomes, 
 - Prefer the boring, proven option unless there is a measured reason not to.
 - If something in the spec looks wrong or sub-optimal, say so and propose a better path — don't silently follow or
   silently deviate.
+
+## Definition of done for every milestone
+- All of the milestone's own "done when" checks pass, and docs/PROGRESS.md is updated (see the top of this file).
+- **README.md is updated for every user-visible change:** features, screenshots (docs/media, compressed, with alt
+  text), roadmap (✅/🔜/💡 must match the PROGRESS.md status table), quickstart, and the demo recording if the UI
+  changed (docs/recording-the-demo.md). Keep every claim true today: if it is not shipped, it is marked "coming in Mx".
+- `npm run docs:check` (from `apps/portal`) passes: links and images resolve, every image has alt text, media size
+  limits hold, the version in VERSION matches everywhere, and the README roadmap matches PROGRESS.md.
+- The one project version lives in the root `VERSION` file. Bump it there; never edit the copies by hand.
