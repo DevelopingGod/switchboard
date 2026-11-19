@@ -50,6 +50,8 @@ export const settingsStrings = {
   },
   routing: {
     explore: "Explore new models",
+    rulesLink: "Edit routing rules",
+    rulesHint: "Presets, individual rules, slash commands and the classifier, with history and a tester.",
     exploreHint: "Let automatic picks try models with fewer than 5 answers so far, when they score well. Off: a proven model always wins.",
     explain: "For “best” targets, Switchboard scores each connected model on the task, your thumbs up and down, speed, errors, free quota left, cost and privacy. The “Why this?” chip shows the top reasons and the runner-up.",
   },

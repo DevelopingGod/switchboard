@@ -1,0 +1,32 @@
+{
+  "_doc": "Contract cases for the rules override merge, run against BOTH implementations: services/router/tests/test_rules_overrides.py (Python, authoritative) and apps/portal/src/lib/rules-model.test.ts (the editor's live preview). Change one, change the other.",
+  "base": {
+    "defaults": { "temperature": 0.4, "max_cost_usd": 0.5 },
+    "rules": [
+      { "id": "private", "when": { "private": true }, "target": "model:local", "fallbacks": [] },
+      { "id": "writing", "when": { "intent": "writing" }, "target": "model:smart-free", "fallbacks": ["model:fast"], "temperature": 0.8 },
+      { "id": "bulk", "when": { "command": "bulk" }, "target": "model:fast" },
+      { "id": "default", "when": {}, "target": "model:fast", "fallbacks": ["model:local"] }
+    ],
+    "slash": { "bulk": "bulk", "chat": "default" },
+    "presets": { "free": { "paid": "never", "rules": { "writing": { "target": "model:smart-free" } } }, "balanced": { "paid": "manual" } },
+    "classifier": { "timeout_s": 1.5, "routes": [{ "name": "writing", "description": "Write text.", "facts": { "intent": "writing" } }] },
+    "recommender": { "min_samples": 5, "weights": { "cost": 0.1, "latency": 0.15 } },
+    "quota": { "reroute_at": 0.8, "block_at": 1.0 },
+    "summary": { "start_at": 0.75, "keep_last": 6 }
+  },
+  "cases": [
+    { "name": "empty", "overrides": {}, "rule_ids": ["private", "writing", "bulk", "default"] },
+    { "name": "edit a field keeps the rest", "overrides": { "rules": { "writing": { "target": "model:fast", "temperature": 0.3 } } }, "check": { "rules.writing": { "id": "writing", "when": { "intent": "writing" }, "target": "model:fast", "fallbacks": ["model:fast"], "temperature": 0.3 } } },
+    { "name": "disable removes the rule", "overrides": { "rules": { "bulk": { "disabled": true } } }, "rule_ids": ["private", "writing", "default"] },
+    { "name": "a new rule goes before default", "overrides": { "rules": { "mine": { "when": { "intent": "chat" }, "target": "model:fast" } } }, "rule_ids": ["private", "writing", "bulk", "mine", "default"] },
+    { "name": "a new rule can be placed before a named one", "overrides": { "rules": { "mine": { "when": { "intent": "chat" }, "target": "model:fast", "before": "writing" } } }, "rule_ids": ["private", "mine", "writing", "bulk", "default"] },
+    { "name": "two new rules keep their order", "overrides": { "rules": { "a1": { "when": {}, "target": "model:fast" }, "b1": { "when": {}, "target": "model:fast" } } }, "rule_ids": ["private", "writing", "bulk", "a1", "b1", "default"] },
+    { "name": "a disabled unknown rule is ignored", "overrides": { "rules": { "ghost": { "disabled": true } } }, "rule_ids": ["private", "writing", "bulk", "default"] },
+    { "name": "slash add and remove", "overrides": { "slash": { "quick": "default", "chat": null } }, "check": { "slash": { "bulk": "bulk", "quick": "default" } } },
+    { "name": "defaults, quota, summary merge key by key", "overrides": { "defaults": { "max_cost_usd": 0.2 }, "quota": { "reroute_at": 0.7 }, "summary": { "keep_last": 8 } }, "check": { "defaults": { "temperature": 0.4, "max_cost_usd": 0.2 }, "quota": { "reroute_at": 0.7, "block_at": 1.0 }, "summary": { "start_at": 0.75, "keep_last": 8 } } },
+    { "name": "recommender weights merge", "overrides": { "recommender": { "weights": { "cost": 0.3 } } }, "check": { "recommender": { "min_samples": 5, "weights": { "cost": 0.3, "latency": 0.15 } } } },
+    { "name": "presets merge the paid policy and the per-rule overlay", "overrides": { "presets": { "free": { "paid": "manual", "rules": { "bulk": { "target": "model:local" } } } } }, "check": { "presets.free": { "paid": "manual", "rules": { "writing": { "target": "model:smart-free" }, "bulk": { "target": "model:local" } } }, "presets.balanced": { "paid": "manual" } } },
+    { "name": "classifier description and a new route", "overrides": { "classifier": { "timeout_s": 2, "routes": { "writing": { "description": "Mine." }, "fresh": { "description": "New.", "facts": { "intent": "chat" } } } } }, "check": { "classifier": { "timeout_s": 2, "routes": [{ "name": "writing", "description": "Mine.", "facts": { "intent": "writing" } }, { "name": "fresh", "description": "New.", "facts": { "intent": "chat" } }] } } }
+  ]
+}

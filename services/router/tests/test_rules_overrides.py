@@ -4,6 +4,7 @@ file changes under saved overrides."""
 
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
@@ -375,3 +376,28 @@ def test_targets_already_in_rules_yaml_stay_editable_even_if_their_alias_does_no
     assert "rules.writing-premium.target" in problems(
         {"rules": {"writing-premium": {"target": "model:grok2"}}}
     )
+
+
+# --- contract with the portal's live-preview merge (apps/portal/src/lib/rules-model.ts) ----------------
+CONTRACT = json.loads((Path(__file__).parent / "fixtures" / "rules_merge_cases.json").read_text())
+
+
+def _at(doc, path):
+    head, *rest = path.split(".")
+    if head == "rules":
+        return next(r for r in doc["rules"] if r["id"] == rest[0])
+    node = doc[head]
+    for k in rest:
+        node = node[k]
+    return node
+
+
+@pytest.mark.parametrize("case", CONTRACT["cases"], ids=lambda c: c["name"])
+def test_merge_matches_the_shared_contract_cases(case):
+    base = copy.deepcopy(CONTRACT["base"])
+    out = ov.merge(base, case["overrides"])
+    assert base == CONTRACT["base"]  # never changed
+    if "rule_ids" in case:
+        assert [r["id"] for r in out["rules"]] == case["rule_ids"]
+    for path, want in (case.get("check") or {}).items():
+        assert _at(out, path) == want, path
