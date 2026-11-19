@@ -13,7 +13,7 @@ import logging
 
 import httpx
 
-from app import local_profile, ollama
+from app import local_profile, local_queue, ollama
 
 log = logging.getLogger("app.chat.aux")
 
@@ -36,26 +36,31 @@ async def generate(
     prof = local_profile.active()
     if prof.tasks and "ollama" in connected:
         try:
-            text = await ollama.chat(
-                prof.tasks,
-                [{"role": "user", "content": prompt}],
-                timeout=timeout,
-                keep_alive="10m",
-                think=False,
-                options={
-                    "temperature": temperature,
-                    "num_predict": max_tokens,
-                    **({"num_ctx": num_ctx} if num_ctx else {}),
-                },
-            )
-            schedule_unload(prof.tasks)
-            if not private:  # private threads skip the classifier: don't swap qwen out again
-                from app.routing import classifier
+            # One at a time, and never while a classification is in flight (local_queue). The wait
+            # counts against `timeout`, so a busy queue ends in the usual fallback, not a hang.
+            async with asyncio.timeout(timeout), local_queue.background():
+                text = await ollama.chat(
+                    prof.tasks,
+                    [{"role": "user", "content": prompt}],
+                    timeout=timeout,
+                    keep_alive=prof.tasks_keep_alive,
+                    think=False,
+                    options={
+                        "temperature": temperature,
+                        "num_predict": max_tokens,
+                        **prof.tasks_options,
+                        **({"num_ctx": num_ctx} if num_ctx else {}),
+                    },
+                )
+            if prof.tasks_on_gpu:  # a GPU tasks model can evict the others (small GPUs); CPU ones can't
+                schedule_unload(prof.tasks)
+                if not private:  # private threads skip the classifier: don't swap qwen out again
+                    from app.routing import classifier
 
-                classifier.ensure_resident()
+                    classifier.ensure_resident()
             if text:
                 return text, f"ollama/{prof.tasks}"
-        except ollama.OllamaError as e:
+        except (ollama.OllamaError, local_queue.QueueFull, TimeoutError) as e:
             log.info("local %s failed (%s)%s", prof.tasks, e, "; trying the cloud" if cloud_ok else "")
     if not cloud_ok:
         return None, None

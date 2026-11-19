@@ -14,6 +14,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from fnmatch import fnmatchcase
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -111,7 +112,13 @@ def scope_of(p: Provider, pol: Policy, model_id: str) -> str | None:
 
 
 def limit_of(pol: Policy, model_id: str) -> Limit:
-    return pol.models.get(model_id, pol.default)
+    """An exact `models:` key wins; otherwise the first key with a glob (`gemini-*-pro*`) that matches."""
+    if model_id in pol.models:
+        return pol.models[model_id]
+    for pattern, lim in pol.models.items():
+        if any(c in pattern for c in "*?[") and fnmatchcase(model_id, pattern):
+            return lim
+    return pol.default
 
 
 # --- windows ------------------------------------------------------------------------------------
@@ -164,6 +171,8 @@ class Usage:
     estimate: bool = False
 
     def describe(self) -> str:
+        if self.limit == 0:
+            return "has no free access (needs a paid plan)"
         pct = int(round(self.fraction * 100))
         what = "today's" if self.window == "day" else "its per-minute"
         tok = " token" if self.kind == "tokens" else ""
@@ -213,7 +222,11 @@ class QuotaView:
         out: list[Usage] = []
 
         def add(limit: int | None, used: float, window: str, kind: str, resets: datetime) -> None:
-            if limit:
+            if limit == 0:
+                # An explicit 0 in providers.yaml means "no free access" (e.g. Gemini Pro on the free
+                # tier): treated as 100% used so automatic routing and manual picks both skip it.
+                out.append(Usage(1.0, window, kind, 0, 0, resets, "counter", pol.estimate))
+            elif limit:
                 out.append(
                     Usage(
                         used / limit, window, kind, int(round(used)), limit, resets, "counter", pol.estimate

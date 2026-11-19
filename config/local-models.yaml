@@ -5,16 +5,18 @@
 #   general     the `local` / `private` aliases (private chats, last-resort fallback)
 #   tasks       titles and long-thread summaries (null = a free cloud model, never for private threads)
 #   coder       the `local-code` alias (null = `general`)
-# At most `max_loaded` models stay in GPU memory at once; the classifier is kept resident and the
-# router unloads anything else it loaded beyond that (Ollama would otherwise evict the classifier).
-#   classifier_options   extra Ollama options for the classifier, e.g. { num_gpu: 0 } to run it on
-#                        the CPU so it never competes with the general model for GPU memory
-#                        (measured on a 4 GB card in docs/m3a.md: ~0.9 s per call instead of ~0.09 s)
+# `max_loaded` is how many models may hold GPU memory at once (a model pinned to the CPU with
+# `num_gpu: 0` doesn't count). The router unloads GPU models beyond it, never the classifier.
+#   classifier_options   extra Ollama options for the classifier, e.g. { num_gpu: 0 } = run on the CPU
+#   tasks_options        the same for the tasks model (titles, summaries)
+#   tasks_keep_alive     how long the tasks model stays loaded (Ollama duration, or -1 = forever)
 #
-# Measured on a 4 GB GPU (docs/m3a.md): the classifier (1.1 GB) and qwen3:4b (3.4 GB) don't fit
-# together, so Ollama swaps them whatever keep_alive says. The router reloads the classifier in the
-# background right after the tasks model or a local reply ran outside a private thread, so the next
-# message finds it loaded (~0.1 s) instead of waiting ~3 s and falling back to the heuristics.
+# Small GPUs (M3b, ADR 0002): on 4 GB the classifier (1.1 GB), the chat model (qwen3:4b, 3.4 GB) and the
+# tasks model never fit together and Ollama swaps them by memory whatever keep_alive says (docs/m3a.md).
+# So `small` runs the classifier and the tasks model on the CPU with a long keep_alive and leaves the
+# GPU to the chat model alone: nothing swaps and the classifier is always loaded. The tasks model and the
+# classifier share CPU cores, so background jobs run one at a time and wait for any classification
+# (app/local_queue.py). Larger GPUs keep everything on the GPU.
 
 arch_router: &arch hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M
 
@@ -38,7 +40,10 @@ profiles:
     # so every title fell back to the first words.
     tasks: llama3.2:3b
     coder: null
-    max_loaded: 2
+    classifier_options: { num_gpu: 0 }
+    tasks_options: { num_gpu: 0 }
+    tasks_keep_alive: 1h
+    max_loaded: 1            # the chat model alone holds the GPU
   medium:
     label: 8–12 GB GPU
     min_vram_gb: 8

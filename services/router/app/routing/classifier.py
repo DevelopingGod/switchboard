@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from app import local_profile, ollama
+from app import local_profile, local_queue, ollama
 from app.routing import heuristics
 from app.routing.heuristics import Intent
 from app.routing.rules import ClassifierCfg, Route
@@ -224,7 +224,7 @@ async def classify(text: str, cfg: ClassifierCfg) -> Result:
         return fall("classifier is loading (another local model just ran)")
     prompt = build_prompt(cfg.routes, text[: cfg.max_chars])
     try:
-        async with asyncio.timeout(cfg.timeout_s):
+        async with asyncio.timeout(cfg.timeout_s), local_queue.classifying():
             raw = await ollama.chat(
                 model,
                 [{"role": "user", "content": prompt}],

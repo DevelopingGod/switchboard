@@ -43,11 +43,44 @@ def test_policies_come_from_providers_yaml():
     o = quota.policy(reg.providers["openrouter"])
     assert o.scope == "provider" and o.only_free and o.default.rpd == 50
     gm = quota.policy(reg.providers["gemini"])
-    assert gm.tz == "America/Los_Angeles" and gm.estimate
+    assert gm.tz == "America/Los_Angeles"
     assert quota.policy(reg.providers["ollama"]) is None  # local: unlimited
     # paid OpenRouter models are not counted against the free limit; free ones share one counter
     assert quota.scope_of(reg.providers["openrouter"], o, "anthropic/claude-sonnet-4") is None
     assert quota.scope_of(reg.providers["openrouter"], o, "x/y:free") == "*"
+
+
+def test_gemini_free_limits_are_the_owners_verified_numbers():
+    """AI Studio, free tier, read 2026-11-19. `0` = no free access; globs match after exact ids."""
+    gm = quota.policy(load_registry().providers["gemini"])
+
+    def lim(m):
+        x = quota.limit_of(gm, m)
+        return (x.rpm, x.tpm, x.rpd)
+
+    assert lim("gemini-3.1-flash-lite") == (15, 250_000, 500)
+    assert lim("gemini-2.5-flash-lite") == (10, 250_000, 20)
+    for m in ("gemini-2.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-3.6-flash"):
+        assert lim(m) == (5, 250_000, 20), m
+    for m in ("gemini-2.5-flash-tts", "gemini-3.1-flash-tts", "gemini-3.6-flash-tts"):
+        assert lim(m) == (3, 10_000, 10), m
+    for m in (
+        "gemini-2.5-pro",
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-image",
+        "gemini-3-flash-image",
+        "nano-banana-pro",
+    ):
+        assert lim(m) == (0, 0, 0), m
+
+
+def test_a_zero_limit_means_no_free_access():
+    v = view()
+    u = v.usage("gemini", "gemini-2.5-pro")
+    assert u is not None and u.fraction == 1.0 and u.limit == 0
+    assert "no free access" in u.describe()
+    assert v.headroom("gemini", "gemini-2.5-pro") == 0.0
+    assert v.headroom("gemini", "gemini-3.1-flash-lite") == 1.0
 
 
 def test_day_window_follows_the_provider_time_zone():

@@ -102,10 +102,14 @@ async def unload(model: str) -> None:
 
 
 async def enforce_max_loaded(keep: list[str], max_loaded: int) -> list[str]:
-    """Unload models beyond `max_loaded`, never the ones in `keep` (classifier first). Ollama would
-    otherwise evict by least-recent use, which is usually the resident classifier. Returns unloaded."""
+    """Unload GPU-resident models beyond `max_loaded`, never the ones in `keep` (classifier first).
+    Ollama would otherwise evict by least-recent use, which is usually the resident classifier.
+    Returns the names unloaded."""
     loaded = await ps()
-    if not loaded or len(loaded) <= max_loaded:
+    # Only models holding GPU memory count: a CPU-pinned model (`num_gpu: 0`, size_vram 0) can't evict
+    # anything. A reply without `size_vram` is treated as a GPU model (older Ollama).
+    loaded = [m for m in loaded or [] if m.get("size_vram", 1) > 0]
+    if len(loaded) <= max_loaded:
         return []
     names = [m.get("name") or m.get("model") for m in loaded]
     extra = [n for n in names if n and n not in keep]

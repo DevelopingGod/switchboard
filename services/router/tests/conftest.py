@@ -353,6 +353,7 @@ class FakeOllama:
         self.installed = ["qwen3:4b", "llama3.2:3b", "hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M"]
         self.loaded: list[str] = []
         self.unloaded: list[str] = []
+        self.cpu: set[str] = set()  # models pinned to the CPU (num_gpu 0): `ollama ps` shows size_vram 0
 
     def install(self, mock: respx.MockRouter) -> None:
         base = "http://ollama.test"
@@ -369,6 +370,8 @@ class FakeOllama:
         self._down()
         body = json.loads(request.content)
         self.calls.append(body)
+        if (body.get("options") or {}).get("num_gpu") == 0:
+            self.cpu.add(body["model"])
         model, text = body["model"], body["messages"][-1]["content"]
         r = await self._answer(model, text)
         if r.status_code == 200 and model not in self.loaded:
@@ -402,7 +405,8 @@ class FakeOllama:
 
     def ps(self, request):
         self._down()
-        return httpx.Response(200, json={"models": [{"name": n} for n in self.loaded]})
+        models = [{"name": n, "size": 2**30, "size_vram": 0 if n in self.cpu else 2**30} for n in self.loaded]
+        return httpx.Response(200, json={"models": models})
 
     def generate(self, request):
         body = json.loads(request.content)
@@ -418,15 +422,17 @@ class FakeOllama:
 @pytest.fixture(autouse=True)
 def _reset_m3a_state():
     """Module-level state that must not leak between tests."""
-    from app import local_profile
+    from app import local_profile, local_queue
     from app.routing import classifier
     from app.routing.health import cooldowns
 
     classifier.reset()
+    local_queue.reset()
     local_profile.set_active("small")
     cooldowns.clear()
     yield
     classifier.reset()
+    local_queue.reset()
     local_profile.set_active("small")
 
 

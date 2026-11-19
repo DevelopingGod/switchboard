@@ -46,6 +46,14 @@ class Profile:
     cpu: bool
     max_loaded: int
     classifier_options: dict[str, Any] = field(default_factory=dict, compare=False)
+    tasks_options: dict[str, Any] = field(default_factory=dict, compare=False)
+    tasks_keep_alive: str | int = "10m"
+
+    @property
+    def tasks_on_gpu(self) -> bool:
+        """False when the profile pins the tasks model to the CPU (`num_gpu: 0`): it then can't evict
+        anything from GPU memory, so the evict/reload workarounds are skipped."""
+        return self.tasks_options.get("num_gpu") != 0
 
     @property
     def models(self) -> list[str]:
@@ -67,6 +75,8 @@ class Profile:
             "coder": self.coder or self.general,
             "cpu": self.cpu,
             "max_loaded": self.max_loaded,
+            "classifier_cpu": self.classifier_options.get("num_gpu") == 0,
+            "tasks_cpu": not self.tasks_on_gpu,
             "models": self.models,
         }
 
@@ -92,6 +102,8 @@ def load_profiles(config_dir: Path | None = None) -> tuple[dict[str, Profile], s
             cpu=bool(p.get("cpu", False)),
             max_loaded=int(p.get("max_loaded", 2)),
             classifier_options=dict(p.get("classifier_options") or {}),
+            tasks_options=dict(p.get("tasks_options") or {}),
+            tasks_keep_alive=p.get("tasks_keep_alive", "10m"),
         )
     fallback = str(data.get("fallback") or "small")
     if fallback not in out:
