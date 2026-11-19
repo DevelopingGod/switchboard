@@ -147,6 +147,14 @@ export interface ChatThread {
   updated_at: string;
 }
 
+/** GET /chat/threads (M3b): the sidebar's recents. `pinned` only comes with the first page of a
+ * non-search listing; `next_cursor` is null on the last page. */
+export interface ThreadPage {
+  pinned: ChatThread[];
+  threads: ChatThread[];
+  next_cursor: string | null;
+}
+
 export interface RouteSkip {
   target: string;
   label: string;

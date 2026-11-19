@@ -2,15 +2,16 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LazyMotion, MotionConfig } from "motion/react";
 import { SkyBackground } from "@/components/kit/SkyBackground";
 import { ToastProvider } from "@/components/kit/Toast";
-import { TopNav } from "./TopNav";
-import { MobileNav } from "./MobileNav";
+import { Sidebar } from "./Sidebar";
+import { PageHeader } from "./PageHeader";
 import { AppFooter } from "./AppFooter";
 import { ShellContext } from "./shell-context";
 import { getPrefs, setPrefs, usePrefs } from "@/lib/prefs";
+import { SummaryProvider } from "@/lib/use-summary";
 import { matchShortcut } from "@/lib/shortcuts";
 import { t } from "@/i18n/strings";
 
@@ -65,6 +66,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   useEnhancements();
   useSplashOut();
+  const pathname = usePathname();
+  // The drawer belongs to the page it was opened on: navigating closes it with no effect needed.
+  const [drawerAt, setDrawerAt] = React.useState<string | null>(null);
+  const drawer = drawerAt === pathname;
+  const menuBtn = React.useRef<HTMLButtonElement>(null);
+  const closeDrawer = React.useCallback(() => setDrawerAt(null), []);
+  const opened = React.useRef(false);
+  const openedAt = React.useRef(pathname);
+  // While the drawer is open the page behind it is inert (no focus, no clicks, hidden from readers).
+  // Closing it without navigating returns focus to the menu button.
+  React.useEffect(() => {
+    document
+      .querySelectorAll<HTMLElement>("[data-behind-drawer]")
+      .forEach((el) => (drawer ? el.setAttribute("inert", "") : el.removeAttribute("inert")));
+    if (drawer) {
+      opened.current = true;
+      openedAt.current = pathname;
+    } else if (opened.current) {
+      opened.current = false;
+      if (openedAt.current === pathname) menuBtn.current?.focus();
+    }
+  }, [drawer, pathname]);
   const palette = useOverlay();
   const sheet = useOverlay();
   const { change: setPalette } = palette;
@@ -76,7 +99,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (!id) return;
       if (id === "palette") setPalette(true);
       else if (id === "shortcuts") setSheet(true);
-      else if (id === "sidebar") setPrefs({ sidebarCollapsed: !getPrefs().sidebarCollapsed });
+      else if (id === "sidebar") {
+        if (window.matchMedia("(max-width: 767px)").matches) setDrawerAt((d) => (d === window.location.pathname ? null : window.location.pathname));
+        else setPrefs({ sidebarCollapsed: !getPrefs().sidebarCollapsed });
+      }
       else if (id === "newChat") router.push("/chat");
       else if (id === "focusComposer") {
         const box = document.querySelector<HTMLTextAreaElement>("textarea[data-composer]:not([readonly])");
@@ -99,6 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <MotionConfig reducedMotion={motion === "reduce" ? "always" : "user"}>
         <ShellContext.Provider value={actions}>
           <ToastProvider>
+            <SummaryProvider>
             <SkyBackground />
             <a
               href="#main"
@@ -106,16 +133,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               {t("nav.skip")}
             </a>
-            <TopNav onOpenPalette={actions.openPalette} />
-            {/* min-h: the footer always starts below the fold, so a short loading skeleton swapping for the
-                page cannot move it (layout shift). */}
-            <main id="main" className="mx-auto min-h-dvh w-full max-w-[88rem] px-3 pt-8 pb-10 sm:px-5">
-              {children}
-            </main>
-            <AppFooter />
-            <MobileNav />
+            <div className="app-frame">
+              <Sidebar open={drawer} onClose={closeDrawer} onOpenPalette={actions.openPalette} />
+              {drawer && <div className="app-scrim" aria-hidden onClick={closeDrawer} />}
+              <div className="app-main" data-behind-drawer>
+                <PageHeader ref={menuBtn} onOpenMenu={() => setDrawerAt(pathname)} menuOpen={drawer} />
+                {/* min-h: the footer always starts below the fold, so a short loading skeleton swapping for
+                    the page cannot move it (layout shift). */}
+                <main id="main" className="mx-auto min-h-dvh w-full max-w-[88rem] px-3 pt-4 pb-10 sm:px-5">
+                  {children}
+                </main>
+                <AppFooter />
+              </div>
+            </div>
             {palette.mounted && <CommandPalette open={palette.open} onOpenChange={setPalette} />}
             {sheet.mounted && <ShortcutsSheet open={sheet.open} onOpenChange={setSheet} />}
+            </SummaryProvider>
           </ToastProvider>
         </ShellContext.Provider>
       </MotionConfig>

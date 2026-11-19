@@ -5,18 +5,6 @@ export const shellStrings = {
   footer: {
     label: "Status and links",
     links: "Links",
-    health: {
-      label: "Service health",
-      router: "Router",
-      litellm: "LiteLLM",
-      ollama: "Ollama",
-      paperclip: "Paperclip",
-      ok: "{name}: running",
-      down: "{name}: not running",
-      unknown: "{name}: checking",
-      open: "Open status",
-    },
-    spend: "Today {amount}",
     saved: "Value saved {amount}",
     savedTip: "What today’s free-tier replies would have cost at list price.",
     quota: {
@@ -35,6 +23,38 @@ export const shellStrings = {
     offline: "Status unavailable",
   },
   splash: "Loading Switchboard",
+  /** The left sidebar (M3b). */
+  sidebar: {
+    label: "Sidebar",
+    collapse: "Collapse sidebar",
+    expand: "Expand sidebar",
+    openMenu: "Open menu",
+    closeMenu: "Close menu",
+    newChat: "New chat",
+    search: "Search",
+    nav: "Main navigation",
+    recents: "Recent chats",
+    showMore: "Show more",
+    loading: "Loading…",
+    failed: "Couldn’t load your chats.",
+    retry: "Try again",
+    budget: "Today’s budget",
+    budgetValue: "{spent} of {cap} used today",
+    budgetUnknown: "Today’s budget: checking",
+    health: {
+      ok: "Everything is running",
+      limited: "Running, with limits. Open Status",
+      down: "Something needs attention. Open Status",
+      unknown: "Checking status",
+    },
+    mode: "Mode",
+    modeToggle: "Mode: {mode}. Switch to {other}",
+    settings: "Settings",
+    profile: "Profile: {name}",
+    profileFallback: "Profile",
+    appearance: "Appearance",
+  },
+  page: { actions: "Page actions", titleFallback: "Switchboard" },
 };
 
 export type ShellKey = Leaves<typeof shellStrings>;

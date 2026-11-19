@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import { Activity, BarChart3, Gauge, LayoutGrid, MessageSquare, Moon, Palette, PlugZap, Settings, SquareKanban, Sun } from "lucide-react";
+import { Activity, BarChart3, Gauge, LayoutGrid, MessageSquare, Moon, Palette, PlugZap, Route, Settings, SquareKanban, Sun } from "lucide-react";
 import { setPrefs, resolveTheme, usePrefs } from "@/lib/prefs";
 import { t } from "@/i18n/strings";
 
@@ -48,6 +48,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                 <Command.Item onSelect={go("/connections")}><PlugZap aria-hidden className={ic} />{t("nav.connections")}</Command.Item>
                 <Command.Item onSelect={go("/metrics")}><BarChart3 aria-hidden className={ic} />{t("nav.metrics")}</Command.Item>
                 <Command.Item onSelect={go("/settings")}><Settings aria-hidden className={ic} />{t("nav.settings")}</Command.Item>
+                <Command.Item onSelect={go("/settings/rules")}><Route aria-hidden className={ic} />{t("palette.rules")}</Command.Item>
                 <Command.Item onSelect={go("/status")}><Activity aria-hidden className={ic} />{t("nav.status")}</Command.Item>
                 <Command.Item onSelect={go("/dev/components")}><Gauge aria-hidden className={ic} />{t("palette.devComponents")}</Command.Item>
               </Command.Group>

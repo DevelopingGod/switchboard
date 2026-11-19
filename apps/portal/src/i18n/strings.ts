@@ -103,6 +103,7 @@ export const strings = {
     groupGo: "Go to",
     groupPrefs: "Preferences",
     devComponents: "Component gallery",
+    rules: "Routing rules",
     toggleTheme: "Switch to {theme} theme",
     toggleDensity: "Use {density} density",
     toggleMode: "Switch to {mode} mode",

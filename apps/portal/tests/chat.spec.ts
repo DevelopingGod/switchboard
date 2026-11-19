@@ -32,7 +32,7 @@ test.describe("chat · sending", () => {
     await expect(reply.getByRole("button", { name: /Why this\? Routed to Groq · gpt-oss-120b by rule default/ })).toBeVisible();
     await expect(reply.getByText("Free", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("A quick answer"); // local-model title
-    await expect(page.getByRole("navigation", { name: "Chats" }).getByRole("link", { name: "A quick answer" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Recent chats" }).getByRole("link", { name: "A quick answer" })).toBeVisible();
     await expect(page).toHaveURL(/\/chat\?t=[0-9a-f-]{36}$/);
 
     await reply.getByRole("button", { name: /Why this\?/ }).click();

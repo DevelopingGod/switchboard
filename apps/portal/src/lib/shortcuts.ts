@@ -30,7 +30,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "shortcuts", keys: ["?"], group: "general" },
   { id: "close", keys: ["Esc"], group: "general" },
   { id: "newChat", keys: ["mod", "Shift", "O"], group: "general" },
-  { id: "sidebar", keys: ["mod", "B"], group: "chat" },
+  { id: "sidebar", keys: ["mod", "B"], group: "general" },
   { id: "focusComposer", keys: ["/"], group: "chat" },
   { id: "send", keys: ["Enter"], group: "chat" },
   { id: "newline", keys: ["Shift", "Enter"], group: "chat" },

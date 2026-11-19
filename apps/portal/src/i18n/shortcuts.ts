@@ -10,7 +10,7 @@ export const shortcutStrings = {
     shortcuts: "Show keyboard shortcuts",
     close: "Close a dialog, menu or tooltip",
     newChat: "New chat",
-    sidebar: "Show or hide the thread list",
+    sidebar: "Show or hide the sidebar",
     focusComposer: "Focus the message box",
     send: "Send the message",
     newline: "New line in the message",

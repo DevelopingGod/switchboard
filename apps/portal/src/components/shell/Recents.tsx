@@ -2,16 +2,19 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Lock, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Lock, MoreHorizontal, Pencil, Pin, PinOff, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getPrefs, setPrefs } from "@/lib/prefs";
-import { filterThreads, groupThreads } from "@/lib/thread-groups";
-import type { ChatThread } from "@/lib/router-types";
+import { useToast } from "@/components/kit/Toast";
+import { deleteThread, pinThread, renameThread } from "@/app/chat/actions";
+import { groupThreads } from "@/lib/thread-groups";
+import { THREADS_CHANGED, THREAD_UPDATED, notifyThreadsChanged } from "@/lib/thread-events";
+import type { ChatThread, ThreadPage } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { tChat } from "@/i18n/chat";
+import { tShell } from "@/i18n/shell";
 
 export interface ThreadActions {
-  onNew: () => void;
   onRename: (id: string, title: string) => Promise<boolean>;
   onPin: (id: string, pinned: boolean) => void;
   onDelete: (id: string) => void;
@@ -211,19 +214,128 @@ function Row({ th, current, focusable, mode, setMode, actions }: {
   );
 }
 
-/**
- * Thread sidebar (M1.5): search, Pinned / Today / Yesterday / Previous 7 days / Older, a row menu
- * (rename, pin, delete), private lock badge, single-line ellipsis with the full title on hover,
- * one tab stop with ↑/↓/Home/End (F2 renames, Delete asks to delete). Collapses to a rail with
- * mod+B (html[data-sidebar], set before paint); on phones it folds behind a "Chats" button.
- */
-export function ThreadList({ threads, current, actions }: { threads: ChatThread[]; current: string | null; actions: ThreadActions }) {
+
+const PAGE = 30;
+const SEARCH_DELAY_MS = 250;
+
+type Fetched = { ok: true; page: ThreadPage } | { ok: false };
+
+async function fetchPage(params: { limit?: number; cursor?: string | null; q?: string }, signal?: AbortSignal): Promise<Fetched> {
+  const qs = new URLSearchParams({ limit: String(params.limit ?? PAGE) });
+  if (params.cursor) qs.set("cursor", params.cursor);
+  if (params.q) qs.set("q", params.q);
+  try {
+    const r = await fetch(`/api/threads?${qs}`, { cache: "no-store", signal });
+    const j = (await r.json()) as { ok: boolean; data?: ThreadPage };
+    return j.ok && j.data ? { ok: true, page: j.data } : { ok: false };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** The sidebar's recent chats (M3b): global, paginated, searchable on the server, grouped Pinned /
+ * Today / Yesterday / Previous 7 days / Older. One tab stop with ↑/↓/Home/End; F2 renames, Delete asks
+ * to delete. Loads after the page is idle (its own chunk) and refreshes on `sb:threads-changed`. */
+export default function Recents() {
+  const router = useRouter();
+  const { push } = useToast();
+  const current = useSearchParams().get("t");
+  const [threads, setThreads] = React.useState<ChatThread[]>([]);
+  const [cursor, setCursor] = React.useState<string | null>(null);
+  const [state, setState] = React.useState<"loading" | "ready" | "failed">("loading");
+  const [more, setMore] = React.useState(false);
   const [query, setQuery] = React.useState("");
+  const [searching, setSearching] = React.useState("");
   const [mode, setMode] = React.useState<Mode>(null);
-  const [mobileOpen, setMobileOpen] = React.useState(false);
   const [focusId, setFocusId] = React.useState<string | null>(null);
-  const visible = filterThreads(threads, query);
-  const groups = groupThreads(visible);
+  const [hasAny, setHasAny] = React.useState(false);
+  const loaded = React.useRef(0);
+  React.useEffect(() => {
+    loaded.current = threads.length;
+  }, [threads.length]);
+
+  // Debounced server-side search: it covers every chat, not only the ones loaded.
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setSearching(query.trim()), query.trim() ? SEARCH_DELAY_MS : 0);
+    return () => window.clearTimeout(id);
+  }, [query]);
+
+  const load = React.useCallback(
+    async (signal?: AbortSignal) => {
+      const keep = Math.min(100, Math.max(PAGE, loaded.current)); // refresh what is on screen, bounded
+      const r = await fetchPage({ limit: searching ? PAGE : keep, q: searching }, signal);
+      if (signal?.aborted) return;
+      if (!r.ok) return setState("failed");
+      setThreads([...r.page.pinned, ...r.page.threads]);
+      setCursor(r.page.next_cursor);
+      setState("ready");
+      if (!searching) setHasAny(r.page.pinned.length + r.page.threads.length > 0);
+    },
+    [searching],
+  );
+
+  React.useEffect(() => {
+    const ctl = new AbortController();
+    void load(ctl.signal);
+    return () => ctl.abort();
+  }, [load]);
+
+  React.useEffect(() => {
+    const refresh = () => void load();
+    const patch = (e: Event) => {
+      const th = (e as CustomEvent<ChatThread>).detail;
+      if (th) setThreads((list) => list.map((x) => (x.id === th.id ? { ...x, ...th } : x)));
+    };
+    window.addEventListener(THREADS_CHANGED, refresh);
+    window.addEventListener(THREAD_UPDATED, patch);
+    return () => {
+      window.removeEventListener(THREADS_CHANGED, refresh);
+      window.removeEventListener(THREAD_UPDATED, patch);
+    };
+  }, [load]);
+
+  const showMore = async () => {
+    if (!cursor || more) return;
+    setMore(true);
+    const r = await fetchPage({ cursor, q: searching });
+    setMore(false);
+    if (!r.ok) return push({ tone: "error", title: tShell("sidebar.failed") });
+    setThreads((list) => [...list, ...r.page.threads.filter((n) => !list.some((x) => x.id === n.id))]);
+    setCursor(r.page.next_cursor);
+  };
+
+  const actions: ThreadActions = {
+    onRename: async (id, name) => {
+      const r = await renameThread(id, name);
+      if (!r.ok) {
+        push({ tone: "error", title: r.error });
+        return false;
+      }
+      setThreads((list) => list.map((x) => (x.id === id ? r.data : x)));
+      window.dispatchEvent(new CustomEvent(THREAD_UPDATED, { detail: r.data }));
+      return true;
+    },
+    onPin: async (id, pinned) => {
+      setThreads((list) => list.map((x) => (x.id === id ? { ...x, pinned } : x)));
+      const r = await pinThread(id, pinned);
+      if (!r.ok) push({ tone: "error", title: r.error });
+      void load();
+    },
+    onDelete: async (id) => {
+      setThreads((list) => list.filter((x) => x.id !== id));
+      const r = await deleteThread(id);
+      if (!r.ok) {
+        push({ tone: "error", title: r.error });
+        void load();
+        return;
+      }
+      push({ tone: "success", title: tChat("chat.deleted") });
+      if (id === current) router.push("/chat");
+      notifyThreadsChanged();
+    },
+  };
+
+  const groups = groupThreads(threads);
   const ordered = groups.flatMap((g) => g.threads);
   const tabId = ordered.find((t) => t.id === focusId)?.id ?? ordered.find((t) => t.id === current)?.id ?? ordered[0]?.id;
 
@@ -239,103 +351,61 @@ export function ThreadList({ threads, current, actions }: { threads: ChatThread[
     setFocusId(rows[next]?.dataset.id ?? null);
   };
 
-  const toggle = () => setPrefs({ sidebarCollapsed: !getPrefs().sidebarCollapsed });
-
   return (
-    <nav aria-label={tChat("chat.threads")} className="chat-sidebar">
-      {/* Collapsed rail (desktop, mod+B). */}
-      <div className="sidebar-rail surface-strong flex-col items-center gap-2 rounded-panel p-2">
-        <Button type="button" size="icon" variant="ghost" onClick={toggle} aria-label={tChat("chat.sidebar.expand")} data-tip={tChat("chat.sidebar.expand")} aria-keyshortcuts="Control+B Meta+B">
-          <PanelLeftOpen aria-hidden className="size-4" />
-        </Button>
-        <Link
-          href="/chat"
-          onClick={actions.onNew}
-          aria-label={tChat("chat.newChat")}
-          data-tip={tChat("chat.newChat")}
-          className="grid size-(--ctl) place-items-center rounded-full bg-accent text-on-accent"
-        >
-          <Plus aria-hidden className="size-4" />
-        </Link>
-      </div>
-
-      <div className="sidebar-full surface-strong min-h-0 flex-col gap-3 rounded-panel p-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="label pl-1">{tChat("chat.threads")}</h2>
-          <span className="flex items-center gap-1">
-            <Link
-              href="/chat"
-              onClick={actions.onNew}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-chip bg-accent px-3 text-[0.8125rem] font-semibold text-on-accent"
-            >
-              <Plus aria-hidden className="size-3.5" /> {tChat("chat.newChat")}
-            </Link>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              onClick={toggle}
-              aria-label={tChat("chat.sidebar.collapse")}
-              data-tip={tChat("chat.sidebar.collapse")}
-              aria-keyshortcuts="Control+B Meta+B"
-              className="max-lg:hidden size-8 min-h-8"
-            >
-              <PanelLeftClose aria-hidden className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="glass"
-              aria-expanded={mobileOpen}
-              aria-controls="thread-list-body"
-              onClick={() => setMobileOpen(!mobileOpen)}
-              className="lg:hidden"
-            >
-              {mobileOpen ? tChat("chat.sidebar.hideList") : tChat("chat.sidebar.showList", { count: threads.length })}
-            </Button>
-          </span>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {(hasAny || query) && (
+        <label className="relative block shrink-0">
+          <span className="sr-only">{tChat("chat.sidebar.search")}</span>
+          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-muted" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={tChat("chat.sidebar.search")}
+            className="w-full rounded-control border border-hairline bg-glass-strong py-2 pr-2 pl-8 text-sm placeholder:text-ink-muted"
+          />
+        </label>
+      )}
+      {state === "loading" ? (
+        <div aria-hidden className="grid gap-1.5 px-1">
+          {[0, 1, 2, 3].map((i) => (
+            <span key={i} className="shimmer h-8 rounded-control" />
+          ))}
         </div>
-
-        <div id="thread-list-body" data-open={mobileOpen || undefined} className="sidebar-body min-h-0 flex-col gap-3">
-          {threads.length > 0 && (
-            <label className="relative block">
-              <span className="sr-only">{tChat("chat.sidebar.search")}</span>
-              <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-muted" />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={tChat("chat.sidebar.search")}
-                className="w-full rounded-control border border-hairline bg-glass-strong py-2 pr-2 pl-8 text-sm placeholder:text-ink-muted"
-              />
-            </label>
-          )}
-          {threads.length === 0 ? (
-            <p className="px-1 text-sm text-ink-muted">{tChat("chat.noThreads")}</p>
-          ) : groups.length === 0 ? (
-            <p role="status" className="px-1 text-sm text-ink-muted">
-              {tChat("chat.sidebar.noMatch", { query })}
-            </p>
-          ) : (
-            <div data-thread-scroll onKeyDown={onListKey} className="stagger -mx-1 min-h-0 overflow-x-hidden overflow-y-auto px-1 pb-1">
-              {groups.map((g) => (
-                <section key={g.id} aria-labelledby={`tg-${g.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-0.5 pb-3 last:pb-0">
-                  <h3 id={`tg-${g.id}`} className="label px-2.5 pt-1 pb-1 text-[0.625rem]">
-                    {tChat(`chat.sidebar.groups.${g.id}`)}
-                  </h3>
-                  <ul className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
-                    {g.threads.map((th) => (
-                      <li key={th.id}>
-                        <Row th={th} current={th.id === current} focusable={th.id === tabId} mode={mode} setMode={setMode} actions={actions} />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
+      ) : state === "failed" ? (
+        <div role="status" className="grid gap-1.5 px-1 text-sm text-ink-muted">
+          <p>{tShell("sidebar.failed")}</p>
+          <Button type="button" size="sm" variant="glass" onClick={() => void load()}>
+            {tShell("sidebar.retry")}
+          </Button>
+        </div>
+      ) : groups.length === 0 ? (
+        <p role="status" className="px-1 text-sm text-ink-muted">
+          {searching ? tChat("chat.sidebar.noMatch", { query: searching }) : tChat("chat.noThreads")}
+        </p>
+      ) : (
+        <div data-thread-scroll onKeyDown={onListKey} className="-mx-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1 pb-1">
+          {groups.map((g) => (
+            <section key={g.id} aria-labelledby={`tg-${g.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-0.5 pb-3 last:pb-0">
+              <h3 id={`tg-${g.id}`} className="label px-2.5 pt-1 pb-1 text-[0.625rem]">
+                {tChat(`chat.sidebar.groups.${g.id}`)}
+              </h3>
+              <ul className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
+                {g.threads.map((th) => (
+                  <li key={th.id}>
+                    <Row th={th} current={th.id === current} focusable={th.id === tabId} mode={mode} setMode={setMode} actions={actions} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+          {cursor && (
+            <Button type="button" size="sm" variant="ghost" onClick={showMore} disabled={more} className="mt-1 w-full">
+              {more ? tShell("sidebar.loading") : tShell("sidebar.showMore")}
+            </Button>
           )}
         </div>
-      </div>
-    </nav>
+      )}
+    </div>
   );
 }

@@ -15,7 +15,7 @@ function Section({ id, title, hint, children, notice }: { id: string; title: Str
         <p className="max-w-2xl text-ink-muted">{t(hint)}</p>
         {notice}
       </div>
-      <div className="grid gap-(--gap) sm:grid-cols-2 xl:grid-cols-3">{children}</div>
+      <div className="grid gap-(--gap) grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">{children}</div>
     </section>
   );
 }
@@ -56,7 +56,7 @@ export async function ConnectionsScreen() {
 
 export function ConnectionsFallback() {
   return (
-    <div aria-busy className="grid gap-(--gap) sm:grid-cols-2 xl:grid-cols-3">
+    <div aria-busy className="grid gap-(--gap) grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
       {[0, 1, 2].map((i) => (
         <ProviderCard key={i} name="…" kind="api" state="loading" />
       ))}

@@ -73,11 +73,11 @@ test("reduced motion stops cloud drift and shimmer", async ({ page }) => {
   expect(anim).toBe("none");
 });
 
-test("mobile shows bottom nav and a read-only composer", async ({ page }) => {
+test("mobile shows the menu button and a read-only composer", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await ready(page);
-  await expect(page.getByRole("navigation", { name: "Primary (mobile)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
   await expect(page.getByLabel("Message")).toHaveAttribute("readonly", "");
 });
 
