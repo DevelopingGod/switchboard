@@ -12,7 +12,8 @@ from tests.test_chat import add_mistral, first, stack, turn  # noqa: F401  (stac
 
 
 async def _threads(client):
-    return (await client.get("/chat/threads", headers=ADMIN)).json()["threads"]
+    d = (await client.get("/chat/threads", headers=ADMIN)).json()
+    return [*d["pinned"], *d["threads"]]
 
 
 async def test_pin_sorts_first_and_keeps_updated_at(client, stack):  # noqa: F811

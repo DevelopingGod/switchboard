@@ -4,13 +4,15 @@ Every endpoint needs the admin token: chat history is private, and the portal ca
 its server (the browser never sees the token).
 """
 
+import re
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat import service
@@ -121,10 +123,55 @@ def _stream(gen) -> StreamingResponse:
 
 
 # --- threads ------------------------------------------------------------------------------------
+CURSOR = re.compile(r"^(\d{4}-\d\d-\d\dT[\d:.]+(?:[+-]\d\d:\d\d|Z)?)_([0-9a-f-]{36})$")
+
+
 @router.get("/chat/threads")
-async def list_threads(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
-    q = select(Thread).order_by(Thread.pinned.desc(), Thread.updated_at.desc()).limit(200)
-    return {"threads": [_thread_json(t) for t in (await session.execute(q)).scalars()]}
+async def list_threads(
+    limit: int = Query(30, ge=1, le=100),
+    cursor: str | None = Query(None, max_length=80),
+    q: str | None = Query(None, max_length=80),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """The sidebar's recent chats (M3b), newest first, keyset-paginated on (updated_at, id) so deep pages
+    cost the same as the first. Without `q` and `cursor`, `pinned` lists the pinned threads (at most 50)
+    and `threads` holds the unpinned page. With `q`, every thread whose title contains it (case-insensitive)
+    is matched, pinned or not, and `pinned` is empty. `next_cursor` is null on the last page."""
+    searching = bool(q and q.strip())
+    cond = []
+    if searching:
+        needle = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        cond.append(Thread.title.ilike(f"%{needle}%", escape="\\"))
+    else:
+        cond.append(Thread.pinned.is_(False))
+    if cursor:
+        m = CURSOR.match(cursor)
+        if not m:
+            raise HTTPException(400, "bad cursor")
+        at, tid = datetime.fromisoformat(m.group(1)), uuid.UUID(m.group(2))
+        cond.append(or_(Thread.updated_at < at, and_(Thread.updated_at == at, Thread.id < tid)))
+    stmt = select(Thread).where(*cond).order_by(Thread.updated_at.desc(), Thread.id.desc()).limit(limit + 1)
+    rows = list((await session.execute(stmt)).scalars())
+    more = len(rows) > limit
+    rows = rows[:limit]
+    pinned: list[Thread] = []
+    if not searching and not cursor:
+        pinned = list(
+            (
+                await session.execute(
+                    select(Thread)
+                    .where(Thread.pinned.is_(True))
+                    .order_by(Thread.updated_at.desc(), Thread.id.desc())
+                    .limit(50)
+                )
+            ).scalars()
+        )
+    last = rows[-1] if more and rows else None
+    return {
+        "pinned": [_thread_json(t) for t in pinned],
+        "threads": [_thread_json(t) for t in rows],
+        "next_cursor": f"{last.updated_at.isoformat()}_{last.id}" if last else None,
+    }
 
 
 @router.delete("/chat/threads")
