@@ -105,7 +105,29 @@ export function ChatScreen({
   const lastLen = messages.at(-1)?.content.length ?? 0;
   const nearBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
   React.useEffect(() => {
-    window.scrollTo({ top: document.documentElement.scrollHeight });
+    const toEnd = () => window.scrollTo({ top: document.documentElement.scrollHeight });
+    toEnd();
+    // Lazy chunks (Markdown, code highlighting) change message heights above the newest one a moment later.
+    // Stay at the end until the reader scrolls, so nothing visibly jumps (a layout shift) as they arrive.
+    const main = document.getElementById("main");
+    if (!main || typeof ResizeObserver === "undefined") return;
+    let pinned = true;
+    const ro = new ResizeObserver(() => pinned && toEnd());
+    ro.observe(main);
+    const unpin = () => {
+      pinned = false;
+    };
+    const inputs = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    inputs.forEach((e) => window.addEventListener(e, unpin, { passive: true, once: true }));
+    const stop = window.setTimeout(() => {
+      pinned = false;
+      ro.disconnect();
+    }, 2500);
+    return () => {
+      ro.disconnect();
+      window.clearTimeout(stop);
+      inputs.forEach((e) => window.removeEventListener(e, unpin));
+    };
   }, [lastIdForScroll]);
   React.useEffect(() => {
     if (streaming && nearBottom()) window.scrollTo({ top: document.documentElement.scrollHeight });

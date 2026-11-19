@@ -19,7 +19,10 @@
     "screens": "tsx scripts/screens.mts",
     "lighthouse": "tsx scripts/lighthouse.mts",
     "budget": "tsx scripts/js-budget.mts",
-    "test:bundle": "tsx scripts/check-bundle-secrets.mts"
+    "test:bundle": "tsx scripts/check-bundle-secrets.mts",
+    "gen:media": "tsx scripts/gen-media.mts",
+    "docs:check": "node ../../scripts/check-docs.mjs",
+    "demo:record": "tsx scripts/record-demo.mts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",
