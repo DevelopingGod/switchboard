@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ready, settled, unstick, unstickComposer } from "./helpers";
+import { ready, renderAllSections, settled, unstick, unstickComposer } from "./helpers";
 
 /** Visual-regression baselines: every gallery section in both themes (default system-follow). */
 const sections = [
@@ -30,6 +30,7 @@ for (const scheme of ["light", "dark"] as const) {
         await page.goto("/dev/components");
         await ready(page);
         await unstick(page);
+        await renderAllSections(page);
         await settled(page);
         await expect(page.getByTestId(`cmp-${id}`)).toHaveScreenshot(`${id}-${scheme}.png`);
       });
