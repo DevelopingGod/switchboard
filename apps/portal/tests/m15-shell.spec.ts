@@ -237,6 +237,7 @@ test.describe("ambient cursor and motion", () => {
   test("no long tasks (> 50 ms) while the pointer moves over cards and hover effects run", async ({ page }) => {
     await page.goto("/connections?nosplash");
     await page.waitForFunction(() => document.documentElement.hasAttribute("data-cursor-live"));
+    await ready(page); // the sidebar's recents finish loading first: this test is about pointer movement, not page load
     await page.evaluate(() => {
       (window as unknown as { __lt: number[] }).__lt = [];
       new PerformanceObserver((l) => l.getEntries().forEach((e) => (window as unknown as { __lt: number[] }).__lt.push(e.duration))).observe({ type: "longtask" });

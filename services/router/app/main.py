@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
     await db.dispose()
 
 
-app = FastAPI(title="Switchboard Router", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Switchboard Router", version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,

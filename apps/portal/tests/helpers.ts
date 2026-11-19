@@ -4,6 +4,18 @@ import type { Page } from "@playwright/test";
 export async function ready(page: Page) {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForLoadState("networkidle");
+  // The sidebar's recent chats load once the page is idle (their own chunk, then a fetch). Every full-page
+  // capture and layout check includes that list, so wait until it has arrived (or said why it hasn't).
+  await page.waitForFunction(
+    () => {
+      const sb = document.querySelector<HTMLElement>("#app-sidebar");
+      if (!sb || getComputedStyle(sb).visibility === "hidden" || document.documentElement.dataset.sidebar === "collapsed") return true;
+      const sec = sb.querySelector('section[aria-label="Recent chats"]');
+      return !!sec && (!!sec.querySelector("a[data-thread-row]") || /No chats|load your chats/.test(sec.textContent ?? ""));
+    },
+    undefined,
+    { timeout: 8000 },
+  );
 }
 
 /** Waits until the page height stops changing (lazy chunks that arrive late under load). */
@@ -38,5 +50,16 @@ export async function unstickComposer(page: Page) {
  */
 export async function renderAllSections(page: Page) {
   await page.addStyleTag({ content: '[data-testid^="cmp-"]{content-visibility:visible!important}' });
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+}
+
+/**
+ * Full-page captures of a page with sticky chrome (sidebar, page header, save bar): sticky elements are
+ * painted where the *current scroll position* puts them, and clicks below the fold leave that position
+ * a few pixels different from run to run. Scrolling back to the top first makes them deterministic.
+ */
+export async function atTop(page: Page) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => window.scrollY === 0);
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
 }

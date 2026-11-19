@@ -35,6 +35,17 @@ const Budget = dynamic(() => import("./SidebarBudget"), {
   loading: () => <span aria-hidden className="shimmer size-[38px] shrink-0 rounded-full" />,
 });
 
+/** True once the page is idle (or after a short timeout): the recents list loads then, not while the page is still hydrating. */
+function useIdle(): boolean {
+  const [idle, setIdle] = React.useState(false);
+  React.useEffect(() => {
+    const go = () => setIdle(true);
+    const id = window.requestIdleCallback?.(go, { timeout: 1500 }) ?? window.setTimeout(go, 400);
+    return () => (window.cancelIdleCallback ? window.cancelIdleCallback(id) : window.clearTimeout(id));
+  }, []);
+  return idle;
+}
+
 const FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex='-1'])";
 
 type Health = "ok" | "limited" | "down" | "unknown";
@@ -79,6 +90,7 @@ export function Sidebar({
   const active = activeNavId(pathname);
   const prefs = usePrefs();
   const hydrated = useHydrated();
+  const idle = useIdle();
   const rail = prefs.sidebarCollapsed && !open; // icon rail: tooltips stand in for the labels
   const ref = React.useRef<HTMLElement>(null);
   const closeRef = React.useRef<HTMLButtonElement>(null);
@@ -191,7 +203,7 @@ export function Sidebar({
         </nav>
 
         <section aria-label={tShell("sidebar.recents")} className="sb-recents sb-full">
-          {hydrated && (!prefs.sidebarCollapsed || open) && (
+          {idle && (!prefs.sidebarCollapsed || open) && (
             <React.Suspense fallback={null}>
               <Recents />
             </React.Suspense>

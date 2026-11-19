@@ -16,13 +16,14 @@ import { cn } from "@/lib/cn";
 import { tRules } from "@/i18n/rules";
 import { Field, TextInput } from "./fields";
 
-// Every panel is its own chunk, so the route's first-load JS stays small (budget: ADR 0003).
-const Skeleton = () => <div aria-hidden className="shimmer h-64 rounded-panel" />;
-const PresetsPanel = dynamic(() => import("./PresetsPanel"), { ssr: false, loading: Skeleton });
-const RulesPanel = dynamic(() => import("./RulesPanel"), { ssr: false, loading: Skeleton });
-const AdvancedPanel = dynamic(() => import("./AdvancedPanel"), { ssr: false, loading: Skeleton });
-const HistoryPanel = dynamic(() => import("./HistoryPanel"), { ssr: false, loading: Skeleton });
-const DryRunPanel = dynamic(() => import("./DryRunPanel"), { ssr: false, loading: Skeleton });
+// Every panel is its own chunk, so the route's first-load JS stays small (budget: ADR 0003). They are
+// still rendered on the server (no `ssr: false`), so the HTML is already at its final size and nothing
+// shifts when a chunk arrives (CLS), the same pattern as the Settings sections.
+const PresetsPanel = dynamic(() => import("./PresetsPanel"));
+const RulesPanel = dynamic(() => import("./RulesPanel"));
+const AdvancedPanel = dynamic(() => import("./AdvancedPanel"));
+const HistoryPanel = dynamic(() => import("./HistoryPanel"));
+const DryRunPanel = dynamic(() => import("./DryRunPanel"));
 
 type Tab = "presets" | "rules" | "advanced" | "history";
 const TABS: Tab[] = ["presets", "rules", "advanced", "history"];
@@ -36,6 +37,15 @@ export function RulesScreen({ initial, versions }: { initial: RulesResponse; ver
   const [draft, setDraft] = React.useState<Overrides>(initial.overrides);
   const [problems, setProblems] = React.useState<RuleProblem[]>([]);
   const [tab, setTab] = React.useState<Tab>("presets");
+  // Arrow keys move the selection; focus follows once the new tab has rendered (not before: the panel
+  // below swaps, and a focus call made ahead of that commit can be lost).
+  const focusAfter = React.useRef<Tab | null>(null);
+  React.useEffect(() => {
+    if (focusAfter.current === tab) {
+      document.getElementById(`tab-${tab}`)?.focus();
+      focusAfter.current = null;
+    }
+  }, [tab]);
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [stale, setStale] = React.useState(false);
@@ -123,15 +133,13 @@ export function RulesScreen({ initial, versions }: { initial: RulesResponse; ver
 
       {!pro && <p className="max-w-3xl text-sm text-ink-muted">{tRules("mode.simple")}</p>}
 
+      {/* The slim header carries the count (the Save bar below is the one place to save). */}
       <PageActions>
         {dirty && (
-          <Button type="button" size="sm" variant="ghost" onClick={() => (setDraft(saved.overrides), setProblems([]))}>
-            {tRules("bar.discard")}
-          </Button>
+          <span aria-hidden className="rounded-chip bg-accent-soft px-3 py-1 text-[0.8125rem] font-bold text-accent-strong">
+            {changes === 1 ? tRules("bar.unsavedOne") : tRules("bar.unsaved", { count: changes })}
+          </span>
         )}
-        <Button type="button" size="sm" disabled={!dirty || busy || blocked} onClick={save}>
-          {busy ? tRules("bar.saving") : tRules("bar.save")}
-        </Button>
       </PageActions>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
@@ -153,8 +161,8 @@ export function RulesScreen({ initial, versions }: { initial: RulesResponse; ver
                     if (!d) return;
                     e.preventDefault();
                     const next = TABS[(TABS.indexOf(id) + d + TABS.length) % TABS.length];
+                    focusAfter.current = next;
                     setTab(next);
-                    document.getElementById(`tab-${next}`)?.focus();
                   }}
                   className={cn("min-h-9 rounded-chip px-4 text-sm font-semibold", tab === id ? "bg-pill-active font-bold ring-1 ring-accent-strong/40" : "text-ink-muted hover:text-ink")}
                 >

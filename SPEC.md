@@ -111,7 +111,7 @@ Subscription CLIs talk directly to their vendors, so LiteLLM never sees that tra
 
 | Need | Default | Fallback | Reality |
 |---|---|---|---|
-| Image | Gemini Flash Image (if free quota exists on the account) | xAI Grok Imagine API (~$0.02–0.07/image) → local ComfyUI | Free API image quota is inconsistent — detect at runtime |
+| Image | Gemini image models (Nano Banana): **no free access** on the free tier (owner's AI Studio, 2026-11-19; `providers.yaml` limits are 0, so they are never routed to there) | xAI Grok Imagine API (~$0.02–0.07/image) → local ComfyUI / Stable Diffusion | Other accounts may differ: the quota guard learns from headers and 429s. Plan M5 without free Gemini images |
 | Video | xAI Grok Imagine Video (~$0.05/s at 480p) | Veo / Sora via LiteLLM (paid) | **No reliable free video API.** Enforce a media budget |
 
 Implement media through LiteLLM's image and video generation APIs where supported (it supports Sora and Veo with cost tracking). For xAI Imagine, use LiteLLM if supported in the installed version; otherwise a thin adapter in the Router API calling xAI's OpenAI-style `/v1/images/generations` and `/v1/videos/generations`, with cost logged to the Router DB.
@@ -220,7 +220,7 @@ Per-user overrides stored in DB; admin rules are the base. Rule edits are versio
 
 M3a adds these `rules.yaml` blocks: `classifier:` (timeout, breaker, `routes` with descriptions and facts), `recommender:` (weights, `min_samples`), `quota:` (`reroute_at` 0.8, `block_at` 1.0) and `summary:` (`start_at` 0.75, `keep_last` 6). The local-model profiles live in `config/local-models.yaml`.
 
-Implemented in M2 as `config/rules.yaml` (docs/m2.md). It adds `defaults.daily_cap_usd`, `max_context_tokens`, `max_output_tokens`, a `slash:` map (command → rule), `presets:` (free / balanced / best overlays and a paid policy), `when: { command: … }` and `job: true`. Until M4, `agent:` targets are skipped with a reason, and the chat models at the end of a rule's fallbacks answer in chat. DB overrides and versioning come with the Rules UI (M3).
+Implemented in M2 as `config/rules.yaml` (docs/m2.md). It adds `defaults.daily_cap_usd`, `max_context_tokens`, `max_output_tokens`, a `slash:` map (command → rule), `presets:` (free / balanced / best overlays and a paid policy), `when: { command: … }` and `job: true`. Until M4, `agent:` targets are skipped with a reason, and the chat models at the end of a rule's fallbacks answer in chat. DB overrides and versioning came with the Rules UI (M3b, below).
 
 ### 7.3 Autonomy levels (one scale, mapped per agent)
 
@@ -233,6 +233,8 @@ Implemented in M2 as `config/rules.yaml` (docs/m2.md). It adds `defaults.daily_c
 
 Default is 1. Level 3 requires: sandbox on, budget set, git worktree, no production credentials.
 
+**Implemented in M3b** (ADR 0004, docs/m3b.md): `rules.yaml` stays the read-only base; the owner's edits are one partial document (`defaults`, `rules` by id with `disabled` / `before`, `slash`, `presets`, `classifier` route descriptions, `recommender`, `quota`, `summary`) stored as append-only versions in `rules_versions` and merged onto the base before the same `parse()` validates it. The `private` rule cannot leave the machine, be removed or be changed by a preset. Endpoints: `GET /rules`, `POST /rules/validate`, `PUT /rules/overrides`, `GET /rules/versions[/{id}[/diff]]`, `POST /rules/versions/{id}/rollback`; `POST /route/dry-run` accepts an unsaved `draft`. A saved override that stops fitting a changed `rules.yaml` is ignored (routing uses the file) and reported until fixed.
+
 ## 8. Portal screens
 
 1. **Chat** — threads, streaming, file/image attach, composer with: `Auto` / manual target picker, temperature slider, autonomy selector, private toggle. Each reply shows a chip: *routed to X by rule Y* (click → decision log). "Convert to job" button.
@@ -242,7 +244,7 @@ Default is 1. Level 3 requires: sandbox on, budget set, git worktree, no product
    - *CLI providers*: detect installed (`<cli> --version`), detect logged-in, **Install** and **Log in** buttons (opens a terminal/browser OAuth via the CLI itself), **Test** button.
    - *API-key providers*: paste key → stored server-side → registered in LiteLLM → **Test** → shows models + current limits.
    - Health dot, quota remaining (where the provider exposes it), last error.
-5. **Rules** — table + form editor for `rules.yaml`, "test a prompt" dry-run showing which rule fires, version history.
+5. **Rules** (`/settings/rules`, M3b) — Simple mode: the presets (active one, paid policy) and the tester; Pro mode: rule table + form editor, slash commands, classifier wording, weights/quota/summary/defaults, version history with diff and rollback. The tester ("try a message") shows the decision, the classifier's answer, the order targets would be tried, the reasons, the per-factor score breakdown and the runner-up, and includes unsaved changes.
 6. **Metrics** — date range filter; tokens and cost by provider / model / agent / rule; requests, errors, 429s, latency p50/p95; quota burn-down; media spend; Paperclip budget status; top expensive requests.
 7. **Settings** — users/roles (admin, user), budgets, data-retention, export/import config.
 
@@ -356,7 +358,7 @@ Users must always know **what** they are using, **why** it was picked, and **wha
 **Signature component: the Dial.** A 270° ring with a periwinkle arc and a dot handle. Read-only (`role="meter"`) for quotas and budgets; interactive (`role="slider"`, arrows/Home/End/PageUp/PageDown, pointer drag) for the autonomy selector, which snaps to the four stops in §7.3.
 
 **Layout and interaction**
-- **Top navigation** as white pill tabs: Chat · Studio · Jobs · Connections · Metrics, plus Settings, the Simple/Pro switch, Appearance menu, ⌘K trigger and one periwinkle pill primary action. Phones get a bottom bar instead. Rules live in Settings in Simple mode.
+- **Left sidebar (M3b, ADR 0003)** replaces the top pill bar: logo, collapse (⌘B), New chat, Search (⌘K), then Chat · Studio · Jobs · Connections · Metrics · Status, global recent chats (grouped, pinned, searched on the server), and at the bottom the day's budget as a small Dial, a breathing health dot, Simple/Pro, Appearance, Settings and profile. Glass rail over the sky; collapsed = 4.75 rem icon rail with tooltips; under 768 px it is a drawer (focus trapped, Esc closes, the page behind is inert). A slim sticky page header holds the section name and a slot for page actions. Never horizontal scroll at any width ≥ 360 px or at 125%/150% zoom; grids use container-friendly `auto-fill` columns, not viewport breakpoints. Rules live at Settings → Routing rules.
 - **Home**: "Hello, {name}. What do you want to build today?" and one large glass composer.
 - One primary action per screen. Details in side drawers, not new pages.
 - Progressive disclosure: summaries first, expand for detail. Cards carry three numbers at most.
@@ -457,7 +459,8 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 
 - `users(id, role)`
 - `connections(id, provider, kind[cli|api_key|local], status, last_checked, last_error, meta_json)` — secrets **not** stored here; API keys live in LiteLLM / encrypted secret store
-- `rules(id, version, yaml, created_by, created_at, active)`
+- `rules(id, version, yaml, created_by, created_at, active)` — superseded by `rules_versions` (M3b)
+- `rules_versions(id, created_at, source[edit|rollback|reset], note, rolled_back_to, base_sha, overrides jsonb)`: append-only history of override documents; the newest row is current; a rollback appends a copy (M3b)
 - `user_overrides(user_id, rule_id, json)`
 - `requests(id, user_id, kind[chat|media|job], prompt_hash, rule_id, target, fallbacks_tried_json, temperature, autonomy, private, status, latency_ms, created_at, thread_id, intent, model, model_catalog_id, ttft_ms, error, decision_json)`: the M2 columns record the deployment that answered and the full decision
 - `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd, list_price_usd)`: `cost_usd` counts toward caps (free-tier calls are $0); `list_price_usd` keeps the provider's price as "value" (M2)
@@ -511,7 +514,7 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M1.5 | Design polish + self-healing (§8b, §8c), built after M2: shell (footer, splash, shortcuts, transitions), chat sidebar and reading column, Settings, motion v2, ambient cursor, one tooltip; idempotent LiteLLM sync, plain-language errors, Status view | Every UI item in §8c below works in both themes; axe clean; Lighthouse ≥ 90; JS ≤ 200 KB per route; CLS < 0.05; LiteLLM restart or a lost deployment resyncs with no user action |
 | M3 | Rules UI + Arch-Router classifier | Dry-run tester; ≥ 85% correct on a 50-prompt labelled set in `tests/routing.jsonl`; `best:<capability>` targets resolve via the recommender, the "Why this?" chip shows model + top reasons, and feedback updates `model_stats` |
 | M3a | Routing brain (backend first): Arch-Router classifier, recommender scoring, quota guard, generic OpenAI-compatible adapter, long-thread summaries, local-model profiles, auto-private + secret masking | ≥ 85% on ≥ 60 labelled prompts (`services/router/tests/routing.jsonl`); quota guard reroutes before a 429 (test + live demo); a provider added with YAML only (test); summaries work; M1.5 carry-overs fixed |
-| M3b | Rules UI: table + form editor over `rules.yaml`, DB overrides and versioning with rollback, dry-run tester | Edit a rule in the UI, test a prompt, roll back; history kept |
+| M3b | Rules UI: table + form editor over `rules.yaml`, DB overrides and versioning with rollback, dry-run tester; left-sidebar app shell; small-GPU profile (classifier + tasks on CPU); real Gemini limits | Edit a rule in the UI, test a prompt, roll back; history kept; `/chat` first-load JS not larger than before; sidebar clean at 360–1920 px and 125%/150% zoom |
 | M4 | Jobs via Paperclip | "Fix tests in repo X" creates a Paperclip issue for the right agent; live status, approve/reject, diff view |
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |

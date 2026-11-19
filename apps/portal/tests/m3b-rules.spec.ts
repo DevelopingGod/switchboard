@@ -294,6 +294,29 @@ test.describe("dry-run tester (mutating state kept untouched)", () => {
   });
 });
 
+test.describe("layout", () => {
+  for (const width of [360, 768, 1024, 1280, 1440, 1920]) {
+    test(`the rules table fits its box, the page never scrolls sideways (${width}px)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page);
+      if (width < 768) await page.getByRole("button", { name: "Open menu" }).click();
+      await sidebar(page).getByRole("radio", { name: "Pro" }).click();
+      if (width < 768) await page.keyboard.press("Escape");
+      await page.getByRole("tab", { name: "Rules" }).click();
+      await page.getByRole("button", { name: "Edit writing", exact: true }).click();
+      const m = await page.evaluate(() => {
+        const t = document.querySelector("table")!;
+        const wrap = t.parentElement!;
+        return { tableScrolls: wrap.scrollWidth > wrap.clientWidth, page: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      expect(m.tableScrolls, "the table scrolls inside its box").toBe(false);
+      expect(m.page, "the page scrolls sideways").toBeLessThanOrEqual(0);
+      await expect(page.getByRole("region", { name: "Rule: writing" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Try a message" })).toBeVisible();
+    });
+  }
+});
+
 test.describe("router down", () => {
   test("a plain message with one action", async ({ page }) => {
     // The fixture router has no 'down' switch for /rules; the page-level empty state is covered by the

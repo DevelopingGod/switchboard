@@ -23,7 +23,10 @@ export default function SidebarBudget({ tip }: { tip: boolean }) {
         size={38}
         state={q ? "default" : "loading"}
         className="shrink-0"
-      />
+      >
+        {/* no number in the ring: at 38 px it would be unreadable (the amounts sit beside it) */}
+        <span aria-hidden />
+      </Dial>
       <span className="sb-label min-w-0 text-[0.75rem] leading-tight text-ink-muted">
         <span className="block font-semibold text-ink tabular-nums">
           {q ? `${money(data.spend_today_usd)} / ${money(q.daily_cap_usd)}` : "…"}

@@ -213,16 +213,19 @@ export default function RulesPanel(p: Props) {
             {tRules("rules.help")}
           </ExplainPopover>
         </header>
-        <div className="-mx-1 overflow-x-auto px-1">
-          <table className="w-full min-w-[34rem] border-separate border-spacing-y-1 text-left text-sm">
+        {/* Container queries, not viewport ones: the sidebar takes 17 rem of the window. The table always
+            fits its box (no sideways scroll); narrow boxes drop the Order and When columns and show the
+            condition under the rule name instead. */}
+        <div className="@container">
+          <table className="w-full border-separate border-spacing-y-1 text-left text-sm">
             <caption className="sr-only">{tRules("rules.help")}</caption>
             <thead>
               <tr className="label text-[0.625rem]">
-                <th scope="col" className="w-10 px-2 font-semibold">{tRules("rules.colOrder")}</th>
+                <th scope="col" className="hidden w-10 px-2 font-semibold @lg:table-cell">{tRules("rules.colOrder")}</th>
                 <th scope="col" className="px-2 font-semibold">{tRules("rules.colRule")}</th>
-                <th scope="col" className="px-2 font-semibold">{tRules("rules.colWhen")}</th>
+                <th scope="col" className="hidden px-2 font-semibold @xl:table-cell">{tRules("rules.colWhen")}</th>
                 <th scope="col" className="px-2 font-semibold">{tRules("rules.colTarget")}</th>
-                <th scope="col" className="w-24 px-2"><span className="sr-only">{tRules("rules.edit")}</span></th>
+                <th scope="col" className="w-px px-2"><span className="sr-only">{tRules("rules.edit")}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -230,23 +233,24 @@ export default function RulesPanel(p: Props) {
                 const bad = problemsUnder(p.problems, `rules.${r.id}`).length > 0;
                 return (
                   <tr key={r.id} className={cn("bg-glass", open === r.id && "ring-2 ring-accent-strong", bad && "ring-2 ring-err")}>
-                    <td className="rounded-l-control px-2 py-2.5 tabular-nums text-ink-muted">{i + 1}</td>
-                    <th scope="row" className="px-2 py-2.5 font-semibold">
+                    <td className="hidden rounded-l-control px-2 py-2.5 tabular-nums text-ink-muted @lg:table-cell">{i + 1}</td>
+                    <th scope="row" className="px-2 py-2.5 font-semibold max-@lg:rounded-l-control">
                       <span className="flex flex-wrap items-center gap-1.5">
                         {r.id === "private" && <Lock aria-label={tRules("rules.badge.locked")} className="size-3.5 text-accent-strong" />}
                         {r.id}
                         {isNewRule(p.base, r.id) ? <Badge>{tRules("rules.badge.new")}</Badge> : isEdited(p.draft, r.id) && <Badge>{tRules("rules.badge.edited")}</Badge>}
                         {r.job && <Badge quiet>{tRules("rules.badge.job")}</Badge>}
                       </span>
+                      <span className="block text-[0.8125rem] font-normal text-ink-muted @xl:hidden">{whenSummary(r.when)}</span>
                     </th>
-                    <td className="px-2 py-2.5 text-ink-muted">{whenSummary(r.when)}</td>
+                    <td className="hidden px-2 py-2.5 text-ink-muted @xl:table-cell">{whenSummary(r.when)}</td>
                     <td className="px-2 py-2.5">
                       <span className="font-medium">{targetLabel(r.target)}</span>{" "}
                       <span className="text-[0.8125rem] text-ink-muted">
                         {(r.fallbacks?.length ?? 0) > 0 ? tRules("rules.fallbacks", { count: r.fallbacks!.length }) : tRules("rules.noFallbacks")}
                       </span>
                     </td>
-                    <td className="rounded-r-control px-2 py-1.5 text-right">
+                    <td className="rounded-r-control px-2 py-1.5 text-right whitespace-nowrap">
                       <Button type="button" size="sm" variant={open === r.id ? "primary" : "glass"} aria-expanded={open === r.id} aria-controls={`rf-${r.id}-title`} aria-label={`${open === r.id ? tRules("rules.editing") : tRules("rules.edit")} ${r.id}`} onClick={() => setOpen(open === r.id ? null : r.id)}>
                         <Pencil aria-hidden className="size-3.5" /> {open === r.id ? tRules("rules.editing") : tRules("rules.edit")}
                       </Button>
