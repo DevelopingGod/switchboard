@@ -1,6 +1,7 @@
 import "server-only";
 import * as fixtures from "./fixtures";
 import * as chatFixtures from "./chat-fixtures";
+import * as rulesFixtures from "./rules-fixtures";
 
 /**
  * The only module that knows the Router URL and ROUTER_ADMIN_TOKEN. Server components read with
@@ -12,7 +13,7 @@ import * as chatFixtures from "./chat-fixtures";
 
 /** Failures carry the router's stable `code` (plain-language mapping in i18n/errors.ts) and the raw
  * `detail`, which the UI shows only in Pro mode. `error` is already a plain sentence. */
-export type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number; code?: string; detail?: string | null };
+export type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number; code?: string; detail?: string | null; problems?: { path: string; message: string }[] };
 
 const routerUrl = () => process.env.ROUTER_URL ?? "http://127.0.0.1:8100";
 export const fixtureMode = () => process.env.PORTAL_DATA === "fixture";
@@ -22,11 +23,11 @@ function adminHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function failureOf(body: unknown, fallback: string): { error: string; code?: string; detail?: string | null } {
+function failureOf(body: unknown, fallback: string): { error: string; code?: string; detail?: string | null; problems?: { path: string; message: string }[] } {
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (detail && typeof detail === "object" && !Array.isArray(detail)) {
-    const d = detail as { code?: string; message?: string; detail?: string | null };
-    return { error: d.message ?? fallback, code: d.code, detail: d.detail ?? null };
+    const d = detail as { code?: string; message?: string; detail?: string | null; problems?: { path: string; message: string }[] };
+    return { error: d.message ?? fallback, code: d.code, detail: d.detail ?? null, ...(Array.isArray(d.problems) ? { problems: d.problems } : {}) };
   }
   if (typeof detail === "string") return { error: detail, detail };
   if (Array.isArray(detail)) return { error: detail.map((d) => (d as { msg?: string }).msg ?? "invalid").join("; ") };
@@ -35,6 +36,7 @@ function failureOf(body: unknown, fallback: string): { error: string; code?: str
 
 async function call<T>(method: string, path: string, body: unknown, admin: boolean, timeoutMs: number): Promise<Result<T>> {
   if (fixtureMode()) {
+    if (path.startsWith("/rules") || path === "/route/dry-run") return rulesFixtures.handle<T>(method, path, body);
     return path.startsWith("/chat/") || path.startsWith("/route/")
       ? chatFixtures.handle<T>(method, path, body)
       : fixtures.handle<T>(method, path, body);

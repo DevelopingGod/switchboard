@@ -2,17 +2,17 @@
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits, quota, user_settings
+from app import credits, quota, rules_versions, user_settings
 from app.models import Connection, Cost, ModelCatalog, ModelStats, ProviderSecret, SystemMeta
 from app.registry import Registry, load_registry
 from app.routing.engine import CatalogEntry, Context
 from app.routing.health import cooldowns
 from app.routing.recommend import Stat
-from app.routing.rules import load_rules
 
 
 async def active_preset(session: AsyncSession) -> str | None:
@@ -95,10 +95,11 @@ async def spent_today(session: AsyncSession) -> float:
     return float(total or 0)
 
 
-async def build_context(session: AsyncSession) -> Context:
+async def build_context(session: AsyncSession, draft: dict[str, Any] | None = None) -> Context:
+    """`draft`: an unsaved Rules UI override document (the dry-run tester); raises RulesInvalid."""
     registry = load_registry()
     rules = (
-        load_rules()
+        (await rules_versions.effective_rules(session, draft))
         .with_preset(await active_preset(session))
         .with_settings(await user_settings.load(session))
     )

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db, local_profile, secrets, sync
-from app.api import catalog, chat, connections, health, onboarding, settings, system
+from app.api import catalog, chat, connections, health, onboarding, rules, settings, system
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
     await db.dispose()
 
 
-app = FastAPI(title="Switchboard Router", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Switchboard Router", version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
@@ -69,3 +69,4 @@ app.include_router(onboarding.router)
 app.include_router(chat.router)
 app.include_router(system.router)
 app.include_router(settings.router)
+app.include_router(rules.router)

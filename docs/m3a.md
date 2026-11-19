@@ -131,6 +131,28 @@ Private threads skip the classifier, so they don't trigger a reload. The first m
 
 **qwen3:4b with `think: false`** still writes its reasoning into the answer. Titles came out as "Okay, the user wants me to…" and fell back to the first words, and summaries began "We are given…". So the GPU profiles' tasks model is **llama3.2:3b**. Verified live: a clean bullet summary and the title "Exploring Japan's Hidden Gems".
 
+## M3b: classifier and tasks model on the CPU (small profile), before and after
+
+Measured on this machine (RTX 3050 4 GB, 32 GB RAM) with `scripts/measure-local.py` (63 labelled prompts that reach the model; the rest are decided by the pre-filter). Decision record: [ADR 0002](adr/0002-small-profile-cpu-classifier-and-tasks.md).
+
+| | before (classifier on the GPU) | after (classifier and llama3.2:3b on the CPU, qwen3:4b alone on the GPU) |
+|---|---|---|
+| `ollama ps` after a chat reply and a title | only one model resident (the others evicted) | all three resident: Arch-Router 0 MiB GPU, llama3.2:3b 0 MiB GPU, qwen3:4b 2236 MiB GPU |
+| classifier answered by Arch-Router, nothing else running | 0 of 63 (it had been evicted: every call hit the 1.5 s limit, then the 60 s breaker) | 63 of 63 |
+| classifier p50 / p95 / max, nothing else running | n/a (evicted) | 897 / 960 / 982 ms |
+| classifier p50 / p95 / max **while a title job runs** | n/a (evicted: "classifier is loading") | 906 / 1234 / 1259 ms, 0 of 24 fell back |
+| keyword-heuristic fallbacks | 100% after any local reply or title | 0% |
+| title job (llama3.2:3b) | median 5.0 s (includes swapping qwen3 out and back) | median 0.9 s |
+| accuracy, full pipeline (`eval-routing.py`) | 96.2% (held-out 92.5%) | **96.2% (held-out 92.5%)**, unchanged |
+
+Reading it:
+- The privacy gap is closed: a sensitive message is now classified by the model every time, instead of by the keyword heuristics whenever a local model had just run.
+- The cost is latency: the classifier takes ~0.9 s on the CPU instead of ~0.1 s on a warm GPU. It still fits the 1.5 s limit with ~270 ms of margin in the worst case measured. **The limit was not raised**: the data doesn't require it. If a slower CPU hits it, the existing breaker and heuristics fallback still apply, and `rules.yaml` → `classifier.timeout_s` is the knob.
+- Contention is handled in code, not left to chance: titles and summaries go through one low-priority queue (`app/local_queue.py`). One job at a time, a job doesn't start while a classification is in flight, and the queue is bounded (16). A job that is already running can't be interrupted, which is what the 1234 ms p95 above reflects.
+- The accuracy didn't move, as expected: the model and prompt are the same, only the device changed.
+- Reproduce: `docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:/scripts:ro" router python /scripts/measure-local.py`. "Before" = the M3a `local-models.yaml` (git `d912ee4`).
+- Gemini limits and quota glob matching are in the same change: see ADR 0002.
+
 ## Live demos (2026-11-18, real stack)
 
 **Quota guard.** `ROUTER_QUOTA_TEST_LIMITS="groq:openai/gpt-oss-120b=rpd:3"`, four messages:

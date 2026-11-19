@@ -154,7 +154,7 @@ function Footer({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy:
           {r.cost_usd === 0 ? t("cost.free") : usd(r.cost_usd)}
         </span>
       )}
-      <span className={cn("msg-actions ml-auto flex items-center gap-1.5", last && "is-last")}>
+      <span className={cn("msg-actions ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5", last && "is-last")}>
         {m.content && <CopyButton text={m.content} label={tChat("chat.copy")} />}
         {last && !busy && actions.onRegenerate && m.status !== "notice" && (
           <Button type="button" size="sm" variant="glass" onClick={actions.onRegenerate}>

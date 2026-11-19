@@ -4,7 +4,6 @@ import { routerGet, routerGetAdmin, type Result } from "./router";
 import type {
   CatalogModel,
   CatalogResponse,
-  ChatThread,
   ComponentsResponse,
   ConnectionRow,
   ConnectionsResponse,
@@ -31,7 +30,6 @@ export async function loadConnections(): Promise<Result<ConnectionsData>> {
 }
 
 export interface ChatData {
-  threads: ChatThread[];
   current: ThreadResponse | null;
   /** Settings → Privacy (false when the setting can't be read). */
   privateDefault: boolean;
@@ -39,20 +37,18 @@ export interface ChatData {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Thread list + the selected thread (if `id` is a valid thread id). */
+/** The selected thread (if `id` is a valid thread id). The thread list lives in the sidebar (M3b). */
 export async function loadChat(id: string | undefined): Promise<Result<ChatData>> {
   await connection();
   const wanted = id && UUID.test(id) ? id : null;
-  const [list, cur, settings] = await Promise.all([
-    routerGetAdmin<{ threads: ChatThread[] }>("/chat/threads"),
+  const [cur, settings] = await Promise.all([
     wanted ? routerGetAdmin<ThreadResponse>(`/chat/threads/${wanted}`) : Promise.resolve(null),
     routerGet<SettingsView>("/settings"),
   ]);
-  if (!list.ok) return list;
+  if (!settings.ok) return settings; // the router being down is the one thing the page shows
   return {
     ok: true,
     data: {
-      threads: list.data.threads,
       current: cur && cur.ok ? cur.data : null,
       privateDefault: settings.ok && settings.data.private_by_default,
     },

@@ -145,8 +145,8 @@ The router runs in Docker and can't execute WSL binaries, so a small stdlib-only
 
 | CLI | Version | Logged-in check | Verified |
 |---|---|---|---|
-| claude | `claude --version` | `claude auth status` (exit 0 = logged in); otherwise `~/.claude/.credentials.json` exists | Not yet (no Linux install; the Windows binary is broken). Falls back to the file check. |
-| codex | `codex --version` | `codex login status` ("Logged in") | Yes, `codex login --help` lists `status` |
+| claude | `claude --version` | `claude auth status --json` (one JSON object; only its boolean `loggedIn` is read, the email/org in it are discarded); otherwise `~/.claude/.credentials.json` exists | **Yes, 2026-11-19 (M3b), claude 2.1.326 (Linux, installer).** Logged in: exit 0, `"loggedIn": true`. The logged-out output was not recorded (it would mean logging out); the parser treats `loggedIn: false` as logged out and any other shape as unknown, never as logged out. |
+| codex | `codex --version` | `codex login status` ("Logged in using ChatGPT", exit 0; "Not logged in", exit 1) | **Yes, 2026-11-19 (M3b), codex-cli 0.170.0 (Linux, installed through the portal).** Both outputs recorded from the real binary; tests use them. |
 | gemini | `gemini --version` | `~/.gemini/oauth_creds.json` exists (no status command) | Not yet (no Linux install); known default credential path |
 | grok | `grok --version` | `~/.grok/auth.json` or `~/.config/grok/auth.json` exists | No; re-check after installing Grok Build |
 | opencode | `opencode --version` | `opencode auth list` ("N credentials", N > 0); otherwise `~/.local/share/opencode/auth.json` | **Yes, 2026-11-17 (M1b), opencode 1.19.6 installed through the portal.** Real output is `1 credentials` when logged in and `0 credentials` when not, wrapped in ANSI codes and box-drawing characters even with `NO_COLOR=1`; the parser handles both (tests use the recorded bytes). Counts credentials for any provider, not only OpenCode Zen. |

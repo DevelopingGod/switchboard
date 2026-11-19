@@ -91,12 +91,16 @@ async def test_none_profile_titles_use_the_cloud_only_for_non_private_threads(cl
     assert first(ev, "route")["local"] is True
 
 
-async def test_classifier_is_reloaded_after_the_tasks_model_ran(client, stack):
-    """4 GB GPU: qwen3 (title) evicts Arch-Router; it is loaded back in the background right away."""
+async def test_classifier_is_reloaded_after_a_gpu_tasks_model_ran(client, stack, monkeypatch):
+    """A profile whose tasks model runs on the GPU (medium/large on a card that can't hold both, or a
+    custom one): the title can evict Arch-Router, so it is loaded back in the background."""
     import asyncio
+    from dataclasses import replace
 
     from app.routing import classifier
 
+    base = local_profile.active
+    monkeypatch.setattr(local_profile, "active", lambda: replace(base(), tasks_options={}))
     arch = local_profile.active().classifier
     stack.ollama.loaded = []
     await turn(client, text="how do I center a div in CSS?")
@@ -109,3 +113,35 @@ async def test_classifier_is_reloaded_after_the_tasks_model_ran(client, stack):
     await turn(client, text="something private", private=True)
     await asyncio.gather(*classifier._tasks)
     assert not [c for c in stack.ollama.calls[n:] if c["model"] == arch]
+
+
+def test_small_profile_pins_classifier_and_tasks_to_the_cpu():
+    p = local_profile.active()
+    assert p.name == "small"
+    assert p.classifier_options == {"num_gpu": 0} and p.tasks_options == {"num_gpu": 0}
+    assert p.tasks_keep_alive == "1h" and p.max_loaded == 1 and not p.tasks_on_gpu
+    assert local_profile.load_profiles()[0]["large"].tasks_on_gpu
+
+
+async def test_cpu_tasks_model_runs_on_the_cpu_and_never_triggers_the_reload(client, stack):
+    import asyncio
+
+    from app.routing import classifier
+
+    stack.ollama.loaded = []
+    await turn(client, text="how do I center a div in CSS?")
+    await asyncio.gather(*classifier._tasks)
+    arch = local_profile.active().classifier
+    title = [c for c in stack.ollama.calls if c["messages"][-1]["content"].startswith("Write a title")]
+    assert title and title[-1]["options"]["num_gpu"] == 0 and title[-1]["keep_alive"] == "1h"
+    assert not [c for c in stack.ollama.calls if c["model"] == arch and c["options"].get("num_predict") == 1]
+    assert stack.ollama.unloaded == []
+
+
+async def test_enforce_max_loaded_ignores_cpu_pinned_models(ollama_fake):
+    arch = "hf.co/katanemo/Arch-Router-1.5B.gguf:Q4_K_M"
+    ollama_fake.loaded = [arch, "llama3.2:3b", "qwen3:4b"]
+    ollama_fake.cpu = {arch, "llama3.2:3b"}
+    assert await ollama.enforce_max_loaded([arch], 1) == []  # only qwen3 holds the GPU
+    ollama_fake.cpu = {arch}
+    assert await ollama.enforce_max_loaded([arch], 1) == ["llama3.2:3b"]

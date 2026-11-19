@@ -1,5 +1,5 @@
 /**
- * Lighthouse gate for the gallery, Home, Connections and the wizard in both themes.
+ * Lighthouse gate for the gallery, Home, Connections, Chat, Settings, Status, Rules and the wizard in both themes.
  * Needs a production server on fixture data: `npm run build && PORTAL_DATA=fixture npx next start -H 127.0.0.1 -p 3210`.
  * Categories: performance, accessibility, best-practices (SEO intentionally excluded). Threshold 90.
  */
@@ -25,6 +25,8 @@ const targets = [
   "/settings?theme=dark",
   "/status",
   "/status?theme=dark",
+  "/settings/rules",
+  "/settings/rules?theme=dark",
 ];
 const chrome =
   process.env.CHROME_PATH ?? join(homedir(), ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome");

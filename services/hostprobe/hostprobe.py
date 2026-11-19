@@ -53,14 +53,14 @@ VERSION_RE = re.compile(r"\d+\.\d+(?:\.\d+)?(?:[-+.][0-9A-Za-z.\-]+)?")
 class CliSpec:
     bin: str
     auth_argv: tuple[str, ...] | None  # argv after the binary; None = no status command
-    auth_kind: str  # how to read the status command: exit0 | codex | opencode
+    auth_kind: str  # how to read the status command: exit0 | claude | codex | opencode
     auth_files: tuple[str, ...]  # relative to $HOME; stat only
 
 
 # The allowlist. Verified against each CLI's docs/--help at M1a (see docs/m1a.md); grok's
 # credential location is unverified until Grok Build is installed.
 CLIS: dict[str, CliSpec] = {
-    "claude": CliSpec("claude", ("auth", "status"), "exit0", (".claude/.credentials.json",)),
+    "claude": CliSpec("claude", ("auth", "status", "--json"), "claude", (".claude/.credentials.json",)),
     "codex": CliSpec("codex", ("login", "status"), "codex", (".codex/auth.json",)),
     "gemini": CliSpec("gemini", None, "", (".gemini/oauth_creds.json",)),
     "grok": CliSpec("grok", None, "", (".grok/auth.json", ".config/grok/auth.json")),
@@ -123,6 +123,16 @@ def parse_auth(kind: str, code: int | None, out: str) -> bool | None:
     low = out.lower()
     if "unknown command" in low or "unrecognized" in low or "no such command" in low:
         return None
+    if kind == "claude":
+        # `claude auth status --json` (2.1.326, verified 2026-11-19) prints one JSON object whose
+        # `loggedIn` is a bool, next to the account email and org. Only that bool is read; the rest of
+        # the output is discarded here and never stored or returned.
+        try:
+            data = json.loads(out)
+        except ValueError:
+            return None
+        flag = data.get("loggedIn") if isinstance(data, dict) else None
+        return flag if isinstance(flag, bool) else None
     if kind == "codex":
         return code == 0 and "logged in" in low and "not logged in" not in low
     if kind == "opencode":

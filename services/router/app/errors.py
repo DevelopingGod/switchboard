@@ -22,6 +22,8 @@ CODES = (
     "params_missing",  # a generic provider also needs its declared params (e.g. an account id)
     "ollama_down",
     "bad_profile",
+    "rules_invalid",  # the Rules UI: the edit failed validation (problems: [{path, message}])
+    "rules_stale",  # the rules changed since the editor loaded them
 )
 
 
@@ -54,3 +56,15 @@ def classify(text: str | None) -> str | None:
     if "404" in t or "not found" in t:
         return "not_found"
     return "provider_error"
+
+
+def rules_invalid(e: Exception) -> HTTPException:
+    """422 for a Rules UI edit that failed validation. `problems` is [{path, message}], one per mistake,
+    each already a plain sentence."""
+    problems = [p.as_dict() for p in getattr(e, "problems", [])]
+    first = problems[0]["message"] if problems else str(e)
+    more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
+    return HTTPException(
+        422,
+        {"code": "rules_invalid", "message": f"{first}{more}", "detail": None, "problems": problems},
+    )

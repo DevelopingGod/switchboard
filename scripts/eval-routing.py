@@ -14,6 +14,7 @@ classifier latency (cold first call, then p50/p95). Markdown goes to stdout.
     docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:/scripts:ro" \\
       router python /scripts/eval-routing.py [--timeout 1.5] [--overrides]
 
+--saved-rules uses the classifier wording saved in the Rules UI instead of rules.yaml's (tune, save, measure).
 --overrides adds a table from the Router DB: how many requests auto-detection kept local and how many
 of those you overrode with "Not sensitive — use cloud".
 """
@@ -104,6 +105,7 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--timeout", type=float, default=None, help="classifier limit for `full` (default rules.yaml)")
     ap.add_argument("--overrides", action="store_true")
+    ap.add_argument("--saved-rules", action="store_true", help="use the Rules UI's saved overrides (Router DB), not just rules.yaml")
     ap.add_argument("--profile", default="small")
     ap.add_argument("--cpu", action="store_true", help="run the classifier on the CPU (num_gpu 0)")
     args = ap.parse_args()
@@ -112,6 +114,11 @@ async def main() -> None:
         base = local_profile.active
         local_profile.active = lambda: replace(base(), classifier_options={"num_gpu": 0})
     cfg = load_rules().classifier
+    if args.saved_rules:  # M3b: tune the route descriptions in the Rules UI, then measure the result here
+        from app import db, rules_versions
+
+        async with db.sessionmaker()() as s:
+            cfg = (await rules_versions.effective_rules(s)).classifier
     if args.timeout:
         cfg = replace(cfg, timeout_s=args.timeout)
 

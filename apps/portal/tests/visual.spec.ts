@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ready, settled, unstick, unstickComposer } from "./helpers";
+import { atTop, inPro, ready, renderAllSections, settled, unstick, unstickComposer } from "./helpers";
 
 /** Visual-regression baselines: every gallery section in both themes (default system-follow). */
 const sections = [
@@ -30,6 +30,7 @@ for (const scheme of ["light", "dark"] as const) {
         await page.goto("/dev/components");
         await ready(page);
         await unstick(page);
+        await renderAllSections(page);
         await settled(page);
         await expect(page.getByTestId(`cmp-${id}`)).toHaveScreenshot(`${id}-${scheme}.png`);
       });
@@ -72,6 +73,16 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(pop).toHaveScreenshot(`chat-why-${scheme}.png`);
     });
 
+    test("chat · why this? popover (Pro: the full breakdown)", async ({ page }) => {
+      await inPro(page);
+      await page.goto("/chat?t=6f1c2a10-0000-4000-8000-000000000001");
+      await ready(page);
+      await page.getByRole("button", { name: /Why this\? Routed to Google AI Studio/ }).click();
+      const pop = page.getByRole("dialog", { name: "Why this route?" });
+      await expect(pop).toBeVisible();
+      await expect(pop).toHaveScreenshot(`chat-why-pro-${scheme}.png`);
+    });
+
     // M1.5
     test("footer", async ({ page }) => {
       await page.goto("/jobs");
@@ -90,9 +101,11 @@ for (const scheme of ["light", "dark"] as const) {
       await page.goto("/jobs");
       await ready(page);
       await page.waitForFunction(() => !!document.getElementById("sb-tip"));
-      await page.getByRole("link", { name: "Settings" }).first().hover();
+      const link = page.getByRole("complementary", { name: "Sidebar" }).getByRole("link", { name: "Settings" });
+      await link.hover();
       await expect(page.locator("#sb-tip")).toHaveAttribute("data-state", "open");
-      await expect(page).toHaveScreenshot(`tooltip-${scheme}.png`, { clip: { x: 1000, y: 0, width: 280, height: 140 } });
+      const b = (await link.boundingBox())!;
+      await expect(page).toHaveScreenshot(`tooltip-${scheme}.png`, { clip: { x: 0, y: Math.round(b.y) - 70, width: 300, height: 130 } });
     });
 
     test("shortcuts sheet", async ({ page }) => {
@@ -126,8 +139,69 @@ for (const scheme of ["light", "dark"] as const) {
       await page.goto("/chat?t=6f1c2a10-0000-4000-8000-000000000001");
       await ready(page);
       await page.keyboard.press("Control+b");
-      await expect(page.getByRole("button", { name: "Show chat list" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
       await expect(page).toHaveScreenshot(`chat-collapsed-${scheme}.png`);
+    });
+
+    // M3b
+    test("sidebar · expanded", async ({ page }) => {
+      await page.goto("/jobs");
+      await ready(page);
+      await expect(page.getByRole("region", { name: "Recent chats" }).getByRole("link").first()).toBeVisible();
+      await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveScreenshot(`sidebar-expanded-${scheme}.png`);
+    });
+
+    test("sidebar · collapsed rail", async ({ page }) => {
+      await page.goto("/jobs");
+      await ready(page);
+      await page.getByRole("button", { name: "Collapse sidebar" }).click();
+      await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+      await page.mouse.move(700, 400);
+      await settled(page);
+      await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveScreenshot(`sidebar-collapsed-${scheme}.png`);
+    });
+
+    test("sidebar · phone drawer", async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 800 });
+      await page.goto("/jobs");
+      await ready(page);
+      await page.getByRole("button", { name: "Open menu" }).click();
+      await expect(page.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+      await page.waitForTimeout(350);
+      await expect(page).toHaveScreenshot(`sidebar-drawer-${scheme}.png`);
+    });
+
+    test("rules · simple", async ({ page }) => {
+      await page.goto("/settings/rules");
+      await ready(page);
+      await expect(page.getByRole("region", { name: "Balanced" })).toBeVisible();
+      await settled(page);
+      await expect(page).toHaveScreenshot(`rules-simple-${scheme}.png`, { fullPage: true });
+    });
+
+    // The sky covers the whole page: a tall page captured in full keeps its sky to the very bottom.
+    test("sky · full page, css and image", async ({ page }) => {
+      for (const sky of ["css", "image"]) {
+        await page.goto(`/settings/rules?sky=${sky}`);
+        await ready(page);
+        await settled(page);
+        await atTop(page);
+        await expect(page).toHaveScreenshot(`sky-full-${sky}-${scheme}.png`, { fullPage: true });
+      }
+    });
+
+    test("rules · pro editor and tester", async ({ page }) => {
+      await page.goto("/settings/rules");
+      await ready(page);
+      await page.getByRole("complementary", { name: "Sidebar" }).getByRole("radio", { name: "Pro" }).click();
+      await page.getByRole("tab", { name: "Rules" }).click();
+      await page.getByRole("button", { name: "Edit writing", exact: true }).click();
+      await page.getByLabel("Message to test").fill("Write a short LinkedIn post about my launch");
+      await page.getByRole("button", { name: "Test routing" }).click();
+      await expect(page.getByRole("region", { name: "Decision" })).toBeVisible();
+      await settled(page);
+      await atTop(page); // sticky chrome is painted where the scroll position puts it
+      await expect(page).toHaveScreenshot(`rules-pro-${scheme}.png`, { fullPage: true });
     });
 
     test("app shell · command palette", async ({ page }) => {

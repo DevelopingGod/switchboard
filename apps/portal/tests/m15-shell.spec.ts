@@ -24,20 +24,22 @@ async function cls(page: Page): Promise<number> {
 }
 
 test.describe("footer", () => {
-  test("health dots, spend, quota, version and links", async ({ page }) => {
+  test("quota, value saved, version and links (health and spend live in the sidebar)", async ({ page }) => {
     await page.goto("/");
     await ready(page);
     const footer = page.getByRole("contentinfo", { name: "Status and links" });
-    const health = footer.getByRole("list", { name: "Service health" });
-    await expect(health.getByText("Router: running")).toBeAttached();
-    await expect(health.getByText("Paperclip: not running")).toBeAttached(); // fixture: Paperclip down
-    await expect(footer.getByText("Today $0.01")).toBeVisible();
     await expect(footer.getByText("Value saved $0.08")).toBeVisible();
     await expect(footer.getByText("Quota OK")).toBeVisible();
     await expect(footer.getByText("v0.1.5")).toBeVisible();
     await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute("rel", /noopener/);
+    // not repeated here: the sidebar owns them
+    await expect(footer.getByText(/^Today \$/)).toHaveCount(0);
+    await expect(footer.getByRole("list", { name: "Service health" })).toHaveCount(0);
 
-    await footer.getByRole("link", { name: /^Open status/ }).click();
+    // Fixture: Paperclip is down, so the sidebar's health dot says something needs attention.
+    const dot = page.getByRole("complementary", { name: "Sidebar" }).getByRole("link", { name: /Something needs attention/ });
+    await expect(dot).toBeVisible();
+    await dot.click();
     await expect(page).toHaveURL(/\/status$/);
   });
 
@@ -46,7 +48,6 @@ test.describe("footer", () => {
     await page.goto("/");
     await ready(page);
     const footer = page.getByRole("contentinfo", { name: "Status and links" });
-    await expect(footer.getByText("Router", { exact: true })).toBeHidden();
     await expect(footer.getByRole("link", { name: "Docs" })).toBeHidden();
     await expect(footer.getByRole("button", { name: "Keyboard shortcuts" })).toBeVisible();
     const box = await footer.boundingBox();
@@ -66,7 +67,7 @@ test.describe("keyboard shortcuts", () => {
     await page.waitForTimeout(200);
     await expect(page.locator("#sb-tip")).not.toHaveAttribute("data-state", "open");
     await expect(sheet.getByText("Search and jump to anything")).toBeVisible();
-    await expect(sheet.getByText("Show or hide the thread list")).toBeVisible();
+    await expect(sheet.getByText("Show or hide the sidebar")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
 
@@ -236,6 +237,7 @@ test.describe("ambient cursor and motion", () => {
   test("no long tasks (> 50 ms) while the pointer moves over cards and hover effects run", async ({ page }) => {
     await page.goto("/connections?nosplash");
     await page.waitForFunction(() => document.documentElement.hasAttribute("data-cursor-live"));
+    await ready(page); // the sidebar's recents finish loading first: this test is about pointer movement, not page load
     await page.evaluate(() => {
       (window as unknown as { __lt: number[] }).__lt = [];
       new PerformanceObserver((l) => l.getEntries().forEach((e) => (window as unknown as { __lt: number[] }).__lt.push(e.duration))).observe({ type: "longtask" });

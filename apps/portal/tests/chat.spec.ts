@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { urls } from "../playwright.config";
-import { ready } from "./helpers";
+import { inPro, ready } from "./helpers";
 
 /**
  * Chat (M2) against the fixture router. Sending changes fixture state, so these run on the
@@ -23,6 +23,9 @@ async function send(page: Page, text: string) {
 
 const lastReply = (page: Page) => page.getByRole("article", { name: "Assistant" }).last();
 
+// These assert the full breakdown (rule names, runner-up, skipped), which is Pro mode; Simple mode has its own spec (m3b-simple).
+test.beforeEach(async ({ page }) => inPro(page));
+
 test.describe("chat · sending", () => {
   test("streams a reply with a route chip, cost and a local title", async ({ page }) => {
     await newChat(page);
@@ -32,7 +35,7 @@ test.describe("chat · sending", () => {
     await expect(reply.getByRole("button", { name: /Why this\? Routed to Groq · gpt-oss-120b by rule default/ })).toBeVisible();
     await expect(reply.getByText("Free", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("A quick answer"); // local-model title
-    await expect(page.getByRole("navigation", { name: "Chats" }).getByRole("link", { name: "A quick answer" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Recent chats" }).getByRole("link", { name: "A quick answer" })).toBeVisible();
     await expect(page).toHaveURL(/\/chat\?t=[0-9a-f-]{36}$/);
 
     await reply.getByRole("button", { name: /Why this\?/ }).click();

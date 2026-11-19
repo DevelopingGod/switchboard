@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/kit/Toast";
 import { saveSettings } from "@/app/settings/actions";
@@ -14,6 +15,12 @@ export default function RoutingSection({ explore }: { explore: boolean }) {
   const [busy, setBusy] = React.useState(false);
   return (
     <Section id="routing" title={tSet("section.routing")} explain={tSet("routing.explain")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-[0.8125rem] text-ink-muted">{tSet("routing.rulesHint")}</span>
+        <Link href="/settings/rules" className="inline-flex min-h-(--ctl) items-center rounded-chip bg-glass-strong px-4 text-sm font-semibold text-ink hover:bg-pill-active">
+          {tSet("routing.rulesLink")}
+        </Link>
+      </div>
       <div className="flex items-start justify-between gap-4">
         <div className="grid gap-0.5">
           <span id="explore-label" className="text-sm font-semibold">

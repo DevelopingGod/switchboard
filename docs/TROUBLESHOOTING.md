@@ -102,3 +102,24 @@ Data and config live in `~/.paperclip/instances/default/`. If `paperclipai` isn'
 ```bash
 git add --renormalize . && git checkout -- .
 ```
+
+## Router after pulling M3b
+
+The router needs a rebuild (new migrations 0005 `rules_versions` and 0006 thread index run on start) and hostprobe a restart (new `claude` login parser):
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build router
+systemctl --user restart switchboard-hostprobe
+```
+
+## Classifier slow or falling back on a small GPU
+
+On the `small` local profile (4–6 GB GPU) Arch-Router and the tasks model run on the CPU so nothing swaps (ADR 0002). `ollama ps` should list all three models, with 0 MiB in GPU for the CPU ones. The classifier takes ~0.9 s a call there against a 1.5 s limit; on a slower CPU raise `classifier.timeout_s` (Settings → Routing rules → Commands & classifier). Measure with:
+
+```bash
+docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:/scripts:ro" router python /scripts/measure-local.py
+```
+
+## A saved rule edit "no longer fits rules.yaml"
+
+After you edit `config/rules.yaml` (removing or renaming a rule your saved changes touch), Routing rules shows a red notice and routing uses the plain file until you fix it. Reset your changes there, or roll back to a version that still fits.

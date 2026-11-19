@@ -2,14 +2,14 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import { ArrowDown, MessageSquare } from "lucide-react";
 import { Composer, type ComposerSend } from "@/components/kit/Composer";
 import { EmptyState } from "@/components/kit/EmptyState";
 import { useToast } from "@/components/kit/Toast";
-import { deleteThread, pinThread, renameThread, sendFeedback, stopReply } from "@/app/chat/actions";
+import { sendFeedback, stopReply } from "@/app/chat/actions";
 import { dayKey, localDay } from "@/lib/thread-groups";
 import { readSse } from "@/lib/sse";
+import { THREAD_UPDATED, notifyThreadsChanged } from "@/lib/thread-events";
 import { PENDING_KEY, type PendingMessage } from "@/lib/pending";
 import { useMedia } from "@/lib/use-media";
 import type { ChatStreamBody, ChatThread, RouteInfo, TargetsResponse, ThreadResponse } from "@/lib/router-types";
@@ -17,7 +17,6 @@ import { t } from "@/i18n/strings";
 import { tChat } from "@/i18n/chat";
 import { MessageItem, type Live, type UiMessage } from "./MessageItem";
 import { TargetPicker } from "./TargetPicker";
-import { ThreadList } from "./ThreadList";
 import { StaticHeader, ThreadHeader } from "./ThreadHeader";
 
 // M3a: shown only in long threads; its own chunk with its strings.
@@ -52,19 +51,15 @@ function useAwayFromLatest(sentinel: React.RefObject<HTMLDivElement | null>) {
 }
 
 export function ChatScreen({
-  threads: initialThreads,
   current,
   privateDefault = false,
 }: {
-  threads: ChatThread[];
   current: ThreadResponse | null;
   /** Settings → Privacy: new chats start with Private on. */
   privateDefault?: boolean;
 }) {
   const { push } = useToast();
-  const router = useRouter();
   const phone = useMedia("(max-width: 639px)");
-  const [threads, setThreads] = React.useState(initialThreads);
   const [thread, setThread] = React.useState<ChatThread | null>(current?.thread ?? null);
   const [messages, setMessages] = React.useState<UiMessage[]>(current?.messages ?? []);
   const [text, setText] = React.useState("");
@@ -84,6 +79,19 @@ export function ChatScreen({
     threadRef.current = thread;
   }, [thread]);
   React.useEffect(() => () => abort.current?.abort(), []);
+  // The sidebar renamed or pinned the open chat: keep the header in step.
+  React.useEffect(() => {
+    const onUpdated = (e: Event) => {
+      const patch = (e as CustomEvent<Partial<ChatThread> & { id: string }>).detail;
+      if (patch && patch.id === threadRef.current?.id) {
+        const next = { ...threadRef.current!, ...patch };
+        threadRef.current = next;
+        setThread(next);
+      }
+    };
+    window.addEventListener(THREAD_UPDATED, onUpdated);
+    return () => window.removeEventListener(THREAD_UPDATED, onUpdated);
+  }, []);
   // Warm the "Why this?" popover chunk once the page is idle, so the first chip click always opens it
   // (until it loads, the chip is a static stand-in).
   React.useEffect(() => {
@@ -159,8 +167,8 @@ export function ChatScreen({
                 : { id: tid, title: String(d.title ?? ""), title_source: "words", private: !!d.private, pinned: false, created_at: now, updated_at: now };
               threadRef.current = th;
               setThread(th);
-              setThreads((list) => [th, ...list.filter((x) => x.id !== tid)]);
               if (!known) window.history.replaceState(null, "", `/chat?t=${tid}`);
+              notifyThreadsChanged(); // the sidebar's recents pick up the new or touched chat
               break;
             }
             case "route":
@@ -203,7 +211,7 @@ export function ChatScreen({
             case "title": {
               const title = d.title as string;
               setThread((th) => (th && th.id === d.thread_id ? { ...th, title } : th));
-              setThreads((list) => list.map((x) => (x.id === d.thread_id ? { ...x, title } : x)));
+              window.dispatchEvent(new CustomEvent(THREAD_UPDATED, { detail: { id: d.thread_id, title } }));
               break;
             }
           }
@@ -305,7 +313,7 @@ export function ChatScreen({
     const open = { ...th, private: false, private_source: null };
     threadRef.current = open;
     setThread(open);
-    setThreads((list) => list.map((x) => (x.id === th.id ? open : x)));
+    window.dispatchEvent(new CustomEvent(THREAD_UPDATED, { detail: open }));
     setMessages((ms) => (ms.at(-1)?.role === "assistant" ? ms.slice(0, -1) : ms));
     void run({ mode: "regenerate", thread_id: th.id, ...options(false, autonomy, temperature), cloud_override: true }, null);
   };
@@ -330,39 +338,6 @@ export function ChatScreen({
     } else if (value) push({ tone: "success", title: tChat("chat.feedbackSaved") });
   };
 
-  const newChat = () => {
-    abort.current?.abort();
-  };
-
-  const threadActions = {
-    onNew: newChat,
-    onRename: async (id: string, title: string) => {
-      const r = await renameThread(id, title);
-      if (!r.ok) {
-        push({ tone: "error", title: r.error });
-        return false;
-      }
-      setThreads((list) => list.map((x) => (x.id === id ? r.data : x)));
-      if (thread?.id === id) setThread(r.data);
-      return true;
-    },
-    onPin: async (id: string, pinned: boolean) => {
-      setThreads((list) => list.map((x) => (x.id === id ? { ...x, pinned } : x)));
-      const r = await pinThread(id, pinned);
-      if (!r.ok) {
-        setThreads((list) => list.map((x) => (x.id === id ? { ...x, pinned: !pinned } : x)));
-        push({ tone: "error", title: r.error });
-      }
-    },
-    onDelete: async (id: string) => {
-      const r = await deleteThread(id);
-      if (!r.ok) return push({ tone: "error", title: r.error });
-      setThreads((list) => list.filter((x) => x.id !== id));
-      push({ tone: "info", title: tChat("chat.deleted") });
-      if (thread?.id === id) router.push("/chat");
-    },
-  };
-
   const sentinel = React.useRef<HTMLDivElement>(null);
   const away = useAwayFromLatest(sentinel);
   const toLatest = () =>
@@ -376,15 +351,14 @@ export function ChatScreen({
   const threadPrivate = thread?.private ?? false;
 
   return (
-    <div className="chat-layout mx-auto max-w-[88rem]">
-      <ThreadList threads={threads} current={thread?.id ?? null} actions={threadActions} />
+    <div className="mx-auto max-w-[88rem]">
       <section aria-labelledby="chat-title" className="mx-auto grid w-full max-w-[760px] min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4">
         <ThreadHeader
           thread={thread}
           fallback={<StaticHeader title={thread?.title || tChat("chat.title")} privateThread={threadPrivate} />}
           onRenamed={(th) => {
             setThread(th);
-            setThreads((list) => list.map((x) => (x.id === th.id ? th : x)));
+            window.dispatchEvent(new CustomEvent(THREAD_UPDATED, { detail: th }));
           }}
         />
 

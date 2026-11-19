@@ -59,7 +59,7 @@ export function GoalsStep({
   return (
     <fieldset className="grid gap-3">
       <legend className="max-w-xl pb-1 text-ink-muted">{tWizard("wizard.goals.body")}</legend>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))]">
         {ids.map((id) => (
           <label
             key={id}
@@ -105,7 +105,7 @@ export function ConnectStep({
   return (
     <div className="grid gap-4">
       <p className="max-w-xl text-ink-muted">{tWizard("wizard.connect.body")}</p>
-      <div className="grid gap-(--gap) md:grid-cols-2">
+      <div className="grid gap-(--gap) grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
         {needed.map((n) => {
           const row = rows.find((r) => r.provider === n.provider);
           if (!row) return null;
@@ -166,7 +166,7 @@ export function FinishStep({
   return (
     <div className="grid gap-5">
       <p className="max-w-xl text-ink-muted">{tWizard("wizard.finish.body")}</p>
-      <dl className="grid gap-3 sm:grid-cols-3">
+      <dl className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]">
         {[
           [tWizard("wizard.finish.goals"), goals.length ? goals.map(goalLabel).join(", ") : tWizard("wizard.finish.none")],
           [tWizard("wizard.finish.preset"), tWizard(`wizard.preset.${preset}.label` as WizardKey)],

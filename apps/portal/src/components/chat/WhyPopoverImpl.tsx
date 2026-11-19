@@ -3,7 +3,9 @@
 import * as React from "react";
 import { RouteChip } from "@/components/kit/RouteChip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { chipTarget, ms, usd } from "@/lib/chat-format";
+import { chipTarget, ms, plainReason, usd } from "@/lib/chat-format";
+import { usePrefs } from "@/lib/prefs";
+import { tChat } from "@/i18n/chat";
 import type { RouteInfo } from "@/lib/router-types";
 import { t, type StringKey } from "@/i18n/strings";
 
@@ -47,6 +49,7 @@ function place(chip: HTMLElement): { side: "top" | "bottom"; top: number } {
 /** "Why this?" (SPEC §6.4, §8b): rule, model, top reasons, runner-up, skips, tokens, cost, latency. */
 export default function WhyPopoverImpl({ route, openOnMount = false }: { route: RouteInfo; openOnMount?: boolean }) {
   const free = route.cost_usd === 0;
+  const pro = usePrefs().mode === "pro";
   const chip = React.useRef<HTMLButtonElement>(null);
   const [open, setOpen] = React.useState(false);
   const [placement, setPlacement] = React.useState<{ side: "top" | "bottom"; top: number }>({ side: "bottom", top: 8 });
@@ -70,7 +73,7 @@ export default function WhyPopoverImpl({ route, openOnMount = false }: { route: 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <RouteChip ref={chip} target={chipTarget(route)} rule={route.rule} />
+        <RouteChip ref={chip} target={chipTarget(route)} rule={pro ? route.rule : undefined} />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -84,7 +87,20 @@ export default function WhyPopoverImpl({ route, openOnMount = false }: { route: 
         aria-label={t("route.title")}
       >
         <p className="mb-2 font-semibold tracking-tight">{t("route.title")}</p>
-        <dl className="text-[0.8125rem]">
+        {!pro && (
+          // Simple mode: provider and model, one plain reason, the price. Nothing about rules or scores.
+          <dl className="text-[0.8125rem]">
+            {route.label && (
+              <Row label={t("route.model")}>
+                {route.provider_name ?? route.label}
+                {route.model && <span className="block font-mono text-xs text-ink-muted">{route.model}</span>}
+              </Row>
+            )}
+            <Row label={tChat("chat.why.label")}>{tChat(`chat.why.${plainReason(route)}`)}</Row>
+            {route.cost_usd != null && <Row label={t("route.cost")}>{free ? t("route.free") : usd(route.cost_usd)}</Row>}
+          </dl>
+        )}
+        {pro && <dl className="text-[0.8125rem]">
           <Row label={t("route.rule")}>
             <span className="font-mono">{route.rule}</span>{" "}
             <span className="text-ink-muted">({t(`route.matched.${route.matched_by}` as StringKey)})</span>
@@ -131,8 +147,8 @@ export default function WhyPopoverImpl({ route, openOnMount = false }: { route: 
           {route.latency_ms != null && (
             <Row label={t("route.latency")}>{t("route.latencyValue", { total: ms(route.latency_ms), ttft: ms(route.ttft_ms) })}</Row>
           )}
-        </dl>
-        {route.request_id != null && <p className="mt-2 font-mono text-xs text-ink-muted">{t("route.request", { id: route.request_id })}</p>}
+        </dl>}
+        {pro && route.request_id != null && <p className="mt-2 font-mono text-xs text-ink-muted">{t("route.request", { id: route.request_id })}</p>}
       </PopoverContent>
     </Popover>
   );

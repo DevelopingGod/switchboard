@@ -334,8 +334,18 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
   const p = new URL(path, "http://fixture").pathname;
   const b = (body ?? {}) as Record<string, unknown>;
   if (method === "GET" && p === "/chat/threads") {
-    const list = [...s.threads].sort((a, z) => Number(z.pinned) - Number(a.pinned) || z.updated_at.localeCompare(a.updated_at));
-    return ok({ threads: list.map(strip) });
+    // Same contract as the router: keyset pages (cursor = "<updated_at>_<id>"), pinned apart, title search.
+    const url = new URL(path, "http://fixture");
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? 30) || 30));
+    const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+    const cursor = url.searchParams.get("cursor");
+    const newest = (a: FxThread, z: FxThread) => z.updated_at.localeCompare(a.updated_at) || z.id.localeCompare(a.id);
+    let rows = [...s.threads].filter((x) => (q ? x.title.toLowerCase().includes(q) : !x.pinned)).sort(newest);
+    if (cursor) rows = rows.filter((x) => `${x.updated_at}_${x.id}` < cursor);
+    const page = rows.slice(0, limit);
+    const pinned = !q && !cursor ? s.threads.filter((x) => x.pinned).sort(newest).slice(0, 50) : [];
+    const last = rows.length > limit ? page.at(-1) : null;
+    return ok({ pinned: pinned.map(strip), threads: page.map(strip), next_cursor: last ? `${last.updated_at}_${last.id}` : null });
   }
   if (method === "DELETE" && p === "/chat/threads") {
     if (b.confirm !== "delete all chats") return fail(422, "confirm with the phrase");

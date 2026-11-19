@@ -129,7 +129,9 @@ export interface OnboardingResponse {
 export type OnboardingPatch = Partial<Omit<OnboardingState, "completed_at">> & { completed?: boolean };
 
 /** What server actions return to client components. */
-export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error: string; code?: string; detail?: string | null };
+export type ActionResult<T = null> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; code?: string; detail?: string | null; /** Rules UI: one entry per validation mistake. */ problems?: { path: string; message: string }[] };
 
 // --- Chat (M2) -----------------------------------------------------------------------------------
 
@@ -145,6 +147,14 @@ export interface ChatThread {
   summary?: ThreadSummary | null;
   created_at: string;
   updated_at: string;
+}
+
+/** GET /chat/threads (M3b): the sidebar's recents. `pinned` only comes with the first page of a
+ * non-search listing; `next_cursor` is null on the last page. */
+export interface ThreadPage {
+  pinned: ChatThread[];
+  threads: ChatThread[];
+  next_cursor: string | null;
 }
 
 export interface RouteSkip {
@@ -389,4 +399,128 @@ export interface LocalProfileView {
   missing: string[];
   ollama: "ok" | "down";
   pull: { status: "idle" | "running" | "done" | "error"; model: string | null; percent: number | null; error: string | null };
+}
+
+// --- Rules UI (M3b) -------------------------------------------------------------------------------
+export interface RuleDef {
+  id: string;
+  when?: Record<string, string | boolean>;
+  target: string;
+  fallbacks?: string[];
+  temperature?: number;
+  autonomy?: number;
+  max_cost_usd?: number;
+  job?: boolean;
+}
+
+export interface PresetDef {
+  paid?: "never" | "manual" | "allowed";
+  rules?: Record<string, Partial<RuleDef>>;
+}
+
+export interface ClassifierRoute {
+  name: string;
+  description: string;
+  facts: Record<string, string>;
+}
+
+/** rules.yaml as the router returns it (base) and merged with the overrides (effective). */
+export interface RulesFile {
+  defaults: Record<string, number | boolean>;
+  rules: RuleDef[];
+  slash: Record<string, string>;
+  presets: Record<string, PresetDef>;
+  classifier: { timeout_s?: number; breaker_s?: number; max_chars?: number; routes: ClassifierRoute[] };
+  recommender: { min_samples?: number; weights: Record<string, number> };
+  quota: { reroute_at?: number; block_at?: number };
+  summary: { start_at?: number; keep_last?: number };
+}
+
+/** The owner's edits: a partial rules.yaml (see ADR 0004). `disabled` removes a rule, `before` positions a new one. */
+export interface Overrides {
+  defaults?: Record<string, number>;
+  rules?: Record<string, Partial<RuleDef> & { disabled?: boolean; before?: string }>;
+  slash?: Record<string, string | null>;
+  presets?: Record<string, PresetDef>;
+  classifier?: { timeout_s?: number; routes?: Record<string, { description?: string }> };
+  recommender?: { min_samples?: number; weights?: Record<string, number> };
+  quota?: { reroute_at?: number; block_at?: number };
+  summary?: { start_at?: number; keep_last?: number };
+}
+
+export interface RuleProblem {
+  path: string;
+  message: string;
+}
+
+export interface RulesVersion {
+  id: number;
+  created_at: string;
+  source: "edit" | "rollback" | "reset";
+  note: string | null;
+  rolled_back_to: number | null;
+  changes: number;
+}
+
+export interface RulesVocab {
+  aliases: string[];
+  providers: string[];
+  capabilities: string[];
+  intents: string[];
+  sensitive: string[];
+  when_keys: string[];
+  paid_policies: string[];
+  presets: string[];
+  protected_rules: string[];
+  limits: { max_rules: number; max_fallbacks: number; max_text: number };
+}
+
+export interface RulesResponse {
+  version: RulesVersion | null;
+  overrides: Overrides;
+  base: RulesFile;
+  effective: RulesFile;
+  active_preset: Preset;
+  /** Saved overrides that stopped validating (rules.yaml changed): routing uses the plain file. */
+  problems: RuleProblem[];
+  vocab: RulesVocab;
+}
+
+export interface RulesVersionsResponse {
+  versions: RulesVersion[];
+  next_before: number | null;
+}
+
+export interface RulesDiffChange {
+  path: string;
+  kind: "added" | "removed" | "changed";
+  before: unknown;
+  after: unknown;
+}
+
+export interface DryRunScore {
+  label: string;
+  score: number;
+  proven: boolean;
+  parts: Record<string, number>;
+}
+
+/** POST /route/dry-run: the decision, the classifier's answer and the score breakdown. */
+export interface DryRunResult {
+  rule: string;
+  matched_by: string;
+  intent: string;
+  size: string;
+  quality: string;
+  cue: string | null;
+  private: boolean;
+  preset: string;
+  classifier: { source: string; route: string | null; ms: number; fallback_reason?: string | null } | null;
+  sensitive: { source: string; category?: string } | null;
+  candidates: { target: string; label: string; note?: string | null }[];
+  skipped: { target: string; label: string; code: string; reason: string }[];
+  chosen: { target: string; label: string } | null;
+  runner_up: string | null;
+  reasons: string[];
+  scores: DryRunScore[];
 }

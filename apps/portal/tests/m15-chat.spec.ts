@@ -3,7 +3,7 @@ import { urls } from "../playwright.config";
 import { ready } from "./helpers";
 
 const SEED = "/chat?t=6f1c2a10-0000-4000-8000-000000000001";
-const sidebar = (page: Page) => page.getByRole("navigation", { name: "Chats" });
+const sidebar = (page: Page) => page.getByRole("region", { name: "Recent chats" });
 
 async function box(l: Locator) {
   const b = await l.boundingBox();
@@ -23,12 +23,13 @@ test.describe("sidebar (read-only)", () => {
 
     const long = nav.getByRole("link", { name: /Trip ideas/ }).locator("[data-tip-truncated]");
     expect(await long.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-    const navBox = await box(nav.locator(".sidebar-full"));
+    const navBox = await box(page.locator(".sb-inner"));
     const rowBox = await box(nav.getByRole("link", { name: /Trip ideas/ }));
     expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(navBox.x + navBox.width);
     expect(await nav.locator("[data-thread-scroll]").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 
     await page.waitForFunction(() => !!document.getElementById("sb-tip"));
+    await long.scrollIntoViewIfNeeded(); // the list is shorter than the old column: scrolling would dismiss the tip
     await long.hover();
     await expect(page.locator("#sb-tip")).toHaveText(/quiet beaches and good seafood/);
   });
@@ -37,10 +38,10 @@ test.describe("sidebar (read-only)", () => {
     await page.goto(SEED);
     await ready(page);
     const nav = sidebar(page);
-    await nav.getByRole("searchbox", { name: "Search chats" }).fill("linkedin");
+    await page.getByRole("searchbox", { name: "Search chats" }).fill("linkedin");
     await expect(nav.getByRole("link", { name: "Launch post for LinkedIn" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Why the sky is blue" })).toHaveCount(0);
-    await nav.getByRole("searchbox", { name: "Search chats" }).fill("zzz");
+    await page.getByRole("searchbox", { name: "Search chats" }).fill("zzz");
     await expect(nav.getByRole("status")).toHaveText("No chats match “zzz”.");
   });
 
@@ -62,19 +63,19 @@ test.describe("sidebar (read-only)", () => {
   test("collapse to a rail and back (button and mod+B)", async ({ page }) => {
     await page.goto(SEED);
     await ready(page);
-    await page.getByRole("button", { name: "Hide chat list" }).click();
-    await expect(page.getByRole("button", { name: "Show chat list" })).toBeVisible();
+    await page.getByRole("button", { name: "Collapse sidebar" }).click();
+    await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
     await expect(page.getByRole("searchbox", { name: "Search chats" })).toBeHidden();
     await page.keyboard.press("Control+b");
     await expect(page.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
   });
 
-  test("phones: the list folds behind a Chats button", async ({ page }) => {
+  test("phones: the sidebar is a drawer behind the menu button", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 800 });
     await page.goto(SEED);
     await ready(page);
     await expect(page.getByRole("searchbox", { name: "Search chats" })).toBeHidden();
-    await page.getByRole("button", { name: /^Chats \(\d+\)$/ }).click();
+    await page.getByRole("button", { name: "Open menu" }).click();
     await expect(page.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
@@ -108,7 +109,7 @@ test.describe("conversation", () => {
   });
 
   test("scroll to latest appears away from the end and takes you there", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 600 });
+    await page.setViewportSize({ width: 1280, height: 480 });
     await page.goto(SEED);
     await ready(page);
     const pill = page.getByRole("button", { name: "Scroll to latest" });

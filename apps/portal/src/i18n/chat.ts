@@ -5,7 +5,6 @@ import { lookup, type Leaves, type Vars } from "./strings";
 export const chatStrings = {
   chat: {
     title: "Chat",
-    threads: "Chats",
     sidebar: {
       search: "Search chats",
       noMatch: "No chats match “{query}”.",
@@ -14,11 +13,20 @@ export const chatStrings = {
       pin: "Pin",
       unpin: "Unpin",
       pinned: "Pinned",
-      collapse: "Hide chat list",
-      expand: "Show chat list",
-      showList: "Chats ({count})",
-      hideList: "Hide chats",
       deleteTitle: "Delete “{title}”?",
+    },
+    why: {
+      label: "Why",
+      private: "Private: it stays on your computer.",
+      sensitive: "This looked private, so it stayed on your computer.",
+      manual: "You picked this model.",
+      slash: "You chose this with a command.",
+      busy: "Your first choice was busy, so this one answered.",
+      code: "A good fit for code.",
+      writing: "A good fit for writing.",
+      research: "A good fit for research.",
+      quick: "Fast and free for quick questions.",
+      everyday: "A good everyday choice.",
     },
     today: "Today",
     yesterday: "Yesterday",

@@ -59,19 +59,28 @@ providers:
     env_key: GEMINI_API_KEY
     free_tier: true          # AI Studio free tier
     privacy: may-train
-    free_limits: "Flash: ~10 req/min, ~250 req/day; Flash-Lite higher"
-    # Per project; daily quotas reset at midnight Pacific (aistudio.google.com/docs/rate-limits, read
-    # 2026-11-18). The free numbers are only shown to a signed-in account (aistudio.google.com/rate-limit),
-    # so these are conservative estimates: check yours and edit.
+    free_limits: "Flash-Lite 3.1: 15 req/min, 500/day; other Flash models 5 req/min, 20/day; Pro and image models: no free access"
+    # Limits per model (AI Studio → Rate limits, an owner's free-tier account, read 2026-11-19, India).
+    # They are verified for ONE free account: other accounts, regions and plans may differ. The quota
+    # guard also learns from rate-limit headers and 429s, so a wrong number here only costs a retry.
+    # Daily quotas reset at midnight Pacific. `0` means "no free access": the model is never routed to
+    # on this key (keys with billing enabled can set a real number here). Keys with a `*` are globs;
+    # an exact model id wins over a glob.
     limits:
       scope: model
       day_reset_tz: America/Los_Angeles
-      estimate: true
-      default: { rpm: 10, rpd: 250 }
+      default: { rpm: 5, tpm: 250000, rpd: 20 }
+      # Order matters for globs (first match wins): no-access and TTS patterns come before the Flash ones.
       models:
-        gemini-3.1-flash-lite: { rpm: 15, rpd: 1000 }
-        gemini-3.5-flash-lite: { rpm: 15, rpd: 1000 }
-        gemini-2.5-flash-lite: { rpm: 15, rpd: 1000 }
+        "*-pro*": { rpm: 0, tpm: 0, rpd: 0 }          # all Pro models: no free access
+        "*image*": { rpm: 0, tpm: 0, rpd: 0 }         # all image models (Nano Banana): no free access
+        "*nano-banana*": { rpm: 0, tpm: 0, rpd: 0 }
+        "*-tts*": { rpm: 3, tpm: 10000, rpd: 10 }     # gemini-2.5-flash-tts, gemini-3.1-flash-tts
+        gemini-3.1-flash-lite: { rpm: 15, tpm: 250000, rpd: 500 }   # smart-free
+        gemini-2.5-flash-lite: { rpm: 10, tpm: 250000, rpd: 20 }
+        gemini-2.5-flash: { rpm: 5, tpm: 250000, rpd: 20 }
+        gemini-3-flash*: { rpm: 5, tpm: 250000, rpd: 20 }
+        gemini-3.6-flash*: { rpm: 5, tpm: 250000, rpd: 20 }
     notes: Free tier may train on data outside EEA/UK/CH.
 
   cerebras:

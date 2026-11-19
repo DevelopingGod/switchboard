@@ -72,8 +72,8 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, ag
   const toggle = (g: string) => setGoals((cur) => (cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g]));
 
   return (
-    <div className="mx-auto grid max-w-[78rem] items-start gap-8 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
-      <GlassPanel as="aside" blur={2} className="grid content-start gap-6 lg:sticky lg:top-24">
+    <div className="mx-auto grid max-w-[78rem] grid-cols-[minmax(0,1fr)] items-start gap-8 xl:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+      <GlassPanel as="aside" blur={2} className="grid content-start gap-6 xl:sticky xl:top-20">
         <ColumnsArt className="text-ink" />
         <h1 className="heading">{tWizard("wizard.title")}</h1>
         <StepList steps={STEPS} current={step} />
