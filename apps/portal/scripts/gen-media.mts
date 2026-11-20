@@ -170,11 +170,11 @@ function routing(name: "light" | "dark") {
     conn(right(byId.n3), left(byId.n4)),
     `<path class="wire fbwire" d="M${mid(byId.n3)[0]} ${byId.n3.y + NH}C${mid(byId.n3)[0]} ${fbY - 40} ${left(byId.fb)[0] - 20} ${mid(byId.fb)[1]} ${left(byId.fb)[0]} ${mid(byId.fb)[1]}"/>`,
   ].join("\n");
-  // M4 agents: dashed, muted, labelled as not shipped.
+  // Agents and jobs: dashed and muted until their page ships (M4a built the backend, M4b the page).
   const agentX = colX(2);
   const agent = `<g class="soon"><rect x="${agentX}" y="${fbY}" width="${NW}" height="${NH}" rx="18" fill="none" stroke="${t.inkMuted}" stroke-dasharray="6 6" stroke-width="1.5"/>
 <text x="${agentX + NW / 2}" y="${fbY + 33}" text-anchor="middle" font-size="19" font-weight="700" fill="${t.inkMuted}">Agent or job</text>
-<text x="${agentX + NW / 2}" y="${fbY + 56}" text-anchor="middle" font-size="13" fill="${t.inkMuted}">coming in M4</text></g>
+<text x="${agentX + NW / 2}" y="${fbY + 56}" text-anchor="middle" font-size="13" fill="${t.inkMuted}">page in M4b</text></g>
 <path d="M${mid(byId.n2)[0]} ${rowY + NH}V${fbY}" stroke="${t.inkMuted}" stroke-width="1.5" stroke-dasharray="3 6" fill="none"/>`;
   const nodeSvg = nodes
     .map(
@@ -203,7 +203,7 @@ ${reduce(`.dot{display:none}.g,.warn{animation:none!important}.warn{opacity:1}.f
   const warnX = mid(byId.n3)[0] + 14;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="t d">
 <title id="t">How Switchboard routes a message</title>
-<desc id="d">A message goes to the classifier, then the rules, then the quota guard, then a model. When the quota guard sees a free limit about 80 percent used, or a model is rate-limited, the message goes to the fallback instead. Agents and jobs arrive in milestone 4.</desc>
+<desc id="d">A message goes to the classifier, then the rules, then the quota guard, then a model. When the quota guard sees a free limit about 80 percent used, or a model is rate-limited, the message goes to the fallback instead. Agents and jobs run through the API today; their page arrives in milestone 4b.</desc>
 <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">${stops(t.skyGradient)}</linearGradient></defs>
 <style>${css}</style>
 <rect width="${W}" height="${H}" rx="28" fill="url(#sky)"/>

@@ -102,9 +102,9 @@ asked the agent to `touch` a file (level 0), or to `git push` and `curl` the int
 | Level | Claude Code | Codex | OpenCode | Result |
 |---|---|---|---|---|
 | 0 read-only | `--permission-mode plan` | `exec --json -s read-only` | permission `{edit: deny, bash: deny, webfetch: deny}` | plan returned; `touch` refused (Codex: read-only sandbox; OpenCode: no shell tool); repo untouched |
-| 1 plan, approve, edit | level 0 run, approval, then the level 2 run | same | same | (live proof, step 5) |
+| 1 plan, approve, edit | level 0 run, approval, then the level 2 run | same | same | live proof jobs 2–4 below: plan, approval, edits in the worktree, diff, commit |
 | 2 edits + allowlisted commands | `--permission-mode acceptEdits --setting-sources user --allowedTools Bash(<cmd>:*) --disallowedTools WebFetch WebSearch Bash(git push:*) Bash(curl:*)` | `exec --json -s workspace-write -c sandbox_workspace_write.network_access=false -C <worktree>` | permission `{edit: allow, bash: {"*": deny, "<cmd>*": allow}, webfetch: deny}`, `OPENCODE_DISABLE_PROJECT_CONFIG=true` | edits only in the worktree; tests ran; push and curl refused (Claude: permission layer; Codex: no network in the sandbox; OpenCode: permission rule) |
-| 3 full auto | `--permission-mode bypassPermissions` + Paperclip `filesystemScope: workspace` (bwrap) | see M4a outcome | see M4a outcome | requires bwrap (`/usr/bin/bwrap` present here) |
+| 3 full auto | **off**: Paperclip's bwrap sandbox (`filesystemScope: workspace`) fails to start here (job 9 below) | off (needs a verified bwrap wrapper) | off (same) | never runs unsandboxed: the job fails with the reason before anything runs |
 
 Notes:
 - Claude's `default` permission mode is gone in 2.1.326 (`manual`/`auto`/`dontAsk` are new); headless `-p` denies any
@@ -116,3 +116,61 @@ Notes:
 - OpenCode reads permissions from `OPENCODE_CONFIG_CONTENT`; `OPENCODE_DISABLE_PROJECT_CONFIG=true` stops a repo's
   `opencode.json` from widening them.
 - `PYTHONDONTWRITEBYTECODE=1` keeps test runs from leaving `__pycache__` in the diff.
+
+## Using jobs (API; the page comes in M4b)
+
+All calls need the router's admin token (`Authorization: Bearer $ROUTER_ADMIN_TOKEN`); the portal will add them.
+
+```bash
+# 1. allow a folder (the top of a git repo with at least one commit; never the Switchboard repo)
+curl -sX POST localhost:8100/projects -H "$AUTH" -H 'Content-Type: application/json' -d '{"path":"/home/you/myrepo"}'
+# 2. start a job (agent from the routing rule, or name one; autonomy 0-3; budget is list price in USD)
+curl -sX POST localhost:8100/jobs -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"prompt":"Add a function multiply(a, b) with tests","project_id":1,"agent":"claude-code","autonomy":1}'
+# 3. follow it (SSE), read the plan or diff, decide
+curl -N localhost:8100/jobs/1/events -H "$AUTH"
+curl -s localhost:8100/jobs/1/diff -H "$AUTH"
+curl -sX POST localhost:8100/jobs/1/approve -H "$AUTH" -H 'Content-Type: application/json' -d '{"note":"ok"}'
+```
+
+`GET /agents` shows which agents can run which levels now and why not. Approvals also appear in Paperclip's own UI
+(the Switchboard company), and deciding there works too.
+
+## Live proof (2026-11-20, `~/switchboard-playground`)
+
+A tiny git repo (`mathutils.add` + one unittest test). Each job: "Add a function `<name>(a, b)` … and a unittest test
+… then run the tests", autonomy 1, through the router API exactly as above.
+
+| Job | Agent | Level | Outcome | Time | Runs | List price | Spent | Notes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Claude Code | 1 | failed | 3 s | 0 | – | $0 | Paperclip refused the instructions write (revision guard): fixed, see below |
+| 2 | Claude Code | 1 | done | 28 s | 2 | $0.134 | $0 | plan → approved → `multiply` + test, 2 tests pass, committed `90cc7b4` on `switchboard/job-2` |
+| 3 | Codex | 1 | done | 46 s | 2 | not reported | $0 | `subtract`, committed `80dae72` on `switchboard/job-3` |
+| 4 | OpenCode | 1 | done | 62 s | 2 | $0 | $0 | `divide`, committed `a98dc00` on `switchboard/job-4` |
+| 5 | OpenCode | 1 | stopped | 13 s | 1 | $0 | $0 | plan rejected with a note; worktree removed |
+| 6 | OpenCode | 1 | stopped | 4 s | 0 | – | $0 | stopped while running: Paperclip run cancelled, no process left, worktree removed |
+| 7 | Claude Code | 1 | stopped at budget | 8 s | 1 | $0.054 | $0 | budget $0.03: Claude stopped itself at `--max-budget-usd`; recorded |
+| 8 | Claude Code | 0 | done | 10 s | 1 | $0.057 | $0 | after job 7 left the agent in `error`: cleared, report reviewed, worktree removed |
+| 9 | Claude Code | 3 | failed | 3 s | 0 | $0 | $0 | Paperclip's bwrap sandbox didn't start: `Can't bind mount /oldroot/usr/bin on /newroot/bin` (Ubuntu 24.04 has `/bin` → `/usr/bin`). Nothing ran unsandboxed; level 3 is now off for every agent (config, with this reason) |
+
+Your `main` stayed on `6a0e8a4` and clean throughout; every job branch is kept. `costs` got one row per run (9),
+all `source = paperclip`, keyed `paperclip-run:<id>`, $0 real money, $0.24 list price; none counted toward the chat
+daily cap. Refusals checked live: the Switchboard repo (403), a folder that isn't a repo (400), a job outside the
+allowlist (400). An agent run's environment (151 variable names, values never printed): no Switchboard, router,
+LiteLLM, hostprobe, database or provider-key variables; `SSH_AUTH_SOCK`, `DBUS_SESSION_BUS_ADDRESS`, `GH_TOKEN` empty;
+`git push` failed locally (`remote-switchboard-no-push`).
+
+The live proof found five bugs the fakes didn't model, each fixed with a test and the fakes made stricter:
+instruction writes need the revision Paperclip last served; an agent left in `error` must be cleared; Claude's own
+budget stop is a stop, not a failure; a stopped run's usage must still be recorded; a failed job's worktree can come
+back as an empty folder (Paperclip recreates a missing working folder when checking an agent).
+
+## More Paperclip behaviour found on the way
+
+- Deleting a company removes it from the API but leaves `~/.paperclip/instances/default/companies/<id>/` on disk,
+  including a `codex-home` with the copied login if `codex_local` was ever used. (Switchboard never uses it; the probe
+  company's folder was deleted by hand.)
+- A terminated agent can't be deleted (`DELETE /agents/:id` answers 500); it stays terminated and hidden.
+- `executionPolicy.commentRequired: false` is dropped on create, and `executionWorkspacePreference` is dropped while
+  `enableIsolatedWorkspaces` is off: Paperclip ignores unsupported fields silently, so the contract tests check the
+  fields Switchboard relies on in the responses, not just the status codes.

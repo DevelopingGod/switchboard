@@ -18,8 +18,10 @@
 | M3 Rules UI + classifier | ✅ Split into M3a + M3b, both merged | — | Opus 5.5, high | Done |
 | M3a Routing brain | ✅ Merged | m3a / #9 | Opus 5.5 | Arch-Router 96.2% (held-out 92.5%), recommender, quota guard, generic adapter (test-only proof), summaries, local-model profiles, auto-private + secret masking; see M3a outcome |
 | M3b Rules UI + sidebar | ✅ Merged | m3b / #10 | Sonnet 5.5 | Left-sidebar shell, Rules UI (Simple presets / Pro editor, versions, rollback, dry-run tester), classifier + tasks on the CPU on small GPUs, Gemini limits, flake root-caused, claude/codex login checks; see M3b outcome |
-| README v1 | 🔎 In review | readme-v1 / #11 | Sonnet 5.5 | Honest, animated README + demo; one project VERSION; Motion and the wizard's Connect step lazy-loaded (every route −12 to −18 KB); chat stays pinned while lazy chunks load; demo stack; see README v1 outcome |
-| M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
+| README v1 | ✅ Merged | readme-v1 / #11 | Sonnet 5.5 | Honest, animated README + demo; one project VERSION; Motion and the wizard's Connect step lazy-loaded (every route −12 to −18 KB); chat stays pinned while lazy chunks load; demo stack; see README v1 outcome |
+| M4 Jobs via Paperclip | Split into M4a + M4b | — | Opus 5.5, high | Backend first, then the page |
+| M4a Agents & Jobs backend | ✅ Done (PR in review) | m4a / #12 | Opus 5.5 | Paperclip adapter (verified 2026.1106.0), agent registry, job engine, worktrees via hostprobe, live proof with Claude Code, Codex and OpenCode; fast private chat + Think harder; three load flakes fixed at the cause; see M4a outcome |
+| M4b Jobs page | ⏳ | — | | Job board, live log, plan and diff review (carry-over list below) |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
@@ -367,6 +369,99 @@ Branch `readme-v1`. Guides: [recording-the-demo.md](recording-the-demo.md), [ADR
 - **Re-record the demo** whenever the UI changes (`docs/recording-the-demo.md`); update README screenshots with `npm run screens:readme`.
 - The README claims nothing about install time or other machines; run the Quickstart on a clean WSL machine before M7 and fix what breaks.
 - `package-lock.json` gained `ffmpeg-static` (dev only; downloads an ffmpeg binary at install).
+
+## M4a outcome
+
+Branch `m4a`. Guide: [docs/m4a.md](m4a.md) (the verified Paperclip API, CLI flags per level, live proof). ADRs:
+[0006](adr/0006-local-thinking-profile-setting.md) local chat without a thinking phase,
+[0007](adr/0007-paperclip-integration-shape.md) how jobs use Paperclip, [0008](adr/0008-hostprobe-git-worktrees.md)
+worktrees through hostprobe. Commits in order: private chat speed; three flakes; Paperclip adapter; agent registry;
+job engine; host safety (hostprobe); live-proof fixes; empty-folder cleanup; Connect-step LCP + chat pin; research
+fallback; docs.
+
+- **0a Private chat speed (ADR 0006).** qwen3:4b reasoned before every private reply and only 66% of it fits the
+  4 GB GPU: first word median 31.4 s (worst 268 s). With thinking off it writes its reasoning into the answer (9 of
+  10). Profiles now have a non-thinking `general` (`qwen3:4b-instruct-2507-q4_K_M`) and a `thinker` for the new
+  `local-think` alias; the chat API takes `think` per message and the composer shows **Think harder** while
+  private. Measured through the real path: first word **0.2 s**, whole answer 7.7 s; Think harder ~40 s.
+  `measure-local.py --chat` reproduces it. qwen3:1.7b was fastest but wrapped prose in code blocks (rejected).
+- **0b Three load flakes, at the cause** (stress: `--repeat-each=100..150 --workers=14`; failures before → after):
+  phone-drawer axe 23/300 → 0/900 (the reduced-motion rule's `0.01ms` on `*` transitioned inherited `visibility`,
+  so row labels stayed hidden until the next frame; now `0s` duration and delay); `/connections` long tasks 87/100 →
+  0/300 (the `longtask` API is wall-clock: 94/100 runs had a >50 ms task, none used >29 ms of CPU; the test now
+  checks per-task CPU time from a trace, same 50 ms limit, with a negative control); chat code-thread capture 18/200
+  → 0/600 (the 2.5 s pin re-scrolled after a non-input scroll; any scroll up now unpins, which also fixes scrollbar
+  drags, find-in-page and screen readers; regression test fails without the fix).
+- **1 Paperclip adapter** (`app/paperclip.py`, pinned 2026.1106.0). Verified before building (docs/m4a.md): issue-
+  scoped runs re-wake agents on their own (comment retry, disposition repair, review path) unless the agent manages
+  the issue, worktree isolation is an off-by-default experimental flag that silently falls back to your checkout,
+  `codex_local` copies `~/.codex/auth.json`, `opencode_local` writes skills into `~/.claude/skills`, Paperclip
+  answers 403 to `Host: host.docker.internal` (Status had been counting that as up), and instruction writes need a
+  revision. Contract tests: 19 recorded pairs plus live checks of the version pin and every route in Paperclip's
+  OpenAPI document (`pytest -m live`).
+- **Your decisions this milestone:** list-price budgets (cost_usd = real money, chat cap real money only, "cost not
+  reported" capped by turns and time); level 1 = plan, approval, edits, diff review; chat answers and only proposes a
+  job; Switchboard drives the phases (Paperclip-native mode kept for later); hostprobe makes worktrees; Paperclip
+  stays `local_trusted` with a warning and a loopback check; Codex (and OpenCode, verified the same way) run
+  through a thin `process` runner; the rule for every agent: never copy, read, move or write CLI login files.
+- **2 Agent registry** (`config/agents.yaml`): claude-code, codex, opencode runnable; gemini-cli, grok-build, hermes
+  listed as not verified. Flags per level verified on Claude Code 2.1.326, Codex 0.170.0, OpenCode 1.19.6, each with
+  a negative test. Every run: clean environment (no SSH agent, keyring, GitHub login), push rewritten to fail
+  locally, repos can't widen permissions.
+- **3 Job engine** (`app/jobs.py`, `/jobs`, `/agents`, `/projects`; migration 0007: `jobs`, `job_events`,
+  `projects`, `costs.external_id`, `costs.tag`). States queued / running / needs_approval / done / failed / stopped;
+  SSE log stream resumable by byte offset; stop, approve, reject (also from Paperclip's UI); fallback before the
+  first run only; one active run per agent; per-job and per-agent list-price budgets, Claude's `--max-budget-usd`,
+  turn and time caps; costs keyed by run id and tagged for M6; agent costs never count toward the chat cap.
+- **4 Safety on the host** (hostprobe, ADR 0008): Projects allowlist (never the Switchboard repo), worktree per job
+  under `~/.switchboard/worktrees` on `switchboard/job-<n>`, commit on approval, retention (removed when rejected,
+  failed, stopped or merged; at most 10 kept; branches never deleted); `/net/listen` for the Paperclip loopback
+  check; bwrap detection (level 3 off without it).
+- **5 Live proof** (`~/switchboard-playground`, docs/m4a.md has the table): level 1 "add a function + tests" with
+  Claude Code (job 2, 28 s, list price $0.134, $0 spent), Codex (job 3, 46 s, cost not reported) and OpenCode
+  (job 4, 62 s, $0): plan, approval, edits in the worktree, diff, commit on the branch; your `main` untouched. Also
+  live: plan rejected (job 5), stop while running (job 6), budget cap (job 7, Claude stopped at $0.03), a Claude job
+  after that error (job 8), allowlist refusals, and an agent run's environment (no Switchboard or provider keys; push
+  blocked). It found and fixed five bugs (docs/m4a.md). A level-3 run (job 9) showed Paperclip's bwrap sandbox can't
+  start on Ubuntu 24.04 (merged `/usr`): it failed safely, and **level 3 is off for every agent** until a sandbox works.
+- **Also:** `/welcome?step=3` Lighthouse was 80 on `main` too (LCP 4.4 s, the intro text waited for the lazy cards):
+  now 99; `VERSION` 0.5.0 with `scripts/set-version.mjs` (copies are no longer edited by hand); README, demo (no
+  sped-up wait now) and screenshots updated; doctor checks Paperclip's version, loopback binding and CLI PATH.
+- **Checks:** router 386 pytest (+ 2 live contract), ruff clean; hostprobe 70; portal tsc, eslint, 85 vitest, 349
+  Playwright (two full runs clean), JS budget (all routes ≤ 191.9 KB), bundle secrets, docs check, doctor green.
+  Lighthouse ≥ 90 on every route except `/chat` dark, which measures 87–93 **on `main` and on this branch alike**
+  (interleaved runs; identical main-thread work): carried over below.
+- **Changes on your machine (outside the repo):** pulled `qwen3:4b-instruct-2507-q4_K_M` (2.5 GB) and, for the
+  measurement only, `qwen3:1.7b` (1.4 GB); systemd drop-in `~/.config/systemd/user/paperclipai.service.d/
+  switchboard-path.conf` (Paperclip restarted twice); `~/switchboard-playground` (with a fake `origin` for the push
+  guard) and its branches `switchboard/job-1..8` (worktrees removed); a "Switchboard" company in Paperclip with three
+  agents. Probe artifacts removed: the probe company and its leftover folder (which held two copies of the Codex
+  login), and three skill links Paperclip had added to `~/.claude/skills`.
+- **Deviations:** commit 4 (host safety) landed after the engine because the engine's safety rules live in the
+  registry and engine; level 3 is off for all agents (above), so jobs run at levels 0–2 in M4a; a router test failed once in
+  ~34 full runs (`test_cerebras_credits_are_tracked_and_routing_stops_at_zero`) and did not reproduce in 37 more runs.
+
+## Carry-over to M4b
+
+- **The Jobs page:** job board (list, filters, paging), live log over `GET /jobs/{id}/events`, plan and diff review
+  with approve / reject (note), stop, budgets and "cost not reported", the Projects allowlist (add, remove, disk use,
+  cleanup) and the agents list with per-level availability. The chat's **Run as job** button uses
+  `decision_json.job` (agents, autonomy) and `from_request_id`. Update the strings that still say "Run as job (M4)" and
+  "/research … (job in M4; chat for now)".
+- **`/chat` Lighthouse 87–93 (dark)** on `main` and here: total blocking time ~400 ms, mostly one shared chunk (~950 ms
+  scripting under throttling). Cut it at the cause in M4b, which changes `/chat` anyway.
+- **Level 3 (all agents):** Paperclip's bwrap profile fails on merged-`/usr` systems (Ubuntu 24.04). Options: a
+  Switchboard bwrap wrapper around the process runner (also covers Codex and OpenCode), or a fixed Paperclip version.
+  Verify with a live run before turning it back on in `config/agents.yaml`.
+- **Optional agents:** Gemini CLI (Linux install), Grok Build (does headless use bill an xAI key?), Hermes: verify flags
+  and login checks before adding runners.
+- **Paperclip-native mode** (ADR 0007 "Later") for lead agents delegating work.
+- **Paperclip quirks to watch:** a terminated agent can't be deleted (500), and deleting a company leaves its folder
+  on disk. A new Paperclip version must be re-verified first (`pytest -m live` fails on a version change).
+- **Medium and large profiles** now default to the 4B instruct model for chat: not measured on those GPUs.
+- `qwen3:1.7b` was pulled only to measure it: `ollama rm qwen3:1.7b` to free 1.4 GB.
+- Still open from earlier: gemini/grok login commands, the classifier margin, the two held-out private misses,
+  `rules_versions` pruning, thread search, Mistral/Zen/xAI keys, removing GROQ/GEMINI keys from `deploy/.env`.
 
 ## Future providers
 

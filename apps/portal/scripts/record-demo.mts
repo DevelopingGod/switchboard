@@ -123,17 +123,24 @@ async function story(page: Page): Promise<Wait[]> {
   await typeSlowly(page, page.getByLabel("Message"), PROMPTS.private);
   await sleep(400);
   await click(page, page.getByRole("button", { name: "Send" }));
-  const waitFrom = since() + 1.5; // let the first thinking lines show at normal speed
+  const waitFrom = since() + 1.5; // the first second and a half always plays at normal speed
+  // M4a: local replies usually start at once (ADR 0006). The "sped up" label appears only if the reply is still
+  // running after 6 s: only then is the wait cut (below), so the label never claims a speed-up that did not happen.
   await page.evaluate(() => {
-    const d = document.createElement("div");
-    d.id = "demo-fast";
-    d.textContent = "Local model on a 4 GB GPU · sped up";
-    d.style.cssText = "position:fixed;z-index:2147483646;right:16px;bottom:64px;padding:6px 12px;border-radius:999px;background:#171a3d;color:#fff;font:600 13px system-ui;opacity:.92";
-    document.body.appendChild(d);
+    (window as unknown as { __demoFast: number }).__demoFast = window.setTimeout(() => {
+      const d = document.createElement("div");
+      d.id = "demo-fast";
+      d.textContent = "Local model on a 4 GB GPU · sped up";
+      d.style.cssText = "position:fixed;z-index:2147483646;right:16px;bottom:64px;padding:6px 12px;border-radius:999px;background:#171a3d;color:#fff;font:600 13px system-ui;opacity:.92";
+      document.body.appendChild(d);
+    }, 6000);
   });
   await page.getByRole("button", { name: /Why this\?/ }).first().waitFor({ timeout: 120_000 });
   const waitTo = since() - 0.8;
-  await page.evaluate(() => document.getElementById("demo-fast")?.remove());
+  await page.evaluate(() => {
+    window.clearTimeout((window as unknown as { __demoFast: number }).__demoFast);
+    document.getElementById("demo-fast")?.remove();
+  });
   if (waitTo - waitFrom > 6) waits.push([waitFrom, waitTo]);
   await page.getByText("Private: stays on this computer").first().waitFor();
   mark("private reply done");
