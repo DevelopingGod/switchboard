@@ -28,7 +28,7 @@
   a different tab with different limits, and you spend your day deciding which to use and hitting rate limits.
 - **The fix.** One local portal in front of all of them. Ask once; Switchboard picks the model, or you pick by hand.
   A quota guard moves on *before* a free limit runs out, and fallbacks catch the rest.
-- **The difference.** *Transparent*: every reply has a **Why this?** (the rule, the score, what was skipped and why).
+- **The difference.** *Transparent*: every reply has a **Why this?**. Simple mode gives a plain reason (which model answered, why, and the price); Pro mode gives the full breakdown (the rule, the score, the runner-up and what was skipped and why).
   *Free first*: free tiers are used before anything paid, and paid models need your say-so. *Private by design*:
   **Private** chats and anything that looks sensitive or like a pasted secret stay on your machine, enforced in code and tested.
 
@@ -252,11 +252,11 @@ Day and Dusk themes, and local-model profiles matched to your GPU.
 | | What it is | Routes across providers automatically | Explains each routing choice | Subscription logins | License |
 |---|---|---|---|---|---|
 | **Switchboard** | Chat portal + router for free tiers, subscriptions and local models | Yes: rules, an on-device classifier and a quota guard | Yes ("Why this?") | Official vendor CLIs only (used for Jobs in M4) | MIT |
-| [Open WebUI](https://docs.openwebui.com/alternatives/) | Self-hosted chat UI for Ollama and OpenAI-compatible APIs, with built-in RAG | Not stated | Not stated | n/a | Custom "Open WebUI License" with a branding clause |
+| [Open WebUI](https://github.com/open-webui/open-webui) | Self-hosted chat UI for Ollama and OpenAI-compatible APIs, with built-in RAG | Not stated | Not stated | n/a | Custom "Open WebUI License" with a branding clause |
 | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) | AI gateway with tiered fallback (subscription, API key, cheap, free) | Yes (fallback tiers) | Not stated | Routes subscription logins through the gateway, per its project description | MIT, per its listings |
-| [9Router](https://github.com/decolua/9Router) | Local OpenAI-compatible endpoint for coding agents with three-tier fallback | Yes (fallback tiers) | Not stated | Routes subscription logins through its endpoint, per its project description | Not checked |
+| [9Router](https://github.com/decolua/9Router) | Local OpenAI-compatible endpoint for coding agents with three-tier fallback | Yes (fallback tiers) | Not stated | Routes subscription logins through its endpoint, per its project description | MIT, per its listings |
 | [Paperclip](https://github.com/paperclipai/paperclip) | Agent orchestration: org charts, tickets, per-agent budgets (not a chat app or router) | No (it runs your agents) | n/a | Via agent adapters | MIT |
-| [Ollama app](https://alternativeto.net/news/2025/7/ollama-launches-a-new-desktop-app-for-macos-and-windows-with-image-and-code-file-support) | Desktop chat for local models, with optional cloud models | No | n/a | n/a | See the project |
+| [Ollama app](https://ollama.com) | Desktop chat for local models, with optional cloud models | No | n/a | n/a | See the project |
 
 Switchboard plans to use Paperclip for Jobs (M4) rather than rebuild it. We chose not to route subscription logins
 through a gateway (see [Privacy](#privacy-and-security)); that is a decision about account risk, not a claim about other projects.
