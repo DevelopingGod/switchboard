@@ -2,6 +2,32 @@ import { describe, expect, it } from "vitest";
 import { languageOf, parseDiff } from "./diff";
 import { appendLog, emptyLog } from "./log-buffer";
 import { budgetPct, bytes, costSummary, duration, mergeCommands, shellQuote } from "./job-format";
+import { prettyLine } from "./log-format";
+
+const ev = (o: unknown) => JSON.stringify(o);
+
+describe("prettyLine (real event shapes)", () => {
+  it("Claude Code: text, tool use, refusals, result; bookkeeping dropped", () => {
+    expect(prettyLine(ev({ type: "system", subtype: "init" }))).toBeNull();
+    expect(prettyLine(ev({ type: "assistant", message: { content: [{ type: "text", text: "I'll add it." }] } }))).toEqual({ kind: "text", text: "I'll add it." });
+    expect(prettyLine(ev({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "python3 -m unittest" } }] } }))?.text).toBe("→ Bash: python3 -m unittest");
+    expect(prettyLine(ev({ type: "user", message: { content: [{ type: "tool_result", is_error: true, content: "Permission denied" }] } }))?.text).toContain("refused or failed: Permission denied");
+    expect(prettyLine(ev({ type: "result", subtype: "success", duration_ms: 8288, total_cost_usd: 0.071 }))?.text).toBe("Run finished: success, 8 s, list price $0.071");
+  });
+  it("Codex and OpenCode", () => {
+    expect(prettyLine(ev({ type: "item.started", item: { type: "command_execution", command: "/bin/bash -lc pwd" } }))?.text).toBe("$ /bin/bash -lc pwd");
+    expect(prettyLine(ev({ type: "item.completed", item: { type: "agent_message", text: "Done." } }))?.text).toBe("Done.");
+    expect(prettyLine(ev({ type: "turn.started" }))).toBeNull();
+    expect(prettyLine(ev({ type: "tool_use", part: { tool: "bash", state: { input: { command: "python3 -m unittest" } } } }))?.text).toBe("→ bash: python3 -m unittest");
+    expect(prettyLine(ev({ type: "text", part: { text: "All tests pass." } }))?.text).toBe("All tests pass.");
+    expect(prettyLine(ev({ type: "step_finish" }))).toBeNull();
+  });
+  it("keeps plain text and unknown JSON", () => {
+    expect(prettyLine("Ran 2 tests in 0.001s")).toEqual({ kind: "plain", text: "Ran 2 tests in 0.001s" });
+    expect(prettyLine(ev({ type: "new_thing", x: 1 }))?.kind).toBe("plain");
+    expect(prettyLine("{ not json")?.kind).toBe("plain");
+  });
+});
 
 const DIFF = `diff --git a/a.py b/a.py
 index 1..2 100644

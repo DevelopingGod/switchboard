@@ -135,6 +135,7 @@ export const jobsStrings = {
     ended: "The job finished.",
     older: "Load more of this run",
     follow: "Follow new lines",
+    raw: "Show raw output",
   },
   diff: {
     label: "Changes",

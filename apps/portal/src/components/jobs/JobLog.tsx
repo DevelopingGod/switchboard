@@ -6,6 +6,7 @@ import { ErrorNote } from "@/components/kit/ErrorNote";
 import { Button } from "@/components/ui/button";
 import { loadLog, loadRuns } from "@/app/jobs/actions";
 import { appendLog, emptyLog, type LogBuffer } from "@/lib/log-buffer";
+import { prettyLine } from "@/lib/log-format";
 import type { JobRun, JobView } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { type JobsKey, tJobs } from "@/i18n/jobs";
@@ -70,11 +71,22 @@ export function JobLog({ job, live, state }: { job: JobView; live: LogBuffer; st
   }, [job.id, job.run_id, job.status]);
 
   const buf = run === "live" ? live : (older?.buf ?? emptyLog());
+  // Readable by default (the agent's words, commands, tools, results); every raw line on request.
+  const [raw, setRaw] = React.useState(false);
+  const shown = React.useMemo(
+    () =>
+      buf.lines.flatMap((l) => {
+        if (raw) return [{ ...l, kind: "plain" as const }];
+        const p = prettyLine(l.text);
+        return p ? [{ key: l.key, stream: l.stream, text: p.text, kind: p.kind }] : [];
+      }),
+    [buf.lines, raw],
+  );
 
   React.useLayoutEffect(() => {
     const el = box.current;
     if (el && follow.current) el.scrollTop = el.scrollHeight;
-  }, [buf.lines.length]);
+  }, [shown.length]);
 
   const status =
     run !== "live" ? null : state === "reconnecting" ? tJobs("log.reconnecting") : state === "ended" ? tJobs("log.ended") : !live.lines.length ? tJobs("log.waiting") : null;
@@ -98,11 +110,17 @@ export function JobLog({ job, live, state }: { job: JobView; live: LogBuffer; st
             ))}
           </select>
         </label>
-        {status && (
-          <p role="status" className="text-sm text-ink-muted">
-            {status}
-          </p>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {status && (
+            <p role="status" className="text-sm text-ink-muted">
+              {status}
+            </p>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={raw} onChange={(e) => setRaw(e.target.checked)} className="size-4 accent-[var(--accent-strong)]" />
+            {tJobs("log.raw")}
+          </label>
+        </div>
       </div>
       {buf.dropped > 0 && <p className="text-[0.8125rem] text-ink-muted">{tJobs("log.trimmed", { n: buf.lines.length })}</p>}
       <div
@@ -120,9 +138,17 @@ export function JobLog({ job, live, state }: { job: JobView; live: LogBuffer; st
         {buf.lines.length === 0 ? (
           <p className="text-(--solid-ink)">{busy ? tJobs("diff.loading") : tJobs("log.none")}</p>
         ) : (
-          buf.lines.map((l) => (
-            <div key={l.key} className={cn("break-words whitespace-pre-wrap", l.stream === "stderr" ? "text-[#ffb4b4]" : l.stream === "system" ? "text-(--solid-ink) italic" : "")}>
-              {l.text || " "}
+          shown.map(({ key, stream, text, kind }) => (
+            <div
+              key={key}
+              className={cn(
+                "break-words whitespace-pre-wrap",
+                stream === "stderr" ? "text-[#ffb4b4]" : stream === "system" ? "italic" : "",
+                kind === "text" && "font-sans text-[0.8125rem]",
+                kind === "result" && "font-semibold",
+              )}
+            >
+              {text || " "}
             </div>
           ))
         )}

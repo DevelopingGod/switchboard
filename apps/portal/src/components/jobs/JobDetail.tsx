@@ -80,11 +80,14 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
   }
 
   const stamp = React.useRef(`${initial.status}:${initial.gate}:${initial.run_id}`);
+  const picked = React.useRef(false); // you chose a tab: live updates no longer switch it
   const { log, state } = useJobStream(initial.id, isActive(initial.status), (snap) => {
     setJob((j) => ({ ...j, ...snap, project: j.project, events: j.events }));
     const s = `${snap.status}:${snap.gate}:${snap.run_id}`;
     if (snap.status && s !== stamp.current) {
       stamp.current = s;
+      // The job now waits for you: show what to decide on (unless you picked a tab yourself).
+      if (snap.status === "needs_approval" && snap.gate && !picked.current) setTab(snap.gate === "diff" ? "diff" : snap.gate === "plan" ? "plan" : "result");
       router.refresh(); // fresh timeline and approval deadline from the server
     }
   });
@@ -123,6 +126,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
     e.preventDefault();
     const i = visible.findIndex((t) => t.id === current);
     const nxt = visible[(i + d + visible.length) % visible.length];
+    picked.current = true;
     setTab(nxt.id);
     requestAnimationFrame(() => document.getElementById(`${ids}-tab-${nxt.id}`)?.focus());
   };
@@ -230,7 +234,10 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
                   aria-selected={current === t.id}
                   aria-controls={`${ids}-panel`}
                   tabIndex={current === t.id ? 0 : -1}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => {
+                    picked.current = true;
+                    setTab(t.id);
+                  }}
                   className={cn(
                     "inline-flex min-h-9 items-center rounded-chip px-3.5 text-sm",
                     current === t.id ? "bg-pill-active font-bold text-ink ring-1 ring-accent-strong/30" : "font-medium text-ink-muted hover:text-ink",
