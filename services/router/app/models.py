@@ -331,3 +331,25 @@ class JobEvent(Base):
     kind: Mapped[str] = mapped_column(String(32))
     data: Mapped[dict[str, Any]] = mapped_column(default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentProfile(Base):
+    """The fleet overlay (M4b, ADR 0009): a hired agent built on an agents.yaml template, or your edits to a
+    built-in one (`builtin`, same id). Merged onto config/agents.yaml by `app.agents`; deleting a hired agent
+    sets `deleted_at` so its jobs and costs keep a name."""
+
+    __tablename__ = "agent_profiles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    template: Mapped[str] = mapped_column(String(64))
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    label: Mapped[str | None] = mapped_column(String(80))
+    role: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(120))
+    default_autonomy: Mapped[int | None] = mapped_column(SmallInteger)
+    monthly_list_usd: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    allowed_project_ids: Mapped[list[int] | None] = mapped_column(JSONB)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

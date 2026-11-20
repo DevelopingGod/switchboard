@@ -34,7 +34,7 @@ def test_registry_loads_with_the_verified_agents():
     assert runnable == ["claude-code", "codex", "opencode"]
     assert {a.id for a in reg.agents.values() if not a.runnable} == {"gemini-cli", "grok-build", "hermes"}
     # level 3: no agent has a sandbox that works here yet (Paperclip's bwrap fails on merged /usr)
-    assert reg.agent("codex").level_unavailable(reg.levels[3]).startswith("Level 3 needs a bwrap wrapper")
+    assert reg.agent("codex").level_unavailable(reg.levels[3]).startswith("Level 3 is off")
     assert "never runs without a sandbox" in reg.agent("claude-code").level_unavailable(reg.levels[3])
     assert "not verified" in reg.agent("hermes").level_unavailable(reg.levels[0]).lower()
 

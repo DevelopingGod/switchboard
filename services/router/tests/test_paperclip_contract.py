@@ -76,6 +76,10 @@ ROUTES = [
     ("post", "/api/agents/{id}/lifecycle/retry"),
     ("post", "/api/agents/{id}/clear-error"),
     ("post", "/api/agents/{id}/wakeup"),
+    # M4b fleet: pause / resume / terminate follow your changes (ADR 0009)
+    ("post", "/api/agents/{id}/pause"),
+    ("post", "/api/agents/{id}/resume"),
+    ("post", "/api/agents/{id}/terminate"),
     ("get", "/api/heartbeat-runs/{runId}"),
     ("get", "/api/companies/{companyId}/heartbeat-runs"),
     ("get", "/api/heartbeat-runs/{runId}/log"),

@@ -46,14 +46,24 @@ PROBE_TTL_S = 15
 _probe_cache: dict[str, tuple[float, bool, str | None]] = {}
 
 
-async def _paperclip_loopback_only() -> bool:
+async def _paperclip_listen() -> dict[str, Any]:
     """ADR 0007: with no login, Paperclip must only listen on loopback. hostprobe reads the listening
-    addresses on the host (/proc/net/tcp); when it can't tell (hostprobe down), this raises no alarm."""
+    addresses on the host (/proc/net/tcp). `checked` is false when it can't tell (hostprobe down, or the port
+    not seen): no alarm then, and Status says the check couldn't run."""
     port = httpx.URL(get_settings().paperclip_url).port or 3100
     ok, data, _ = await hostprobe_client.probe(f"/net/listen?port={port}", timeout=5)
     if not ok or not data or not data.get("addresses"):
-        return True
-    return bool(data.get("loopback_only"))
+        return {"checked": False, "ok": None, "addresses": [], "port": port}
+    return {
+        "checked": True,
+        "ok": bool(data.get("loopback_only")),
+        "addresses": [str(a) for a in data.get("addresses") or []][:8],
+        "port": port,
+    }
+
+
+# Plain facts shown on Status under Paperclip (M4b): its auth mode and the loopback check.
+_pc_notes: dict[str, Any] = {}
 
 
 async def _paperclip() -> tuple[str, str | None]:
@@ -68,12 +78,23 @@ async def _paperclip() -> tuple[str, str | None]:
         h = await client.health()
     finally:
         await client.aclose()
+    listen = await _paperclip_listen() if h else {"checked": False, "ok": None, "addresses": []}
+    _pc_notes.clear()
+    _pc_notes.update(
+        {
+            "auth": (h or {}).get("deploymentMode"),  # local_trusted = no login (local only)
+            "exposure": (h or {}).get("deploymentExposure"),
+            "version": (h or {}).get("version"),
+            "pinned": PAPERCLIP_PINNED,
+            "loopback": listen,
+        }
+    )
     if not h or h.get("status") != "ok":
         status, detail = "down", "Paperclip is not answering"
     elif h.get("version") != PAPERCLIP_PINNED:
         status = "degraded"
         detail = f"Paperclip {h.get('version')} is running; Switchboard is verified with {PAPERCLIP_PINNED}"
-    elif not await _paperclip_loopback_only():
+    elif listen["checked"] and not listen["ok"]:
         status = "down"
         detail = (
             "Paperclip listens beyond this computer and has no login: anyone on your network could run "
@@ -143,7 +164,7 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
             next_retry_at=st.next_retry_at.isoformat() if st.next_retry_at else None,
         ),
         _c("ollama", "ok" if ollama_ok else "down", None if ollama_ok else "open_ollama", ollama_err),
-        _c("paperclip", pc_status, None if pc_ok else "start_paperclip", pc_detail),
+        _c("paperclip", pc_status, None if pc_ok else "start_paperclip", pc_detail, notes=dict(_pc_notes)),
         _c("hostprobe", "ok" if probe_up else "down", "recheck_cli" if probe_up else "start_hostprobe"),
     ]
     # Local models (M3a): the active profile, its classifier, missing models.

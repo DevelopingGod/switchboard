@@ -214,6 +214,27 @@ class Paperclip:
             timeout=180,
         )
 
+    async def rename_agent(self, agent_id: str, name: str) -> None:
+        """Only the name (a partial PATCH; never the redacted config read back)."""
+        await self._req(
+            "PATCH", f"/agents/{agent_id}", json={"name": name[:120]}, retry=True, missing_ok=True
+        )
+
+    async def pause_agent(self, agent_id: str) -> None:
+        await self._req("POST", f"/agents/{agent_id}/pause", json={}, retry=True, missing_ok=True)
+
+    async def resume_agent(self, agent_id: str) -> None:
+        await self._req("POST", f"/agents/{agent_id}/resume", json={}, retry=True, missing_ok=True)
+
+    async def terminate_agent(self, agent_id: str) -> None:
+        """Terminated agents stay listed but never run (a terminated agent can't be deleted: 500,
+        docs/m4a.md). Already gone or already terminated = done."""
+        try:
+            await self._req("POST", f"/agents/{agent_id}/terminate", json={}, missing_ok=True)
+        except PaperclipError as e:
+            if e.status not in (409, 422):
+                raise
+
     async def clear_error(self, agent_id: str) -> None:
         """An agent whose last run failed (e.g. Claude stopping at its budget) is left in status `error`."""
         await self._req("POST", f"/agents/{agent_id}/clear-error", json={}, retry=True)

@@ -8,6 +8,8 @@ rules.yaml is mounted read-only and stays the source of the defaults; these over
   the person can still switch it off for one chat (a private thread stays private once started).
 - `explore` (M3a, off): let the recommender try models with fewer than 5 samples.
 - `auto_private` (M3a, on): messages the classifier finds sensitive stay local (Privacy section).
+- `approval_expiry_h` (M4b, 24): a job waiting longer for your approval is stopped (0 = never).
+- `keep_worktrees_per_project` (M4b): finished jobs' worktrees kept per project (default from agents.yaml).
 """
 
 import json
@@ -18,7 +20,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import SystemMeta
 
 KEY = "settings"
-FIELDS = ("max_cost_usd", "daily_cap_usd", "private_by_default", "explore", "auto_private")
+FIELDS = (
+    "max_cost_usd",
+    "daily_cap_usd",
+    "private_by_default",
+    "explore",
+    "auto_private",
+    # M4b jobs: how long a job may wait for your approval (hours, 0 = never expire) and how many finished
+    # jobs' worktrees to keep per project (agents.yaml `worktrees.keep_per_project` is the default).
+    "approval_expiry_h",
+    "keep_worktrees_per_project",
+)
 
 
 async def load(session: AsyncSession) -> dict[str, Any]:

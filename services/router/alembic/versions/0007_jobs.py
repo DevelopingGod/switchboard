@@ -33,7 +33,9 @@ def upgrade() -> None:
         "jobs",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("request_id", sa.BigInteger, sa.ForeignKey("requests.id", ondelete="SET NULL")),
-        sa.Column("project_id", sa.Integer, sa.ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "project_id", sa.Integer, sa.ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False
+        ),
         sa.Column("title", sa.String(240), nullable=False),
         sa.Column("prompt", sa.Text, nullable=False),
         sa.Column("agent", sa.String(64), nullable=False),

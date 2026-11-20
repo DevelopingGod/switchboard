@@ -27,6 +27,7 @@ defaults:
   budget:
     per_job_list_usd: 2.00     # list price (what the run would cost at API prices), not money spent
     per_agent_daily_list_usd: 10.00
+    per_agent_monthly_list_usd: null   # no monthly cap unless you set one per agent (Agents page) or here
   worktrees:
     keep_per_project: 10       # finished jobs' worktrees kept for review; older ones are removed (branches stay)
   # Shell commands an agent may run at levels 1 and 2 (prefixes). Tests only: no installs, no network, no git push.
@@ -55,6 +56,7 @@ agents:
     runner: claude_local        # Paperclip's adapter: uses ~/.claude in place (docs/m4a.md)
     command: claude             # found on Paperclip's PATH (scripts/setup-wsl.sh)
     model: claude-sonnet-5-5
+    models: [claude-sonnet-5-5, claude-opus-5-5, claude-haiku-5-5]   # offered when you hire or edit
     capabilities: [code, research]
     cost: reported              # the CLI reports list price; on a subscription it is $0 to you
     permissions: claude
@@ -69,8 +71,8 @@ agents:
     #   full: { args: [--permission-mode, bypassPermissions, --setting-sources, user],
     #           adapter: { filesystemScope: workspace, networkScope: allowlist, networkAllowlist: ["api.anthropic.com:443"] } }
     full_unavailable: >-
-      Level 3 is off: Paperclip's bwrap sandbox fails to start on this Linux (merged /usr), and level 3 never runs
-      without a sandbox (M4b).
+      Level 3 is off: it needs a sandbox, and Paperclip's fails to start on this Linux (merged /usr). A locked-down
+      container per job is planned (ADR 0010, M7). Level 3 never runs without a sandbox.
 
   codex:
     label: Codex
@@ -84,7 +86,7 @@ agents:
       read_only: [exec, --json, -s, read-only, -C, "{worktree}", "{prompt}"]
       edit: [exec, --json, -s, workspace-write, -c, sandbox_workspace_write.network_access=false,
              -C, "{worktree}", "{prompt}"]
-    full_unavailable: Level 3 needs a bwrap wrapper for Codex, which isn't verified yet (M4b).
+    full_unavailable: Level 3 is off until the per-job container sandbox lands (ADR 0010, M7).
 
   opencode:
     label: OpenCode
@@ -92,13 +94,14 @@ agents:
     runner: process             # Paperclip's opencode_local writes skills into ~/.claude/skills
     command: opencode
     model: opencode/big-pickle  # a free OpenCode Zen model (the free lineup rotates: change it here)
+    models: [opencode/big-pickle]
     capabilities: [code]
     cost: reported
     permissions: opencode
     profiles:
       read_only: [run, --format, json, -m, "{model}", --dir, "{worktree}", "{prompt}"]
       edit: [run, --format, json, -m, "{model}", --dir, "{worktree}", "{prompt}"]
-    full_unavailable: Level 3 needs a bwrap wrapper for OpenCode, which isn't verified yet (M4b).
+    full_unavailable: Level 3 is off until the per-job container sandbox lands (ADR 0010, M7).
 
   # Shown in the registry but not run yet: their flags aren't verified on a Linux install (docs/m4a.md).
   gemini-cli:
