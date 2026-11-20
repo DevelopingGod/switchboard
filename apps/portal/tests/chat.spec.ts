@@ -204,6 +204,20 @@ test.describe("chat · composer and Home", () => {
     await expect(hints).toHaveCount(0);
   });
 
+  test("opening a thread shows the newest message; scrolling up by any means is never undone", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 }); // the seeded thread is taller than this
+    await page.goto(`/chat?t=${SEED}`);
+    const atEnd = () => page.evaluate(() => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2);
+    await expect.poll(atEnd).toBe(true);
+    // Not a wheel, key or touch: like dragging the scrollbar, find in page or a screen reader moving up.
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    // While the pin would still be on (2.5 s), the page height changes (a lazy chunk arriving, the window resizing).
+    await page.evaluate(() => document.getElementById("main")!.append(Object.assign(document.createElement("div"), { style: "height:40px" })));
+    await page.setViewportSize({ width: 1280, height: 620 });
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
   test("seeded thread renders Markdown, highlighted code with copy, and the fallback chip", async ({ page }) => {
     await page.goto(`/chat?t=${SEED}`);
     await ready(page);

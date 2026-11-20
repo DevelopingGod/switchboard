@@ -101,11 +101,17 @@ body {
 button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; }
 ::selection { background: var(--accent-soft); }
 
-/* Motion off: the OS setting, or Settings → Appearance → Motion: Reduce (data-motion). */
+/* Motion off: the OS setting, or Settings → Appearance → Motion: Reduce (data-motion).
+   Transitions are switched off with a zero duration *and* delay, not shortened to 0.01ms: `transition-property`
+   defaults to `all`, so a 0.01ms duration on `*` gives every element a transition of every property, including
+   inherited `visibility`. Opening the phone drawer (hidden → visible) then left each row label `hidden` until
+   the next animation frame, which a busy machine delays (axe saw nameless links; M4a). With 0s + 0s there is no
+   transition at all, and styles apply in the same frame. Nothing listens for `transitionend`. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }
@@ -113,7 +119,8 @@ button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; 
 :root[data-motion="reduce"] *::before,
 :root[data-motion="reduce"] *::after {
   animation: none !important;
-  transition-duration: 0.01ms !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
   scroll-behavior: auto !important;
 }
 
