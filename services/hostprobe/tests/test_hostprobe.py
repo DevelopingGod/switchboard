@@ -801,6 +801,13 @@ class GitWorktreeTests(unittest.TestCase):
         self.assertFalse(wt.exists())
         self.assertIn("switchboard/job-7", sh_git(self.repo, "branch", "--list", "switchboard/job-7"))  # kept
         self.assertTrue(hostprobe.remove_worktree(self.body())["removed"])  # already gone = success
+        wt.mkdir(parents=True)  # an empty leftover folder is cleared; a non-empty one is never touched
+        self.assertTrue(hostprobe.remove_worktree(self.body())["removed"])
+        self.assertFalse(wt.exists())
+        wt.mkdir(parents=True)
+        (wt / "keep.txt").write_text("x")
+        hostprobe.remove_worktree(self.body())
+        self.assertTrue((wt / "keep.txt").exists())
         with self.assertRaises(hostprobe.GitError) as e:
             hostprobe.diff_worktree(self.body(base=out["base_sha"]))
         self.assertEqual(e.exception.status, 404)

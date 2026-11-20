@@ -1005,6 +1005,10 @@ def remove_worktree(body: dict) -> dict:
     if any(Path(w.get("worktree", "")) == wt for w in _worktrees(project)):
         git(["worktree", "remove", "--force", "--", str(wt)], project)
     git(["worktree", "prune"], project)
+    # An empty folder can be left where the worktree was (Paperclip creates a missing working folder when it
+    # checks an agent). Only ever an empty one, inside the worktree root.
+    if wt.is_dir() and not wt.is_symlink() and not any(wt.iterdir()):
+        wt.rmdir()
     return {"removed": True, "branch": branch}
 
 
