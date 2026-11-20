@@ -61,7 +61,7 @@ export const wizardStrings = {
       connected: "Connected",
       none: "None yet",
       tryTitle: "Try it",
-      tryBody: "Ask something in Chat to see routing, the “Why this?” chip and cost. Image and code-job samples arrive with Studio (M5) and Jobs (M4).",
+      tryBody: "Ask something in Chat to see routing, the “Why this?” chip and cost. For code work, “Run as job” under a reply hands it to an agent; images arrive with Studio (M5).",
       tryBadge: "Chat is live",
     },
   },

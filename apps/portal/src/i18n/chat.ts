@@ -71,8 +71,9 @@ export const chatStrings = {
     fallingBackNone: "{label}: {reason}.",
     retry: "Try again",
     sendFailedGeneric: "Couldn’t reach Switchboard. Try again in a moment.",
-    jobHint: "This looks like a job for an agent. Jobs arrive in milestone M4; for now you get a chat answer.",
-    runAsJob: "Run as job (M4)",
+    jobHint: "This looks like a job for an agent: it can work on a copy of your project while you review each step.",
+    jobHintPrivate: "This looks like a job, but this chat is private: agents run on cloud models, so it stays a chat.",
+    runAsJob: "Run as job",
     notice: {
       image: "Image generation arrives in Studio (milestone M5). Nothing was sent or charged.",
       video: "Video generation arrives in Studio (milestone M5). Nothing was sent or charged.",

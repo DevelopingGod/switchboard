@@ -56,7 +56,7 @@ export const strings = {
       label: "Slash commands",
       chat: "Plain chat (default rule)",
       code: "Code help (code rule)",
-      research: "Research (job in M4; chat for now)",
+      research: "Research (chat; “Run as job” for longer work)",
       image: "Image (Studio, M5)",
       video: "Video (Studio, M5)",
       private: "Private: local model only",
@@ -120,6 +120,7 @@ export const strings = {
     needsApproval: "Needs approval",
     done: "Done",
     failed: "Failed",
+    stopped: "Stopped",
   },
   state: {
     loading: "Loading",
@@ -200,7 +201,7 @@ export const strings = {
   screens: {
     chat: { title: "Chat", body: "Threads, streaming replies and routing chips." },
     studio: { title: "Studio", body: "Image, video and content creation arrive in milestones M5 and M5.5." },
-    jobs: { title: "Jobs", body: "Agents and the job board arrive in milestone M4." },
+    jobs: { title: "Jobs", body: "Agents and the job board." },
     connections: { title: "Connections" },
     metrics: { title: "Metrics", body: "Cost, quota and latency dashboards arrive in milestone M6." },
     settings: { title: "Settings", body: "Rules, budgets and roles arrive in later milestones. Appearance is available from the toolbar." },

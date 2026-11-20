@@ -24,6 +24,16 @@ export const shellStrings = {
   },
   splash: "Loading Switchboard",
   /** The left sidebar (M3b). */
+  /** M4b: the Jobs badge and job toasts (the watcher ships with the shell, so its strings live here). */
+  jobs: {
+    badge: "{n} need you",
+    badgeOne: "1 needs you",
+    toastPlan: "Job {id} needs you: approve the plan",
+    toastDiff: "Job {id} needs you: review the changes",
+    toastResult: "Job {id} needs you: review the report",
+    toastDone: "Job {id} is done",
+    toastFailed: "Job {id} failed",
+  },
   sidebar: {
     label: "Sidebar",
     collapse: "Collapse sidebar",

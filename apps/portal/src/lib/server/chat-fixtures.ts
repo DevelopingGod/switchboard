@@ -9,7 +9,7 @@ import type { ChatMessage, ChatThread, RouteInfo, TargetsResponse, TargetModel }
  *   private / "/private"    local only, with a "Thinking…" phase
  *   "budget"                blocked by the daily cap
  *   "/image", "make an image of", "/video"   Studio notice (M5)
- *   "failing tests", "/research"             answered in chat + "Run as job (M4)" hint
+ *   "failing tests", "/research"             answered in chat + a "Run as job" button (M4b)
  *   "code" / "/code"        a fenced code block
  *   "blood test"            auto-private (M3a): kept local with a "Not sensitive — use cloud" note
  *   a pasted "sk-…" key     masked, kept local, secret note on the message (M3a)
@@ -490,8 +490,8 @@ function scenario(
       matched_by: lower.startsWith("/") ? "slash" : "intent",
       intent: lower.includes("tests") ? "code" : "research",
       job_suggested: true,
-      reasons: ["Looks like code (“failing tests”) → rule “code-heavy”", "Fallback: Claude Code skipped (Claude Code runs jobs, which arrive in M4; answering in chat)", "Free tier · Groq does not train on API data"],
-      skipped: [{ target: "agent:claude-code", label: "Claude Code", code: "agent", reason: "Claude Code runs jobs, which arrive in M4; answering in chat" }],
+      reasons: ["Looks like code (“failing tests”) → rule “code-heavy”", "Fallback: Claude Code skipped (Claude Code works as a job: start it with Run as job)", "Free tier · Groq does not train on API data"],
+      skipped: [{ target: "agent:claude-code", label: "Claude Code", code: "agent", reason: "Claude Code works as a job: start it with Run as job" }],
     });
   } else if (code && !rate) {
     route = base({ rule: "code-light", matched_by: lower.startsWith("/") ? "slash" : "intent", intent: "code" });

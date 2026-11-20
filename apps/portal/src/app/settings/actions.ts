@@ -10,6 +10,9 @@ export interface SettingsPatch {
   private_by_default?: boolean | null;
   explore?: boolean | null;
   auto_private?: boolean | null;
+  /** M4b jobs: hours a job may wait for your approval (0 = never), and worktrees kept per project. */
+  approval_expiry_h?: number | null;
+  keep_worktrees_per_project?: number | null;
 }
 
 const cap = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100);
@@ -27,8 +30,19 @@ export async function saveSettings(patch: SettingsPatch): Promise<ActionResult<S
     if (patch[k] !== null && typeof patch[k] !== "boolean") return { ok: false, error: "Invalid value." };
     clean[k] = patch[k];
   }
+  if (patch.approval_expiry_h !== undefined) {
+    const v = patch.approval_expiry_h;
+    if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 720)) return { ok: false, error: "Enter between 0 and 720 hours (0 = never)." };
+    clean.approval_expiry_h = v;
+  }
+  if (patch.keep_worktrees_per_project !== undefined) {
+    const v = patch.keep_worktrees_per_project;
+    if (v !== null && !(Number.isInteger(v) && v >= 0 && v <= 100)) return { ok: false, error: "Enter a whole number from 0 to 100." };
+    clean.keep_worktrees_per_project = v;
+  }
   const r = await routerSend<SettingsView>("PUT", "/settings", clean);
   revalidatePath("/settings");
+  revalidatePath("/settings/projects");
   revalidatePath("/chat");
   return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
 }

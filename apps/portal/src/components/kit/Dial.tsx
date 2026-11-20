@@ -19,6 +19,10 @@ export interface DialProps {
   step?: number;
   /** Snapped, labelled stops (value is the index). Used by the autonomy selector. */
   stops?: readonly string[];
+  /** Stops that can't be chosen now, with the reason (M4b: autonomy level 3 without a sandbox). The
+   * handle never lands on them (keys, drag and Home/End skip to the nearest allowed stop); the caller
+   * shows the reason as text next to the dial. */
+  disabledStops?: Readonly<Record<number, string>>;
   /** Interactive when provided; otherwise a read-only meter. */
   onChange?: (value: number) => void;
   label: string;
@@ -40,6 +44,7 @@ export function Dial({
   max = 100,
   step = 1,
   stops,
+  disabledStops,
   onChange,
   label,
   valueText,
@@ -70,10 +75,14 @@ export function Dial({
   const ref = React.useRef<SVGSVGElement>(null);
   const dragging = React.useRef(false);
 
+  const blocked = (v: number) => !!stops && disabledStops?.[v] !== undefined;
   const commit = (v: number) => {
     const snapped = Math.round((v - lo) / stepSize) * stepSize + lo;
-    const next = Math.min(hi, Math.max(lo, snapped));
-    if (next !== clamped) onChange?.(next);
+    let next = Math.min(hi, Math.max(lo, snapped));
+    // A disabled stop: step back toward the current value until an allowed one.
+    const dir = next > clamped ? -1 : 1;
+    while (blocked(next) && next !== clamped) next += dir * stepSize;
+    if (next !== clamped && !blocked(next)) onChange?.(next);
   };
 
   const fromPointer = (e: React.PointerEvent) => {
@@ -166,7 +175,11 @@ export function Dial({
         {stops &&
           stops.map((_, i) => {
             const [sx, sy] = pt(c, r, START + (SWEEP * i) / (stops.length - 1));
-            return <circle key={i} cx={sx} cy={sy} r={stroke * 0.22} fill="var(--ink-muted)" opacity={0.7} />;
+            return blocked(i) ? (
+              <circle key={i} cx={sx} cy={sy} r={stroke * 0.3} fill="none" stroke="var(--ink-muted)" strokeWidth={1.5} opacity={0.8} />
+            ) : (
+              <circle key={i} cx={sx} cy={sy} r={stroke * 0.22} fill="var(--ink-muted)" opacity={0.7} />
+            );
           })}
         <path
           d={arc}

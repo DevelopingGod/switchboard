@@ -11,7 +11,9 @@ export async function ready(page: Page) {
       const sb = document.querySelector<HTMLElement>("#app-sidebar");
       if (!sb || getComputedStyle(sb).visibility === "hidden" || document.documentElement.dataset.sidebar === "collapsed") return true;
       const sec = sb.querySelector('section[aria-label="Recent chats"]');
-      return !!sec && (!!sec.querySelector("a[data-thread-row]") || /No chats|load your chats/.test(sec.textContent ?? ""));
+      const recents = !!sec && (!!sec.querySelector("a[data-thread-row]") || /No chats|load your chats/.test(sec.textContent ?? ""));
+      // M4b: the Jobs badge appears after the job watcher's first check; captures wait for it too.
+      return recents && sb.hasAttribute("data-jobs-checked");
     },
     undefined,
     { timeout: 8000 },

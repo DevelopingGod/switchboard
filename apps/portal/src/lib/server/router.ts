@@ -2,6 +2,7 @@ import "server-only";
 import * as fixtures from "./fixtures";
 import * as chatFixtures from "./chat-fixtures";
 import * as rulesFixtures from "./rules-fixtures";
+import * as jobsFixtures from "./jobs-fixtures";
 
 /**
  * The only module that knows the Router URL and ROUTER_ADMIN_TOKEN. Server components read with
@@ -37,6 +38,7 @@ function failureOf(body: unknown, fallback: string): { error: string; code?: str
 async function call<T>(method: string, path: string, body: unknown, admin: boolean, timeoutMs: number): Promise<Result<T>> {
   if (fixtureMode()) {
     if (path.startsWith("/rules") || path === "/route/dry-run") return rulesFixtures.handle<T>(method, path, body);
+    if (/^\/(jobs|agents|projects)(\/|\?|$)/.test(path)) return jobsFixtures.handleJobs<T>(method, path, body);
     return path.startsWith("/chat/") || path.startsWith("/route/")
       ? chatFixtures.handle<T>(method, path, body)
       : fixtures.handle<T>(method, path, body);
@@ -124,16 +126,19 @@ export async function routerChatStream(path: string, body: unknown, signal: Abor
   }
 }
 
-/** Server-sent events from an install job, passed through unchanged. */
-export async function routerStream(path: string, signal: AbortSignal): Promise<Response> {
-  if (fixtureMode()) return fixtures.stream(path);
+/** Server-sent events from an install or agent job, passed through unchanged. `lastEventId` resumes an
+ * agent job's log where the browser's EventSource stopped (the router reads it from Last-Event-ID). */
+export async function routerStream(path: string, signal: AbortSignal, lastEventId?: string | null): Promise<Response> {
+  if (fixtureMode()) return path.startsWith("/jobs/") ? jobsFixtures.streamJob(path, lastEventId ?? null) : fixtures.stream(path);
   const token = process.env.ROUTER_ADMIN_TOKEN;
   if (!token) return new Response("ROUTER_ADMIN_TOKEN is not set", { status: 500 });
   try {
-    const up = await fetch(routerUrl() + path, { headers: adminHeader(), cache: "no-store", signal });
-    if (!up.ok || !up.body) return new Response("install job not found", { status: up.status === 200 ? 502 : up.status });
+    const headers: Record<string, string> = { ...adminHeader() };
+    if (lastEventId) headers["Last-Event-ID"] = lastEventId;
+    const up = await fetch(routerUrl() + path, { headers, cache: "no-store", signal });
+    if (!up.ok || !up.body) return new Response("job not found", { status: up.status === 200 ? 502 : up.status });
     return new Response(up.body, {
-      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform" },
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },
     });
   } catch {
     return new Response("router unreachable", { status: 503 });

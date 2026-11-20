@@ -15,11 +15,12 @@ const GoalsSection = dynamic(() => import("./GoalsSection"));
 const AppearanceSection = dynamic(() => import("./AppearanceSection"));
 const PrivacySection = dynamic(() => import("./PrivacySection"));
 const BudgetsSection = dynamic(() => import("./BudgetsSection"));
+const JobsSection = dynamic(() => import("./JobsSection"));
 const RoutingSection = dynamic(() => import("./RoutingSection"));
 const LocalModelsSection = dynamic(() => import("./LocalModelsSection"));
 const DataSection = dynamic(() => import("./DataSection"));
 
-const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "data", "setup"] as const;
+const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "jobs", "data", "setup"] as const;
 
 export interface SettingsData {
   name: string;
@@ -86,6 +87,9 @@ export function SettingsScreen({ data }: { data: SettingsData }) {
           ) : (
             <Section id="budgets" title={tSet("section.budgets")}>{down}</Section>
           )}
+        </div>
+        <div>
+          {data.settings ? <JobsSection settings={data.settings} /> : <Section id="jobs" title={tSet("section.jobs")}>{down}</Section>}
         </div>
         <div>
           <DataSection />

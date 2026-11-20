@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { getPrefs, setPrefs, usePrefs, type Mode } from "@/lib/prefs";
 import { useSummary } from "@/lib/use-summary";
 import { useHydrated } from "@/lib/use-hydrated";
+import { useNeedsYou } from "@/lib/job-attention";
 import { t } from "@/i18n/strings";
 import { tShell } from "@/i18n/shell";
 import { AppearanceMenu } from "./AppearanceMenu";
@@ -27,6 +28,9 @@ const Recents = dynamic(() => import("./Recents"), {
     </div>
   ),
 });
+
+// M4b: polls job states for the Jobs badge and the "needs you / done / failed" toasts; loads when idle.
+const JobsWatcher = dynamic(() => import("./JobsWatcher"), { ssr: false });
 
 // The budget dial is its own chunk (the Dial is not in the first-load JS); the placeholder is the same
 // size, so nothing shifts when it arrives.
@@ -91,6 +95,7 @@ export function Sidebar({
   const prefs = usePrefs();
   const hydrated = useHydrated();
   const idle = useIdle();
+  const needsYou = useNeedsYou();
   const [query, setQuery] = React.useState(""); // the one search: it filters the chats below
   const rail = prefs.sidebarCollapsed && !open; // icon rail: tooltips stand in for the labels
   const ref = React.useRef<HTMLElement>(null);
@@ -136,7 +141,14 @@ export function Sidebar({
   }, [open, onClose]);
 
   return (
-    <aside ref={ref} id="app-sidebar" className="app-sidebar" data-open={open || undefined} aria-label={tShell("sidebar.label")}>
+    <aside
+      ref={ref}
+      id="app-sidebar"
+      className="app-sidebar"
+      data-open={open || undefined}
+      data-jobs-checked={needsYou !== null || undefined}
+      aria-label={tShell("sidebar.label")}
+    >
       <div className="sb-inner surface-strong">
         <div className="sb-top">
           <Link href="/" aria-label={t("logo.alt")} className="sb-logo" data-tip={rail ? t("nav.home") : undefined}>
@@ -206,22 +218,32 @@ export function Sidebar({
 
         <nav aria-label={tShell("sidebar.nav")} className="sb-nav">
           <ul className="grid gap-0.5">
-            {navItems.map(({ id, href, label, Icon }) => (
-              <li key={id}>
-                <Link
-                  href={href}
-                  aria-current={active === id ? "page" : undefined}
-                  data-tip={rail ? t(label) : undefined}
-                  className="sb-link"
-                >
-                  <Icon aria-hidden className="size-[1.125rem] shrink-0" />
-                  <span className="sb-label">{t(label)}</span>
-                </Link>
-              </li>
-            ))}
+            {navItems.map(({ id, href, label, Icon }) => {
+              const badge = id === "jobs" && needsYou ? (needsYou === 1 ? tShell("jobs.badgeOne") : tShell("jobs.badge", { n: needsYou })) : null;
+              return (
+                <li key={id}>
+                  <Link
+                    href={href}
+                    aria-current={active === id ? "page" : undefined}
+                    aria-label={badge ? `${t(label)}, ${badge}` : undefined}
+                    data-tip={rail ? (badge ? `${t(label)}: ${badge}` : t(label)) : undefined}
+                    className="sb-link"
+                  >
+                    <Icon aria-hidden className="size-[1.125rem] shrink-0" />
+                    <span className="sb-label">{t(label)}</span>
+                    {badge && (
+                      <span className="sb-badge" aria-hidden data-count={needsYou}>
+                        {needsYou}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
 
+        {idle && <JobsWatcher />}
         <section aria-label={tShell("sidebar.recents")} className="sb-recents sb-full">
           {idle && (!prefs.sidebarCollapsed || open) && (
             <React.Suspense fallback={null}>

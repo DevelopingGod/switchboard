@@ -22,6 +22,8 @@ export interface Prefs {
   ambientCursor: boolean;
   /** Chat thread sidebar collapsed (⌘B). */
   sidebarCollapsed: boolean;
+  /** M4b: desktop notifications when a job needs you, finishes or fails (this browser only; off by default). */
+  jobNotifications: boolean;
 }
 
 export const defaultPrefs: Prefs = {
@@ -34,6 +36,7 @@ export const defaultPrefs: Prefs = {
   motion: "system",
   ambientCursor: true,
   sidebarCollapsed: false,
+  jobNotifications: false,
 };
 
 const KEY = "switchboard.prefs.v1";

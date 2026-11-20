@@ -224,9 +224,12 @@ test("Status view lists every component with its fix", async ({ page }) => {
   await ready(page);
   await expect(page.getByRole("heading", { level: 1, name: "Status" })).toBeVisible();
   const rows = page.getByRole("region", { name: "Status" }).getByRole("listitem");
+  const ollama = rows.filter({ hasText: "Ollama (local models)" });
+  await expect(ollama).toContainText("Local and private models won’t work");
+  // M4b: Paperclip's auth mode and the loopback check are shown in Simple mode too.
   const paperclip = rows.filter({ hasText: "Paperclip (jobs)" });
-  await expect(paperclip).toContainText("Jobs won’t run");
-  await expect(paperclip).toContainText("paperclipai service start");
+  await expect(paperclip).toContainText("No login (local only)");
+  await expect(paperclip).toContainText("Listens on 127.0.0.1 only");
   await expect(rows.filter({ hasText: "Model gateway" })).toContainText("Running.");
   await expect(page.getByRole("status").first()).toContainText("need attention");
 
