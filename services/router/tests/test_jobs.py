@@ -7,6 +7,7 @@ API drive them through whole jobs: plan → approval → edit → diff → done,
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -45,6 +46,7 @@ class FakePaperclip:
         self.n = 0
         self.company = None
         self.ready_after_retry = True
+        self.state_calls: list[tuple[str, str]] = []
 
     def nid(self, p: str) -> str:
         self.n += 1
@@ -70,6 +72,7 @@ class FakePaperclip:
         m.post(url__regex=rf"{PC}/agents/[^/]+/lifecycle/retry$").mock(side_effect=self._retry)
         m.post(url__regex=rf"{PC}/agents/[^/]+/clear-error$").mock(side_effect=self._clear_error)
         m.post(url__regex=rf"{PC}/agents/[^/]+/wakeup$").mock(side_effect=self._wake)
+        m.post(url__regex=rf"{PC}/agents/[^/]+/(pause|resume|terminate)$").mock(side_effect=self._agent_state)
         m.get(url__regex=rf"{PC}/heartbeat-runs/[^/]+$").mock(side_effect=self._run_get)
         m.get(url__regex=rf"{PC}/heartbeat-runs/[^/]+/log").mock(side_effect=self._log)
         m.post(url__regex=rf"{PC}/heartbeat-runs/[^/]+/cancel$").mock(side_effect=self._cancel)
@@ -109,8 +112,22 @@ class FakePaperclip:
         return httpx.Response(200, json=a)
 
     def _agent_patch(self, r):
-        a = self.agents[r.url.path.rsplit("/", 1)[1]]
-        a["adapterConfig"] = json.loads(r.content)["adapterConfig"]
+        a = self.agents.get(r.url.path.rsplit("/", 1)[1])
+        if a is None:
+            return httpx.Response(404, json={"error": "Agent not found"})
+        b = json.loads(r.content)
+        for k in ("adapterConfig", "name"):
+            if k in b:
+                a[k] = b[k]
+        return httpx.Response(200, json=a)
+
+    def _agent_state(self, r):
+        _, aid, action = r.url.path.rsplit("/", 2)
+        a = self.agents.get(aid)
+        if a is None:
+            return httpx.Response(404, json={"error": "Agent not found"})
+        self.state_calls.append((aid, action))
+        a["status"] = {"pause": "paused", "resume": "idle", "terminate": "terminated"}[action]
         return httpx.Response(200, json=a)
 
     def _rev(self, aid: str) -> str:
@@ -164,7 +181,9 @@ class FakePaperclip:
             "agentId": aid,
             "status": "running",
             "scopeKind": "company",
-            "startedAt": "2026-11-20T06:00:00.000Z",
+            "startedAt": datetime.now(UTC)
+            .isoformat()
+            .replace("+00:00", "Z"),  # not a fixed time: caps use it
             "finishedAt": None,
             "error": None,
             "resultJson": None,
@@ -803,7 +822,9 @@ async def test_agents_api(client, fakes, session):
     r = await client.get("/agents", headers=ADMIN)
     rows = {a["id"]: a for a in r.json()["agents"]}
     assert rows["claude-code"]["installed"] and rows["claude-code"]["levels"]["1"] is None
-    assert "bwrap" in rows["claude-code"]["levels"]["3"]
+    assert (
+        "sandbox" in rows["claude-code"]["levels"]["3"] and "ADR 0010" in rows["claude-code"]["levels"]["3"]
+    )
     assert "not installed" in rows["opencode"]["levels"]["0"]
     assert rows["hermes"]["runnable"] is False and rows["hermes"]["installed"] is False
     assert r.json()["bwrap"] is False

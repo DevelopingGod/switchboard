@@ -4,6 +4,7 @@ import * as React from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CopyButton } from "@/components/kit/CopyButton";
+import { whenIdle } from "@/lib/idle-queue";
 import { t } from "@/i18n/strings";
 import { tChat } from "@/i18n/chat";
 
@@ -14,10 +15,17 @@ import { tChat } from "@/i18n/chat";
 function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const [html, setHtml] = React.useState<string | null>(null);
   React.useEffect(() => {
+    // Highlighting is one idle slice per block (M4b), after the module loads in its own slice.
     let live = true;
-    import("@/lib/highlight").then(({ highlight }) => live && setHtml(highlight(code, lang)));
+    let cancel: (() => void) | undefined;
+    cancel = whenIdle(() => {
+      void import("@/lib/highlight").then(({ highlight }) => {
+        if (live) cancel = whenIdle(() => live && setHtml(highlight(code, lang)));
+      });
+    });
     return () => {
       live = false;
+      cancel?.();
     };
   }, [code, lang]);
   return (

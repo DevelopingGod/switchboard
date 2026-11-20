@@ -727,9 +727,20 @@ class GitWorktreeTests(unittest.TestCase):
         plain.mkdir()
         self.assertFalse(hostprobe.inspect_repo(str(plain))["is_repo"])
         self.assertTrue(hostprobe.inspect_repo(str(hostprobe.SELF_REPO))["is_self"])
-        for bad in ("relative/path", "/no/such/folder", 5, "/nonexistent/\0x"):
+        for bad in ("relative/path", "/no/such/folder", 5, "/nonexistent/\0x", "~other/repo"):
             with self.assertRaises(hostprobe.GitError):
                 hostprobe.inspect_repo(bad)
+
+    def test_inspect_expands_a_home_relative_path(self):
+        mine = self.home / "code"
+        mine.mkdir()
+        sh_git(mine, "init", "-q")
+        info = hostprobe.inspect_repo("~/code")
+        self.assertEqual(info["path"], str(mine))
+        self.assertTrue(info["is_repo"] and info["is_top"])
+        with self.assertRaises(hostprobe.GitError) as e:
+            hostprobe.inspect_repo("code")
+        self.assertIn("full path", e.exception.message)
 
     def test_create_is_a_new_branch_outside_the_repo_and_idempotent(self):
         out = hostprobe.create_worktree(self.body())

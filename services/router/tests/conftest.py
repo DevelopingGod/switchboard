@@ -76,7 +76,8 @@ def database():
 
 TABLES = (
     "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
-    "costs, requests, quota_usage, cooldowns, quota_headers, rules_versions, job_events, jobs, projects"
+    "costs, requests, quota_usage, cooldowns, quota_headers, rules_versions, job_events, jobs, projects, "
+    "agent_profiles"
 )
 
 
@@ -84,6 +85,9 @@ TABLES = (
 async def clean_db():
     async with db.engine().begin() as conn:
         await conn.execute(text(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE"))
+    from app import agents
+
+    agents.set_overlay([])  # the fleet overlay is process memory (refreshed from agent_profiles)
     yield
 
 

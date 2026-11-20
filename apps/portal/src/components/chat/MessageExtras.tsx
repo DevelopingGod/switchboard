@@ -1,6 +1,8 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Briefcase, Clapperboard, ImagePlus, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usd } from "@/lib/chat-format";
@@ -13,18 +15,24 @@ export function ReplyError({ code, detail }: { code?: string | null; detail?: st
   return <ErrorNote live code={code ?? (detail ? "error" : "unknown")} detail={detail} />;
 }
 
-/** Rare reply states, in their own chunk (see MessageItem). */
-export function JobHint({ id }: { id: number }) {
+// M4b: the Run as job dialog (project, agents, autonomy, budget, preview) loads on the first click.
+const NewJobDialog = dynamic(() => import("@/components/jobs/NewJobDialog"), { ssr: false });
+
+/** Rare reply states, in their own chunk (see MessageItem). The routing decision proposed a job: offer it,
+ * never start it (the dialog shows exactly what will happen before anything runs). */
+export function JobHint({ id, requestId, prompt, isPrivate }: { id: number; requestId: number | null; prompt: string; isPrivate: boolean }) {
   const hint = `job-hint-${id}`;
+  const [open, setOpen] = React.useState(false);
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-control border border-hairline p-2 text-sm">
       <Briefcase aria-hidden className="size-4 text-accent-strong" />
       <span id={hint} className="min-w-0 flex-1 text-ink-muted">
-        {tChat("chat.jobHint")}
+        {isPrivate ? tChat("chat.jobHintPrivate") : tChat("chat.jobHint")}
       </span>
-      <Button type="button" size="sm" variant="glass" disabled aria-describedby={hint}>
+      <Button type="button" size="sm" variant="glass" disabled={isPrivate} aria-describedby={hint} onClick={() => setOpen(true)}>
         {tChat("chat.runAsJob")}
       </Button>
+      {open && <NewJobDialog open onOpenChange={setOpen} initialPrompt={prompt} requestId={requestId ?? undefined} />}
     </div>
   );
 }

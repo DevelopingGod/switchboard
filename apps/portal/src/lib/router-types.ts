@@ -323,6 +323,17 @@ export interface SystemComponent {
   vram_gb?: number | null;
   missing?: string[];
   overridden?: boolean;
+  /** M4b, the paperclip row: its auth mode and the loopback check (ADR 0007). */
+  notes?: PaperclipNotes;
+}
+
+export interface PaperclipNotes {
+  /** `local_trusted` = no login (local only). */
+  auth?: string | null;
+  exposure?: string | null;
+  version?: string | null;
+  pinned?: string;
+  loopback?: { checked: boolean; ok: boolean | null; addresses: string[]; port?: number };
 }
 
 export interface ComponentsResponse {
@@ -373,7 +384,19 @@ export interface SettingsView {
   explore: boolean;
   /** M3a: keep messages that look sensitive on this machine. */
   auto_private: boolean;
-  defaults: { max_cost_usd: number; daily_cap_usd: number; private_by_default: boolean; explore: boolean; auto_private: boolean };
+  /** M4b: a job waiting longer for your approval is stopped (hours; 0 = never). */
+  approval_expiry_h: number;
+  /** M4b: finished jobs' worktrees kept per project. */
+  keep_worktrees_per_project: number;
+  defaults: {
+    max_cost_usd: number;
+    daily_cap_usd: number;
+    private_by_default: boolean;
+    explore: boolean;
+    auto_private: boolean;
+    approval_expiry_h: number;
+    keep_worktrees_per_project: number;
+  };
   overridden: string[];
 }
 
@@ -525,4 +548,211 @@ export interface DryRunResult {
   runner_up: string | null;
   reasons: string[];
   scores: DryRunScore[];
+}
+
+// --- M4b: jobs, the agent fleet, projects -------------------------------------------------------------
+export type JobStatus = "queued" | "running" | "needs_approval" | "done" | "failed" | "stopped";
+export type JobGate = "plan" | "diff" | "result";
+
+export interface JobEventRow {
+  id: number;
+  kind: string;
+  at: string;
+  [k: string]: unknown;
+}
+
+export interface JobView {
+  id: number;
+  request_id: number | null;
+  project_id: number;
+  project: { id: number; name: string; path: string } | null;
+  title: string;
+  prompt: string;
+  agent: string;
+  agent_label: string;
+  agent_chain: string[];
+  autonomy: number;
+  status: JobStatus;
+  phase: string | null;
+  gate: JobGate | null;
+  run_id: string | null;
+  worktree: string | null;
+  branch: string | null;
+  base_sha: string | null;
+  budget_list_usd: number;
+  list_price_usd: number;
+  cost_usd: number;
+  cost_reported: boolean;
+  turns: number;
+  plan: string | null;
+  result: string | null;
+  error: string | null;
+  paperclip: { issue_id: string | null; agent_id: string | null; approval_id: string | null };
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string | null;
+  events?: JobEventRow[];
+  approval_expires_at?: string | null;
+}
+
+export interface JobsPage {
+  jobs: JobView[];
+  next: number | null;
+}
+
+export interface JobCounts {
+  counts: Record<JobStatus, number>;
+  all: number;
+  needs_you: number;
+}
+
+export interface JobPreview {
+  ok: boolean;
+  problem: string | null;
+  project: { id: number; name: string; path: string };
+  autonomy: number;
+  level: { runs: string[]; review: "diff" | "result"; approve_plan: boolean };
+  agents: { id: string; label: string; reason: string | null; chosen: boolean }[];
+  agent: string | null;
+  budget_list_usd: number;
+  cost_reported: boolean | null;
+  caps: { max_turns: number; run_timeout_s: number; job_timeout_s: number };
+  branch: string;
+  steps: string[];
+}
+
+export interface JobProposal {
+  request_id: number;
+  private: boolean;
+  rule: string | null;
+  suggested: boolean;
+  agents: string[];
+  autonomy: number | null;
+}
+
+export interface JobInput {
+  prompt: string;
+  project_id: number;
+  agents: string[];
+  autonomy: number;
+  budget_list_usd?: number;
+  title?: string;
+  from_request_id?: number;
+}
+
+export interface JobRun {
+  run: string;
+  kind: string | null;
+  started_at: string | null;
+  status: string;
+  agent?: string;
+}
+
+export interface JobLogLine {
+  stream: string | null;
+  chunk: string | null;
+  ts?: string | null;
+}
+
+export interface JobLogPage {
+  run: string;
+  lines: JobLogLine[];
+  next: number | null;
+  offset: number;
+}
+
+export interface JobDiff {
+  branch: string;
+  base: string;
+  files: { path: string; added: number | null; removed: number | null; new?: boolean }[];
+  diff: string;
+  truncated: boolean;
+}
+
+export interface AgentRow {
+  id: string;
+  label: string;
+  cli: string;
+  template: string | null;
+  hired: boolean;
+  edited: boolean;
+  capabilities: string[];
+  runnable: boolean;
+  note: string | null;
+  installed: boolean;
+  windows_only: boolean;
+  logged_in: boolean | null;
+  version: string | null;
+  cost: "reported" | "none" | string;
+  model: string | null;
+  models: string[];
+  role: string | null;
+  default_autonomy: number | null;
+  allowed_project_ids: number[] | null;
+  paused: boolean;
+  /** Level ("0".."3") → why it can't run now, or null. */
+  levels: Record<string, string | null>;
+  active_jobs: number;
+  current_job: { id: number; title: string; status: JobStatus } | null;
+  success: { done: number; failed: number; rate: number | null };
+  spent_today_list_usd: number;
+  daily_budget_list_usd: number;
+  month_list_usd: number;
+  month_cost_usd: number;
+  monthly_budget_list_usd: number | null;
+  paperclip_agent_id?: string | null;
+}
+
+export interface AgentTemplate {
+  id: string;
+  label: string;
+  runnable: boolean;
+  note: string | null;
+  installed: boolean;
+  models: string[];
+  model: string | null;
+  levels: Record<string, string | null>;
+}
+
+export interface AgentsResponse {
+  agents: AgentRow[];
+  templates: AgentTemplate[];
+  bwrap: boolean | null;
+  defaults: {
+    max_active_per_agent: number;
+    per_job_list_usd: number;
+    per_agent_daily_list_usd: number;
+    per_agent_monthly_list_usd: number | null;
+    max_turns: number;
+    run_timeout_s: number;
+  };
+}
+
+export interface AgentInput {
+  template?: string;
+  label?: string;
+  role?: string | null;
+  model?: string | null;
+  default_autonomy?: number | null;
+  monthly_list_usd?: number | null;
+  allowed_project_ids?: number[] | null;
+}
+
+export interface ProjectRow {
+  id: number;
+  name: string;
+  path: string;
+  slug: string;
+  head_branch: string | null;
+  created_at: string;
+  active_jobs: number;
+  jobs: number;
+}
+
+export interface ProjectWorktrees {
+  worktrees: { job_id: number; path?: string; branch?: string; tip?: string; merged?: boolean; bytes?: number | null }[];
+  bytes: number | null;
+  keep: number;
+  error?: string | null;
 }

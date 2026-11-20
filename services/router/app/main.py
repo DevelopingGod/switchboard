@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import db, jobs, local_profile, secrets, sync
+from app import db, fleet, jobs, local_profile, secrets, sync
 from app.api import agents, catalog, chat, connections, health, onboarding, projects, rules, settings, system
 from app.api import jobs as jobs_api
 from app.catalog.job import run_forever
@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
             await local_profile.init(session)
             await system.refresh_profile_state(session)
             restored = await cooldowns.load(session)
+            await fleet.refresh(session)  # M4b: hired agents and edits on top of agents.yaml (ADR 0009)
             if restored:
                 log.info("restored %d cooldown(s) from before the restart", restored)
         classifier.warm_up_in_background()  # load Arch-Router now, not on the first message

@@ -20,7 +20,8 @@ export type Status =
   | "running"
   | "needsApproval"
   | "done"
-  | "failed";
+  | "failed"
+  | "stopped";
 
 interface Spec {
   icon: LucideIcon;
@@ -38,6 +39,7 @@ const specs: Record<Status, Spec> = {
   needsApproval: { icon: Hand, color: "text-warn" },
   done: { icon: CheckCircle2, color: "text-ok" },
   failed: { icon: XCircle, color: "text-err" },
+  stopped: { icon: CircleSlash, color: "text-ink-muted" },
 };
 
 /** Status is always icon + text + color, never color alone. Live states get a breathing dot. */

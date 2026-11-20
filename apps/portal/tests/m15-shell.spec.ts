@@ -41,7 +41,7 @@ test.describe("footer", () => {
     await expect(footer.getByText(/^Today \$/)).toHaveCount(0);
     await expect(footer.getByRole("list", { name: "Service health" })).toHaveCount(0);
 
-    // Fixture: Paperclip is down, so the sidebar's health dot says something needs attention.
+    // Fixture: Ollama is down, so the sidebar's health dot says something needs attention.
     const dot = page.getByRole("complementary", { name: "Sidebar" }).getByRole("link", { name: /Something needs attention/ });
     await expect(dot).toBeVisible();
     await dot.click();

@@ -433,6 +433,7 @@ export function ChatScreen({
                     last={m.id === lastId || (m.role === "user" && m.id === lastUserId)}
                     busy={streaming}
                     actions={{ onRegenerate: regenerate, onEdit: edit, onFeedback: feedback, onCloudOverride: cloudOverride }}
+                    prompt={m.role === "assistant" && i > 0 && messages[i - 1].role === "user" ? messages[i - 1].content : undefined}
                   />
                 </li>
                 {thread?.summary && thread.summary.upto_message_id === m.id && (

@@ -219,16 +219,23 @@ function localProfile(active: string): LocalProfileView {
   };
 }
 
-/** Status view fixture: Paperclip is down (an instruction, not an in-app fix); a provider whose
- * registration failed shows "Resync models". */
+/** Status view fixture: Ollama is down (an instruction, not an in-app fix); Paperclip runs with its
+ * "no login (local only)" note and a passing loopback check (M4b); a provider whose registration failed
+ * shows "Resync models". */
 function components(s: Store): ComponentsResponse {
   const comps: SystemComponent[] = [
     { id: "router", status: "ok", fix: null, detail: null },
     { id: "database", status: "ok", fix: null, detail: null },
     { id: "litellm", status: "ok", fix: null, detail: null },
     { id: "model_sync", status: "ok", fix: null, detail: null, last_ok_at: "2026-11-17T09:00:00Z" },
-    { id: "ollama", status: "ok", fix: null, detail: null },
-    { id: "paperclip", status: "down", fix: "start_paperclip", detail: "ConnectError" },
+    { id: "ollama", status: "down", fix: "open_ollama", detail: "ConnectError" },
+    {
+      id: "paperclip",
+      status: "ok",
+      fix: null,
+      detail: "No login (local only): any program on this computer can use Paperclip",
+      notes: { auth: "local_trusted", exposure: "private", version: "2026.1106.0", pinned: "2026.1106.0", loopback: { checked: true, ok: true, addresses: ["127.0.0.1"], port: 3100 } },
+    },
     { id: "hostprobe", status: "ok", fix: "recheck_cli", detail: null },
     // M3a
     { id: "local_profile", status: "ok", fix: null, detail: null, profile: "small", label: "4–6 GB GPU", vram_gb: 4, missing: [], overridden: false },
@@ -413,11 +420,11 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
   }
   if (method === "POST" && p === "/system/models/pull") return ok({ started: false, missing: [], pull: { status: "idle" } });
   if (p === "/settings" && (method === "GET" || method === "PUT")) {
-    const defaults = { max_cost_usd: 0.5, daily_cap_usd: 1, private_by_default: false, explore: false, auto_private: true };
+    const defaults = { max_cost_usd: 0.5, daily_cap_usd: 1, private_by_default: false, explore: false, auto_private: true, approval_expiry_h: 24, keep_worktrees_per_project: 10 };
     if (method === "PUT") {
       for (const [k, v] of Object.entries(b)) {
         if (!(k in defaults)) continue;
-        if (typeof v === "number" && (v < 0 || v > 100)) return fail(422, "Input should be between 0 and 100");
+        if (typeof v === "number" && (v < 0 || v > (k === "approval_expiry_h" ? 720 : 100))) return fail(422, "Input is out of range");
         if (v === null) delete s.settings[k as keyof SettingsView];
         else (s.settings as Record<string, unknown>)[k] = v;
       }
@@ -426,7 +433,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
   }
   if (method === "GET" && p === "/system/summary")
     return ok({
-      health: { router: "ok", litellm: "ok", ollama: "ok", paperclip: "down", model_sync: "ok" },
+      health: { router: "ok", litellm: "ok", ollama: "down", paperclip: "ok", model_sync: "ok" },
       spend_today_usd: 0.0123,
       value_saved_usd: 0.0841,
       // Groq at 31% stays under the footer's 50% threshold (visual baselines keep "Quota OK").
@@ -440,7 +447,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
         providers: [{ provider: "groq", name: "Groq", model: "openai/gpt-oss-120b", fraction: 0.31, window: "day", kind: "requests", used: 310, limit: 1000, resets_at: null, source: "counter", estimate: false }],
         top: null,
       },
-      version: "0.5.0", // PROJECT_VERSION: scripts/check-docs.mjs keeps this equal to the root VERSION file
+      version: "0.6.0", // PROJECT_VERSION: scripts/check-docs.mjs keeps this equal to the root VERSION file
     });
   m = p.match(/^\/connections\/([\w-]+)\/credits$/);
   if (m && method === "PUT") {

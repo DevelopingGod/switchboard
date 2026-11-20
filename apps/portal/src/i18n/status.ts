@@ -46,6 +46,13 @@ export const statusStrings = {
     local_profile: "Profile “{label}”: not pulled yet: {models}.",
     classifier: "Not available, so routing uses keyword rules for now.",
   },
+  /** M4b (ADR 0007): Paperclip has no login, so these two facts are always shown. */
+  paperclip: {
+    noLogin: "No login (local only): any program on this computer can start agents through Paperclip.",
+    loopbackOk: "Listens on {addresses} only, so other devices on your network can’t reach it.",
+    loopbackBad: "Listens on {addresses}: other devices could start agents. Re-run Paperclip’s setup with --bind loopback.",
+    loopbackUnknown: "Couldn’t check where Paperclip listens (the CLI detector isn’t answering).",
+  },
   /** M3a: provider rows say exactly what is wrong and until when. */
   reason: {
     rate_limited: "Rate-limited until {time}. Other models answer meanwhile.",

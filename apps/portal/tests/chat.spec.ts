@@ -128,14 +128,15 @@ test.describe("chat · sending", () => {
     await expect(lastReply(page)).toContainText("Video generation arrives in Studio");
   });
 
-  test("job-like requests answer in chat with a disabled Run as job", async ({ page }) => {
+  test("job-like requests answer in chat and offer Run as job (nothing starts by itself)", async ({ page }) => {
     await newChat(page);
     await send(page, "Fix the failing tests in my repo");
     const reply = lastReply(page);
     await expect(reply).toContainText("Run the tests and copy the first failure");
-    const job = reply.getByRole("button", { name: "Run as job (M4)" });
-    await expect(job).toBeDisabled();
-    await expect(reply).toContainText("Jobs arrive in milestone M4");
+    const job = reply.getByRole("button", { name: "Run as job" });
+    await expect(job).toBeEnabled();
+    await expect(reply).toContainText("it can work on a copy of your project");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("thumbs up and down are saved and toggle", async ({ page }) => {
@@ -238,7 +239,7 @@ test.describe("chat · composer and Home", () => {
 
     await page.goto(`${urls.mutating}/`);
     await page.getByRole("list", { name: "Quick starts" }).getByRole("button", { name: "Fix failing tests" }).click();
-    await expect(lastReply(page).getByRole("button", { name: "Run as job (M4)" })).toBeDisabled();
+    await expect(lastReply(page).getByRole("button", { name: "Run as job" })).toBeEnabled();
   });
 
   test("Home composer sends to chat", async ({ page }) => {

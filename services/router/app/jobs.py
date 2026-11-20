@@ -32,7 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import db, hostprobe_client
+from app import db, hostprobe_client, user_settings
 from app.agents import AgentDef, AgentRegistry, Level, build_run, load_agents
 from app.config import get_settings
 from app.job_output import TurnCounter, outcome
@@ -112,13 +112,56 @@ async def host_facts() -> tuple[dict[str, Any], bool | None]:
     return clis, bwrap
 
 
-async def agent_spent_today(session: AsyncSession, agent_id: str) -> float:
+def month_start() -> datetime:
+    t = now()
+    return t.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+async def agent_spent_since(session: AsyncSession, agent_id: str, since: datetime) -> float:
     total = await session.scalar(
         select(func.coalesce(func.sum(Cost.list_price_usd), 0))
         .join(Job, Job.request_id == Cost.request_id)
-        .where(Cost.source == "paperclip", Cost.created_at >= day_start(), Job.agent == agent_id)
+        .where(Cost.source == "paperclip", Cost.created_at >= since, Job.agent == agent_id)
     )
     return float(total or 0)
+
+
+async def agent_spent_today(session: AsyncSession, agent_id: str) -> float:
+    return await agent_spent_since(session, agent_id, day_start())
+
+
+async def agent_check(
+    session: AsyncSession,
+    reg: AgentRegistry,
+    agent: AgentDef,
+    level: Level,
+    project_id: int,
+    clis: dict[str, Any],
+    bwrap: bool | None,
+) -> str | None:
+    """Why `agent` can't take a job at `level` in this project now, or None. One rule set for the
+    preview, the create check and the start (fallback) choice, so the preview says what will happen."""
+    if agent.paused:
+        return f"{agent.label} is paused (Agents page: Resume)"
+    if agent.allowed_projects is not None and project_id not in agent.allowed_projects:
+        return f"{agent.label} isn't allowed to work in this project (Agents page: Edit)"
+    why = unavailable(reg, agent, level, clis, bwrap)
+    if why:
+        return why
+    spent = await agent_spent_today(session, agent.id)
+    cap = reg.defaults.per_agent_daily_list_usd
+    if spent >= cap:
+        return f"{agent.label} reached today's budget (${spent:.2f} of ${cap:.2f} list price)"
+    monthly = (
+        agent.monthly_list_usd
+        if agent.monthly_list_usd is not None
+        else reg.defaults.per_agent_monthly_list_usd
+    )
+    if monthly is not None:
+        spent_m = await agent_spent_since(session, agent.id, month_start())
+        if spent_m >= monthly:
+            return f"{agent.label} reached this month's budget (${spent_m:.2f} of ${monthly:.2f} list price)"
+    return None
 
 
 def unavailable(
@@ -210,6 +253,11 @@ async def wait_ready(pc: Paperclip, pid: str, agent: AgentDef) -> None:
         if a.get("status") == "error":  # the previous run failed; this job starts fresh
             await pc.clear_error(pid)
             a = await pc.agent(pid) or a
+        if state == "ready" and a.get("status") == "paused":
+            # Paused in Paperclip (the fleet mirrors your pause there): Switchboard only runs an agent it
+            # chose to run, so it resumes it for this run.
+            await pc.resume_agent(pid)
+            a = await pc.agent(pid) or a
         if state == "ready" and a.get("status") not in ("paused", "terminated", "pending_approval", "error"):
             return
         if state not in ("verifying", "preparing"):
@@ -222,6 +270,20 @@ async def wait_ready(pc: Paperclip, pid: str, agent: AgentDef) -> None:
         if time.monotonic() > deadline:
             raise JobError(504, f"Paperclip didn't get {agent.label} ready within {READY_WAIT_S} s")
         await asyncio.sleep(2)
+
+
+# --- settings the owner can change (Settings page; system_meta, over agents.yaml) ------------------
+APPROVAL_EXPIRY_DEFAULT_H = 24.0
+
+
+async def approval_expiry_h(session: AsyncSession) -> float:
+    o = await user_settings.load(session)
+    return float(o.get("approval_expiry_h", APPROVAL_EXPIRY_DEFAULT_H))
+
+
+async def keep_per_project(session: AsyncSession) -> int:
+    o = await user_settings.load(session)
+    return int(o.get("keep_worktrees_per_project", load_agents().defaults.keep_per_project))
 
 
 # --- creating a job ---------------------------------------------------------------------------------
@@ -268,6 +330,116 @@ async def create(
     )
     await session.commit()
     return job
+
+
+# --- preview: exactly what a job would do (the confirm dialog shows these words as they are) ----------
+def _minutes(seconds: int) -> str:
+    m = max(1, round(seconds / 60))
+    return f"{m} minute{'s' if m != 1 else ''}"
+
+
+async def preview(
+    session: AsyncSession,
+    *,
+    project: Project,
+    chain: list[str],
+    autonomy: int,
+    budget_list_usd: float | None,
+) -> dict[str, Any]:
+    """What `create` + the job loop would do with these choices, without writing anything. The agent check
+    is the one the loop uses before the first run (`agent_check`), so the preview can't promise an agent
+    the loop would skip; only a busy agent (the job waits in the queue) is decided later."""
+    reg = load_agents()
+    level = reg.levels.get(autonomy)
+    if level is None:
+        raise JobError(400, "autonomy must be 0, 1, 2 or 3")
+    budget = budget_list_usd if budget_list_usd is not None else reg.defaults.per_job_list_usd
+    clis, bwrap = await host_facts()
+    rows: list[dict[str, Any]] = []
+    chosen: AgentDef | None = None
+    for aid in chain:
+        agent = reg.agents.get(aid)
+        if agent is None:
+            rows.append({"id": aid, "label": reg.label(aid), "reason": "Not in the fleet", "chosen": False})
+            continue
+        why = await agent_check(session, reg, agent, level, project.id, clis, bwrap)
+        rows.append(
+            {"id": aid, "label": agent.label, "reason": why, "chosen": why is None and chosen is None}
+        )
+        if why is None and chosen is None:
+            chosen = agent
+    problem = None
+    if level.needs_budget and budget_list_usd is None:
+        problem = "Level 3 needs a budget for this job"
+    elif chosen is None:
+        problem = "No agent can take this job now: " + "; ".join(
+            f"{r['label']}: {r['reason']}" for r in rows if r["reason"]
+        )
+    steps: list[str] = []
+    if chosen is not None:
+        who = chosen.label
+        steps.append(
+            f"Switchboard makes a separate copy of {project.name} (a git worktree) on a new branch, "
+            "switchboard/job-<number>. Your own folder and branch aren't touched."
+        )
+        cmds = ", ".join(reg.defaults.allowed_commands[:4])
+        if "read_only" in level.runs:
+            steps.append(
+                f"{who} reads the project and writes "
+                + ("a plan" if level.approve_plan else "a report")
+                + ". It can't change files or run commands."
+            )
+        if level.approve_plan:
+            steps.append("Nothing more happens until you approve the plan (or reject it with a note).")
+        if "edit" in level.runs:
+            steps.append(
+                f"{who} edits files in the copy and may only run test commands (such as {cmds}). "
+                "No internet, no installs, no push."
+            )
+        if level.review == "diff":
+            steps.append(
+                "You review the changes file by file. Approving commits them on the job's branch; "
+                "rejecting throws the copy away."
+            )
+        else:
+            steps.append("You review the report. Nothing is changed or committed.")
+        limit = (
+            f"${budget:.2f} list price, {reg.defaults.max_turns} turns or "
+            f"{_minutes(reg.defaults.run_timeout_s)} per run, whichever comes first"
+            if chosen.cost == "reported"
+            else f"{reg.defaults.max_turns} turns or {_minutes(reg.defaults.run_timeout_s)} per run "
+            f"({who} doesn't report its cost)"
+        )
+        steps.append(f"It stops at {limit}.")
+        later = [r["label"] for r in rows[rows.index(next(r for r in rows if r["chosen"])) + 1 :]]
+        if later:
+            steps.append(
+                f"If {who} can't start, {', then '.join(later)} takes the job instead "
+                "(only before it starts)."
+            )
+        steps.append("Nothing is pushed. To use the work, review and merge the branch yourself.")
+    return {
+        "ok": problem is None,
+        "problem": problem,
+        "project": {"id": project.id, "name": project.name, "path": project.path},
+        "autonomy": autonomy,
+        "level": {
+            "runs": list(level.runs),
+            "review": level.review,
+            "approve_plan": level.approve_plan,
+        },
+        "agents": rows,
+        "agent": chosen.id if chosen else None,
+        "budget_list_usd": budget,
+        "cost_reported": chosen.cost == "reported" if chosen else None,
+        "caps": {
+            "max_turns": reg.defaults.max_turns,
+            "run_timeout_s": reg.defaults.run_timeout_s,
+            "job_timeout_s": reg.defaults.job_timeout_s,
+        },
+        "branch": "switchboard/job-<number>",
+        "steps": steps,
+    }
 
 
 # --- the state machine ------------------------------------------------------------------------------
@@ -324,13 +496,9 @@ async def _maybe_start(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         for aid in job.agent_chain:
             agent = reg.agents.get(aid)
             if agent is None:
+                reasons.append({"agent": aid, "reason": f"{reg.label(aid)} was removed from the fleet"})
                 continue
-            why = unavailable(reg, agent, level, clis, bwrap)
-            if why is None:
-                spent = await agent_spent_today(session, aid)
-                if spent >= reg.defaults.per_agent_daily_list_usd:
-                    cap = reg.defaults.per_agent_daily_list_usd
-                    why = f"{agent.label} reached today's budget (${spent:.2f} of ${cap:.2f} list price)"
+            why = await agent_check(session, reg, agent, level, job.project_id, clis, bwrap)
             if why is None:
                 chosen = agent
                 break
@@ -660,8 +828,37 @@ async def _gate(session: AsyncSession, pc: Paperclip, job: Job, gate: str, text:
     await _issue(pc, session, job)
 
 
+async def waiting_since(session: AsyncSession, job: Job) -> datetime | None:
+    """When the job started waiting for you (its last `needs_approval` event)."""
+    return await session.scalar(
+        select(JobEvent.created_at)
+        .where(JobEvent.job_id == job.id, JobEvent.kind == "needs_approval")
+        .order_by(JobEvent.id.desc())
+        .limit(1)
+    )
+
+
 async def _check_approval(session: AsyncSession, pc: Paperclip, job: Job) -> None:
-    """An approval decided in Paperclip's own UI counts too."""
+    """An approval decided in Paperclip's own UI counts too. A job left waiting longer than the approval
+    expiry (Settings, default 24 h) is stopped with a plain reason, so it doesn't hold a worktree forever."""
+    hours = await approval_expiry_h(session)
+    since = await waiting_since(session, job)
+    if hours and since and now() - since > timedelta(hours=hours):
+        if job.paperclip_approval_id:
+            try:
+                await pc.decide(job.paperclip_approval_id, False, f"Expired after {hours:g} h in Switchboard")
+            except PaperclipError as e:
+                log.warning("job %s: expiry not mirrored to Paperclip: %s", job.id, e)
+        await event(session, job, "approval_expired", gate=job.gate, hours=hours)
+        await _finish(
+            session,
+            pc,
+            job,
+            "stopped",
+            f"Waited {hours:g} h for your approval of the {job.gate or 'job'}, so it was stopped. "
+            "Use Run again on the job page if you still want it.",
+        )  # a stopped job's worktree is removed (retention rule); its branch stays
+        return
     if not job.paperclip_approval_id:
         return
     ap = await pc.approval(job.paperclip_approval_id)
@@ -820,7 +1017,7 @@ async def retention(session: AsyncSession, project: Project) -> dict[str, Any]:
             .order_by(Job.finished_at.desc().nulls_last())
         )
     ).all()
-    keep = load_agents().defaults.keep_per_project
+    keep = await keep_per_project(session)
     kept = 0
     for job in jobs:
         w = by_id[job.id]
@@ -838,11 +1035,14 @@ async def retention(session: AsyncSession, project: Project) -> dict[str, Any]:
 # --- the loop -----------------------------------------------------------------------------------------
 async def loop(stop_event: asyncio.Event | None = None) -> None:
     """Advance every active job every couple of seconds. Persisted state: safe to restart at any time."""
+    from app import fleet  # fleet imports this module
+
     pc = Paperclip()
     try:
         while not (stop_event and stop_event.is_set()):
             try:
                 async with db.sessionmaker()() as session:
+                    await fleet.refresh(session)  # another worker's fleet edits, at most a step late
                     rows = (
                         await session.execute(
                             select(Job.id, Job.status)

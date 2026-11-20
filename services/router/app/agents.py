@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +81,21 @@ class AgentDef:
     profiles: dict[str, Profile] = field(default_factory=dict, compare=False)
     full_unavailable: str | None = None
     note: str | None = None
+    # Fleet (M4b, ADR 0009): `models` are the choices offered when hiring (agents.yaml); the rest comes from
+    # the `agent_profiles` overlay. `template` is the agents.yaml entry a hired agent is built on (None for
+    # the built-in agents themselves).
+    models: tuple[str, ...] = ()
+    template: str | None = None
+    role: str | None = None
+    default_autonomy: int | None = None
+    monthly_list_usd: float | None = None
+    allowed_projects: tuple[int, ...] | None = None  # None = every project
+    paused: bool = False
+    edited: bool = False  # a built-in agent with saved changes ("Reset to default" removes them)
+
+    @property
+    def hired(self) -> bool:
+        return self.template is not None
 
     @property
     def runnable(self) -> bool:
@@ -118,6 +133,7 @@ class Defaults:
     max_turns: int
     per_job_list_usd: float
     per_agent_daily_list_usd: float
+    per_agent_monthly_list_usd: float | None
     keep_per_project: int
     allowed_commands: tuple[str, ...]
 
@@ -127,6 +143,12 @@ class AgentRegistry:
     defaults: Defaults
     levels: dict[int, Level]
     agents: dict[str, AgentDef]
+    # Hired agents you deleted: never offered or run again, kept so old jobs still show a name.
+    retired: dict[str, AgentDef] = field(default_factory=dict)
+
+    def label(self, agent_id: str) -> str:
+        a = self.agents.get(agent_id) or self.retired.get(agent_id)
+        return a.label if a else agent_id
 
     def agent(self, agent_id: str) -> AgentDef:
         if agent_id not in self.agents:
@@ -172,6 +194,11 @@ def parse(data: dict[str, Any]) -> AgentRegistry:
         max_turns=int(d.get("max_turns", 40)),
         per_job_list_usd=float(b.get("per_job_list_usd", 2.0)),
         per_agent_daily_list_usd=float(b.get("per_agent_daily_list_usd", 10.0)),
+        per_agent_monthly_list_usd=(
+            float(b["per_agent_monthly_list_usd"])
+            if b.get("per_agent_monthly_list_usd") is not None
+            else None
+        ),
         keep_per_project=int((d.get("worktrees") or {}).get("keep_per_project", 10)),
         allowed_commands=tuple(c.strip() for c in cmds),
     )
@@ -250,6 +277,7 @@ def parse(data: dict[str, Any]) -> AgentRegistry:
             profiles=profiles,
             full_unavailable=a.get("full_unavailable"),
             note=a.get("note"),
+            models=tuple(str(m) for m in (a.get("models") or ([a["model"]] if a.get("model") else []))),
         )
     if not agents:
         raise AgentsConfigError("agents.yaml: no agents")
@@ -257,10 +285,13 @@ def parse(data: dict[str, Any]) -> AgentRegistry:
 
 
 _cache: tuple[float, Path, AgentRegistry] | None = None
+_merged: tuple[int, int, AgentRegistry] | None = None  # (id of the base, overlay version, merged)
+_overlay: tuple[dict[str, Any], ...] = ()
+_overlay_version = 0
 
 
-def load_agents(config_dir: Path | None = None) -> AgentRegistry:
-    """The registry, re-read when the file changes (like rules.yaml)."""
+def load_base(config_dir: Path | None = None) -> AgentRegistry:
+    """config/agents.yaml alone, re-read when the file changes (like rules.yaml)."""
     global _cache
     path = _path(config_dir)
     mtime = path.stat().st_mtime
@@ -269,6 +300,70 @@ def load_agents(config_dir: Path | None = None) -> AgentRegistry:
     reg = parse(yaml.safe_load(path.read_text()) or {})
     _cache = (mtime, path, reg)
     return reg
+
+
+def load_agents(config_dir: Path | None = None) -> AgentRegistry:
+    """The effective registry: agents.yaml with the fleet overlay (ADR 0009) merged on top. The overlay is
+    the `agent_profiles` rows, kept here by `app.fleet.refresh` (on start, after every write, and on every
+    job-loop step), so callers stay synchronous."""
+    global _merged
+    base = load_base(config_dir)
+    if _merged and _merged[0] == id(base) and _merged[1] == _overlay_version:
+        return _merged[2]
+    reg = merge(base, _overlay)
+    _merged = (id(base), _overlay_version, reg)
+    return reg
+
+
+def set_overlay(rows: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> None:
+    """Replace the overlay (plain dicts with the `agent_profiles` columns)."""
+    global _overlay, _overlay_version
+    rows = tuple(sorted((dict(r) for r in rows), key=lambda r: str(r["id"])))
+    if rows != _overlay:
+        _overlay = rows
+        _overlay_version += 1
+
+
+AGENT_ID = re.compile(r"[a-z][a-z0-9-]{1,40}")
+
+
+def _apply(a: AgentDef, row: dict[str, Any]) -> AgentDef:
+    def num(v: Any) -> float | None:
+        return float(v) if v is not None else None
+
+    projects = row.get("allowed_project_ids")
+    return replace(
+        a,
+        label=row.get("label") or a.label,
+        role=row.get("role") or None,
+        model=row.get("model") or a.model,
+        default_autonomy=row.get("default_autonomy"),
+        monthly_list_usd=num(row.get("monthly_list_usd")),
+        allowed_projects=tuple(int(p) for p in projects) if projects is not None else None,
+        paused=bool(row.get("paused")),
+    )
+
+
+def merge(base: AgentRegistry, rows: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> AgentRegistry:
+    """Overlay rows onto the base. A row whose template is gone or isn't runnable any more is skipped
+    (agents.yaml changed under it); it stays in the table and the Agents page shows it as such."""
+    agents = dict(base.agents)
+    retired: dict[str, AgentDef] = {}
+    for row in rows:
+        aid = str(row["id"])
+        tpl = base.agents.get(str(row.get("template") or ""))
+        if row.get("builtin"):
+            if aid in base.agents and not row.get("deleted_at"):
+                agents[aid] = replace(_apply(base.agents[aid], row), edited=True)
+            continue
+        if tpl is None or not tpl.runnable or aid in base.agents or not AGENT_ID.fullmatch(aid):
+            continue
+        hired = replace(_apply(tpl, row), id=aid, template=tpl.id, note=None)
+        if row.get("deleted_at"):
+            retired[aid] = hired
+        else:
+            agents[aid] = hired
+    return AgentRegistry(base.defaults, base.levels, agents, retired)
 
 
 # --- one run -> Paperclip agent config -------------------------------------------------------------------
@@ -299,6 +394,8 @@ def build_run(
         raise KeyError(f"{agent.label} has no {kind} profile")
     profile = agent.profiles[kind]
     d = reg.defaults
+    if agent.role:  # a hired agent's role (ADR 0009) comes before the task, for every runner
+        task = f"Your role: {agent.role.strip()}\n\n{task}"
     instructions = (
         "# Switchboard job\n\nThis is a direct Switchboard job, not a Paperclip heartbeat: there is no issue "
         "to check out, and you must not call the Paperclip API. Switchboard records the result.\n\n"

@@ -7,20 +7,20 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.5.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.6.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>
 
 <p align="center">
-  <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo, under a minute: ask a question on Home and get a real reply; open Why this? to see which model answered and why; start a private chat that a local model answers at once; look at Connections, where keys show only as dots; try a message in the Rules tester." width="860"></a>
+  <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo, about 80 seconds: ask a question on Home and get a real reply; open Why this? to see which model answered and why; start a private chat that a local model answers at once; look at Connections, where keys show only as dots; try a message in the Rules tester; then, on sample data, approve a job's plan, review its changes per file and approve them, and open the Agents page and the Hire agent dialog." width="860"></a>
   <br>
-  <sub>Real replies, recorded on a separate demo profile, in real time. <a href="docs/media/demo.mp4">Watch the MP4</a> · <a href="docs/recording-the-demo.md">how it was recorded</a></sub>
+  <sub>Real replies, recorded on a separate demo profile, in real time; the jobs part uses labelled sample data. <a href="docs/media/demo.mp4">Watch the MP4</a> · <a href="docs/recording-the-demo.md">how it was recorded</a></sub>
 </p>
 
-> **Status: early, and honest about it.** Chat, routing, the Rules editor and Connections work today. Agent jobs
-> (agents that work on your repos) work through the API, but their page comes in M4b; image and video Studio and
-> Metrics are not built yet. Those are marked *coming in Mx* below. Developed and tested on one Windows 11 + WSL2
+> **Status: early, and honest about it.** Chat, routing, the Rules editor, Connections and agent jobs (agents that
+> plan and edit a copy of your repo while you approve each step) work today; image and video Studio and Metrics are
+> not built yet. Those are marked *coming in Mx* below. Developed and tested on one Windows 11 + WSL2
 > machine, so expect rough edges.
 
 ## Why Switchboard
@@ -38,7 +38,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/routing-dusk.svg">
-    <img src="docs/media/routing-day.svg" alt="Animated diagram: a message dot travels from your message through the classifier, the rules and the quota guard to a model. In a second pass the quota guard sees about 80 percent of a free limit used, or a rate limit, and the dot goes to the fallback instead. Agents and jobs are dashed: they run through the API today and their page comes in M4b." width="100%">
+    <img src="docs/media/routing-day.svg" alt="Animated diagram: a message dot travels from your message through the classifier, the rules and the quota guard to a model. In a second pass the quota guard sees about 80 percent of a free limit used, or a rate limit, and the dot goes to the fallback instead. Agents and jobs are a dashed side path: a job only starts when you confirm Run as job." width="100%">
   </picture>
 </p>
 
@@ -52,7 +52,7 @@ flowchart LR
   R --> Q["Quota guard<br/>reroutes at 80% used"]
   Q -->|"limit has room"| P["Model<br/>Groq, Gemini, local, ..."]
   Q -->|"80% used or 429"| F["Fallback<br/>next model in the rule"]
-  R -.->|"page in M4b"| A["Agent or job"]
+  R -.->|"Run as job, when you confirm"| A["Agent or job"]
 ```
 
 A manual pick or a slash command skips the classifier. Every hop is logged, and **Why this?** shows the rule,
@@ -128,7 +128,7 @@ UI only ever shows the last four characters). Start with a free one such as Groq
 shows its free limits and whether the provider may train on your data. Agent CLIs (Claude Code, Codex, Gemini
 CLI, Grok Build, OpenCode) can be installed from the same screen: you read the exact commands first and confirm, and
 nothing runs with `sudo`. They are installed and login-checked today, and Claude Code, Codex and OpenCode run agent
-jobs (the Jobs page comes in M4b).
+jobs.
 
 <p align="center">
   <picture>
@@ -165,14 +165,33 @@ to keep a whole chat on your machine. Private replies come from a local model th
 <a id="jobs"></a>
 
 <details>
-<summary><b>4. Jobs</b> (the page is coming in M4b)</summary>
+<summary><b>4. Jobs</b></summary>
 
-"Add a function and its tests in repo X" as a tracked job for an agent (Claude Code, Codex or OpenCode), run through
-[Paperclip](https://github.com/paperclipai/paperclip): the agent plans, you approve, it edits in its own git worktree
-on a new branch, you review the diff, and the work is committed on that branch. Nothing is pushed, and jobs only
-run in folders you add to the Projects allowlist. **This works today through the router's API** (`POST /jobs`,
-[docs/m4a.md](docs/m4a.md)); the Jobs page is still a placeholder, so there is no screenshot. Follow
-[the roadmap](#roadmap).
+Add a repository in **Settings → Projects** (for example `~/code/myrepo`; never the Switchboard folder). Then ask
+for code work in chat, for example "add a function and its tests", and press **Run as job** under the reply, or
+press **New job** on the Jobs page. Pick the project, the agents in order (Claude Code, Codex or OpenCode; the next one
+only steps in if the first can't start), the autonomy level and a budget, and read **What will happen** before
+anything starts.
+
+The agent works on a copy of the repo (a git worktree) on its own branch: it writes a plan, you approve it, it edits
+the copy, and you review the changes file by file. Approving commits them on `switchboard/job-<n>`. **Nothing is
+pushed**: the job page gives you the branch name and the `git` commands to review and merge it yourself. Jobs run
+through [Paperclip](https://github.com/paperclipai/paperclip); a job that waits for you longer than a day (Settings →
+Jobs) is stopped. Level 3 ("Full auto") stays off until its sandbox lands (coming in M7).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-run-dusk.webp">
+    <img src="docs/media/shot-job-run-day.webp" alt="The New job dialog after Review: a numbered list of what will happen, from making a copy of the project on a new branch, through the plan you approve and the changes you review, to the budget and the note that nothing is pushed." width="720">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-diff-dusk.webp">
+    <img src="docs/media/shot-job-diff-day.webp" alt="A job waiting for review: Approve and commit or Reject with a note, the changes per file with added lines highlighted, and a side panel with the agent, autonomy, branch name with a copy button and the budget used." width="720">
+  </picture>
+</p>
 
 </details>
 
@@ -227,6 +246,41 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
         <img src="docs/media/shot-wizard-goals-day.webp" alt="The first-run wizard asking what you want to do, so it only asks for the providers you need.">
       </picture>
       <br><sub><b>A guided first run.</b> Skippable, resumable, and it only asks for the providers your goals need.</sub>
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-jobs-board-dusk.webp">
+        <img src="docs/media/shot-jobs-board-day.webp" alt="The Jobs board: status tabs with counts (Needs you, Running, Queued, Done, Failed, Stopped), filters by agent and project, and job rows with agent, project, autonomy and cost.">
+      </picture>
+      <br><sub><b>Jobs.</b> Agents work on a copy of your repo on their own branch; you approve the plan and review every change. Nothing is pushed.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-agents-dusk.webp">
+        <img src="docs/media/shot-agents-day.webp" alt="The Agents page: one card per agent with its status, current job, success rate, today's budget dial and monthly cost, and Pause, Edit and Hire agent buttons.">
+      </picture>
+      <br><sub><b>Your agent fleet.</b> Hire agents from Claude Code, Codex or OpenCode with a role, model, budget and allowed projects; pause or edit them.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-plan-dusk.webp">
+        <img src="docs/media/shot-job-plan-day.webp" alt="A job waiting for plan approval: the plan as a numbered list, Approve plan and Reject buttons with an optional note, and the deadline after which the job stops.">
+      </picture>
+      <br><sub><b>Plan first.</b> At the default level the agent changes nothing until you approve its plan.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-diff-dusk.webp">
+        <img src="docs/media/shot-job-diff-day.webp" alt="The changes of a job, per file, with added lines highlighted and an Approve and commit button.">
+      </picture>
+      <br><sub><b>Review every change.</b> Per-file diffs, the live log, cost (or "cost not reported"), and the branch with plain merge instructions.</sub>
     </td>
   </tr>
 </table>
@@ -289,7 +343,7 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M3a** Routing brain | On-device classifier, recommender, quota guard, summaries, auto-private |
 | ✅ | **M3b** Rules UI and sidebar | Rules editor with history, dry-run tester, left sidebar, small-GPU profile |
 | ✅ | **M4a** Agents and jobs backend | Agent registry, jobs through Paperclip with approvals, worktrees and budgets; fast private chat |
-| 🔜 | **M4b** Jobs page | Job board, live log, plan and diff review in the portal |
+| ✅ | **M4b** Jobs page and agent fleet | Job board, live log, plan and diff review, Run as job from chat, hire and manage agents, Projects |
 | 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand |
 | 🔜 | **M5** Studio | Image and video generation with cost confirmation |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
@@ -313,7 +367,7 @@ Switchboard tries to spend those first and keeps paid models behind your approva
 <details>
 <summary>Does it use my ChatGPT, Claude or Grok subscription?</summary>
 
-Only through each vendor's official CLI, and only for agent jobs (through the API today; the Jobs page comes in M4b).
+Only through each vendor's official CLI, and only for agent jobs, which you start and approve on the Jobs page.
 Switchboard and Paperclip never copy, read, move or write a CLI's login files, and never pass a subscription login to
 another tool.
 

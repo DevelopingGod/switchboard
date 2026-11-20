@@ -101,7 +101,20 @@ export interface MessageActions {
   onCloudOverride?: () => void;
 }
 
-export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: boolean; busy: boolean; actions: MessageActions }) {
+export function MessageItem({
+  m,
+  last,
+  busy,
+  actions,
+  prompt,
+}: {
+  m: UiMessage;
+  last: boolean;
+  busy: boolean;
+  actions: MessageActions;
+  /** The user message this reply answers ("Run as job" starts from it). */
+  prompt?: string;
+}) {
   if (m.role === "user") return <UserMessage m={m} editable={last && !busy} onEdit={actions.onEdit} />;
   const r = m.route;
   const streaming = m.status === "streaming";
@@ -137,7 +150,7 @@ export function MessageItem({ m, last, busy, actions }: { m: UiMessage; last: bo
           <Square aria-hidden className="size-3.5" /> {tChat("chat.stopped")}
         </p>
       )}
-      {r?.job_suggested && m.status !== "streaming" && <JobHint id={m.id} />}
+      {r?.job_suggested && m.status !== "streaming" && <JobHint id={m.id} requestId={r.request_id} prompt={prompt ?? ""} isPrivate={r.private} />}
       {!streaming && r && <Footer m={m} last={last} busy={busy} actions={actions} />}
     </article>
   );

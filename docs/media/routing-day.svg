@@ -28,7 +28,7 @@
 <path class="wire fbwire" d="M832 148C832 198 949 277 969 277"/>
 <g class="soon"><rect x="495" y="238" width="200" height="78" rx="18" fill="none" stroke="#4a4f78" stroke-dasharray="6 6" stroke-width="1.5"/>
 <text x="595" y="271" text-anchor="middle" font-size="19" font-weight="700" fill="#4a4f78">Agent or job</text>
-<text x="595" y="294" text-anchor="middle" font-size="13" fill="#4a4f78">page in M4b</text></g>
+<text x="595" y="294" text-anchor="middle" font-size="13" fill="#4a4f78">when you confirm</text></g>
 <path d="M595 148V238" stroke="#4a4f78" stroke-width="1.5" stroke-dasharray="3 6" fill="none"/>
 <g>
 <rect x="21" y="70" width="200" height="78" rx="18" fill="rgba(255,255,255,0.92)" stroke="rgba(40,44,100,0.14)" stroke-width="1.5"/>

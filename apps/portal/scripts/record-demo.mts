@@ -1,6 +1,9 @@
 /**
  * Records the README demo against the throwaway Demo stack (docs/recording-the-demo.md):
- *   Home → chat with "Why this?" → private chat → Connections → Rules tester.
+ *   Home → chat with "Why this?" → private chat → Connections → Rules tester → Jobs → Agents.
+ * The jobs segment (M4b) runs on a second portal with fixture data, labelled "Sample data" on screen: a real job
+ * through the Demo stack would reuse job numbers (branches `switchboard/job-<n>`, Paperclip issue keys) that your
+ * real jobs already use in the shared Paperclip company and project.
  * Real replies from the real providers and the local model, but a separate "Demo" database: none of your
  * chats, titles or key suffixes can appear. Output: docs/media/demo.mp4 and docs/media/demo.gif (< 5 MB).
  *
@@ -18,6 +21,8 @@ import ffmpegPath from "ffmpeg-static";
 const ROUTER = process.env.DEMO_ROUTER_URL ?? "http://127.0.0.1:8110";
 const PORT = Number(process.env.DEMO_PORTAL_PORT ?? 3220);
 const BASE = `http://127.0.0.1:${PORT}`;
+const SAMPLE_PORT = PORT + 1;
+const SAMPLE = `http://127.0.0.1:${SAMPLE_PORT}`;
 const root = join(import.meta.dirname, "../../..");
 const media = join(root, "docs/media");
 const tmp = join(import.meta.dirname, "../test-results/demo-video");
@@ -43,18 +48,30 @@ async function preflight() {
   if ((t.threads?.length ?? 0) + (t.pinned?.length ?? 0) > 0) throw new Error("The demo database already has chats. Run: scripts/demo-stack.sh reset");
 }
 
-async function startPortal(): Promise<ChildProcess> {
-  const p = spawn("npx", ["next", "start", "-H", "127.0.0.1", "-p", String(PORT)], {
+async function startPortal(port = PORT, env: Record<string, string> = { ROUTER_URL: ROUTER }): Promise<ChildProcess> {
+  const p = spawn("npx", ["next", "start", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: join(import.meta.dirname, ".."),
-    env: { ...process.env, ROUTER_URL: ROUTER },
+    env: { ...process.env, ...env },
     detached: true,
     stdio: "ignore",
   });
   for (let i = 0; i < 60; i++) {
-    if (await fetch(BASE, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false)) return p;
+    if (await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false)) return p;
     await sleep(500);
   }
   throw new Error("The demo portal did not start (did you run npm run build?)");
+}
+
+/** The on-screen label for the jobs segment (fixture data). */
+async function sampleLabel(page: Page) {
+  await page.evaluate(() => {
+    if (document.getElementById("demo-sample")) return;
+    const d = document.createElement("div");
+    d.id = "demo-sample";
+    d.textContent = "Sample data · jobs run on your own repos";
+    d.style.cssText = "position:fixed;z-index:2147483646;right:16px;bottom:64px;padding:6px 12px;border-radius:999px;background:#171a3d;color:#fff;font:600 13px system-ui;opacity:.92";
+    document.body.appendChild(d);
+  });
 }
 
 /** A visible pointer for the recording (Playwright's video has none): a soft dot with a click ripple. */
@@ -173,6 +190,40 @@ async function story(page: Page): Promise<Wait[]> {
   await sleep(4500);
   await page.mouse.wheel(0, 300);
   await sleep(3500);
+
+  // 5. Jobs (M4b, sample data): approve a plan, review the changes per file, the fleet
+  await page.goto(`${SAMPLE}/jobs?nosplash`);
+  await page.getByRole("heading", { level: 1, name: "Jobs" }).waitFor();
+  await sampleLabel(page);
+  await sleep(2400);
+  await click(page, page.getByRole("list", { name: "Jobs" }).getByRole("link").first());
+  await page.getByRole("region", { name: "Approve the plan" }).waitFor();
+  await sampleLabel(page);
+  mark("job plan");
+  await sleep(3800);
+  await click(page, page.getByRole("button", { name: "Approve plan" }));
+  await sleep(1800);
+  await page.goto(`${SAMPLE}/jobs/28?nosplash`);
+  await page.getByRole("region", { name: "Changes", exact: true }).waitFor();
+  await sampleLabel(page);
+  mark("job diff");
+  await sleep(2500);
+  await page.mouse.wheel(0, 380);
+  await sleep(2600);
+  await page.mouse.wheel(0, -380);
+  await sleep(600);
+  await click(page, page.getByRole("button", { name: "Approve and commit" }));
+  await sleep(2200);
+  await page.goto(`${SAMPLE}/jobs/agents?nosplash`);
+  await page.getByRole("region", { name: "Agents" }).waitFor();
+  await sampleLabel(page);
+  mark("fleet");
+  await sleep(2600);
+  await click(page, page.getByRole("button", { name: "Hire agent" }));
+  await page.getByRole("dialog", { name: "Hire an agent" }).waitFor();
+  await sleep(3200);
+  await page.keyboard.press("Escape");
+  await sleep(1200);
   return waits;
 }
 
@@ -213,8 +264,9 @@ async function main() {
   mkdirSync(media, { recursive: true });
   rmSync(tmp, { recursive: true, force: true });
   await preflight();
-  log("starting the demo portal");
+  log("starting the demo portal and the sample-data portal (jobs segment)");
   const portal = await startPortal();
+  const sample = await startPortal(SAMPLE_PORT, { PORTAL_DATA: "fixture" });
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext({
@@ -238,10 +290,12 @@ async function main() {
     if (secs) log(`demo.mp4 is ${Number(secs[2]) * 60 + Number(secs[3])} s, ${(statSync(join(media, "demo.mp4")).size / 1048576).toFixed(2)} MB`);
   } finally {
     await browser.close();
-    try {
-      process.kill(-portal.pid!, "SIGTERM");
-    } catch {
-      /* already gone */
+    for (const p of [portal, sample]) {
+      try {
+        process.kill(-p.pid!, "SIGTERM");
+      } catch {
+        /* already gone */
+      }
     }
   }
 }

@@ -44,6 +44,21 @@ const shots: Record<string, { path: string; act?: (p: Page) => Promise<void> }> 
       await p.getByRole("region", { name: "Decision" }).waitFor();
     },
   },
+  // M4b: jobs and the fleet (fixture jobs, invented paths)
+  "jobs-board": { path: "/jobs" },
+  "job-plan": { path: "/jobs/30" },
+  "job-diff": { path: "/jobs/28" },
+  "job-run": {
+    path: "/jobs",
+    act: async (p) => {
+      await p.getByRole("button", { name: "New job" }).click();
+      const dlg = p.getByRole("dialog", { name: "New job" });
+      await dlg.getByRole("textbox", { name: "Task" }).fill("Add a function multiply(a, b) with a unittest test, then run the tests.");
+      await dlg.getByRole("button", { name: "Review" }).click();
+      await dlg.getByRole("heading", { name: "What will happen" }).waitFor();
+    },
+  },
+  agents: { path: "/jobs/agents" },
   "wizard-goals": { path: "/welcome?step=2" },
   "wizard-connect": { path: "/welcome?step=3" },
 };

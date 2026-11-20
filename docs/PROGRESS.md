@@ -20,8 +20,8 @@
 | M3b Rules UI + sidebar | ✅ Merged | m3b / #10 | Sonnet 5.5 | Left-sidebar shell, Rules UI (Simple presets / Pro editor, versions, rollback, dry-run tester), classifier + tasks on the CPU on small GPUs, Gemini limits, flake root-caused, claude/codex login checks; see M3b outcome |
 | README v1 | ✅ Merged | readme-v1 / #11 | Sonnet 5.5 | Honest, animated README + demo; one project VERSION; Motion and the wizard's Connect step lazy-loaded (every route −12 to −18 KB); chat stays pinned while lazy chunks load; demo stack; see README v1 outcome |
 | M4 Jobs via Paperclip | Split into M4a + M4b | — | Opus 5.5, high | Backend first, then the page |
-| M4a Agents & Jobs backend | ✅ Done (PR in review) | m4a / #12 | Opus 5.5 | Paperclip adapter (verified 2026.1106.0), agent registry, job engine, worktrees via hostprobe, live proof with Claude Code, Codex and OpenCode; fast private chat + Think harder; three load flakes fixed at the cause; see M4a outcome |
-| M4b Jobs page | ⏳ | — | | Job board, live log, plan and diff review (carry-over list below) |
+| M4a Agents & Jobs backend | ✅ Merged | m4a / #12 | Opus 5.5 | Paperclip adapter (verified 2026.1106.0), agent registry, job engine, worktrees via hostprobe, live proof with Claude Code, Codex and OpenCode; fast private chat + Think harder; three load flakes fixed at the cause; see M4a outcome |
+| M4b Jobs page + agent fleet | ✅ Done (PR in review) | m4b / #13 | Opus 5.5 | Job board and detail (live log, plan, per-file diff, decisions), Run as job, fleet (ADR 0009), Projects and Jobs settings, badge and toasts, level-3 decision (ADR 0010, M7), `/chat` Lighthouse 95–99; see M4b outcome |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
@@ -462,6 +462,110 @@ fallback; docs.
 - `qwen3:1.7b` was pulled only to measure it: `ollama rm qwen3:1.7b` to free 1.4 GB.
 - Still open from earlier: gemini/grok login commands, the classifier margin, the two held-out private misses,
   `rules_versions` pruning, thread search, Mistral/Zen/xAI keys, removing GROQ/GEMINI keys from `deploy/.env`.
+
+
+## M4b outcome
+
+Branch `m4b`. Guide: [docs/m4b.md](m4b.md) (what you can do, how it works, the Lighthouse fix, checks, live proof,
+decisions taken without asking). ADRs: [0009](adr/0009-agent-fleet-overlay.md) the fleet as a database overlay on
+agents.yaml, [0010](adr/0010-level-3-sandbox.md) level 3 in a locked-down container per job (M7). Commits in order:
+backend; portal; tests, baselines and gates (version 0.6.0); readable log and tab switching (found live); docs and
+media; PROGRESS.
+
+- **Jobs page:**
+  - `/jobs`: status tabs with counts, agent/project filters in the URL, keyset paging.
+  - `/jobs/<id>`:
+    - timeline in plain words;
+    - live log over SSE, resumed by `Last-Event-ID`, readable or raw, 5,000-line ring buffer, earlier runs paged;
+    - plan and per-file diff (solid panels, highlighted when opened, rendered with the page when the job waits on it);
+    - approve/reject with a note, approval deadline, stop, run again;
+    - cost, list price or "cost not reported", with a budget dial;
+    - branch with Copy and plain `git` commands to review and merge it yourself.
+- **Run as job:** from a chat reply (the decision's proposal) or **New job**. Choose the project, the agents in order
+  (fallbacks), autonomy (level 3 shown off with its reason: Dial `disabledStops`) and a budget. Then the router's own
+  preview of exactly what will happen; nothing starts before Confirm.
+- **Projects** (Settings → Projects): add/remove with plain errors (`~/` paths work; the Switchboard repo refused with
+  its reason), copies and disk use per project, clean up, retention.
+- **Fleet** (`/jobs/agents`, ADR 0009):
+  - status, installed and logged in, current job, success rate, today's and monthly budget, cost;
+  - pause/resume, edit, reset to default, soft delete, hire from Claude Code / Codex / OpenCode templates (optional
+    CLIs show "not installed" or "not verified");
+  - role, model, default autonomy, monthly list-price budget, allowed projects;
+  - Paperclip name, pause and terminate kept in sync idempotently.
+- **Your additions:**
+  - Jobs badge in the sidebar and toasts when a job needs you, finishes or fails (a watcher polling every 15 s);
+  - optional desktop notifications (off; permission asked only when turned on);
+  - approval expiry (Settings → Jobs, default 24 h, stops the job with a plain reason);
+  - reset to default for edited built-in agents;
+  - hired agents soft-deleted (history kept).
+- **Level 3 (ADR 0010):** options were a Switchboard bwrap wrapper, a locked-down Docker container per job behind an
+  egress-allowlist proxy, or waiting for Paperclip. Your choice: the container, built in M7. It stays off, with the
+  reason everywhere it can be picked.
+- **`/chat` Lighthouse:**
+  - Cause, measured: every reply was upgraded to Markdown, and every code block highlighted, in a few long tasks after
+    load (TBT 360–470 ms; without the upgrade 150–190 ms).
+  - Now each reply upgrades in its own idle slice once it is near the screen, and code highlights per block.
+  - Result: 95–99 over 20 runs in both themes (was 88–92 dark).
+  - Two layout shifts found while measuring are also fixed (job diff 0.047, Projects 0.038 → 0).
+- **Status:** Paperclip's row says "No login (local only)" and shows the loopback check in Simple mode too.
+- **Checks:**
+  - router 397 pytest (+ live contract with the new pause/resume/terminate routes), ruff clean; hostprobe 71;
+  - portal tsc, eslint, vitest 98; Playwright 416 (two full runs clean; axe both themes on the new pages and dialogs;
+    14 new baselines, stable 280/280 at 14 workers);
+  - Lighthouse ≥ 95 performance on every route; JS budget (`/chat` 180.0 KB, new routes 171.5–178.2 KB);
+  - `test:bundle`, `docs:check` pass.
+- **Live proof** (real stack, `~/switchboard-playground`):
+  - a chat reply → Run as job → OpenCode level 1 → plan approved → changes (2 files) approved → committed `133e35a` on
+    `switchboard/job-10` in 71 s, with the toast on another page; your `main` untouched;
+  - a level-2 job stopped mid-run (Paperclip run cancelled, no process left, copy removed);
+  - the fleet's pause/resume/rename/reset reflected in Paperclip; hire and soft delete;
+  - project refusals in plain words;
+  - Status notes.
+- **Also:**
+  - **Version 0.6.0.**
+  - **Readme:** Jobs quickstart step with screenshots, feature tour, roadmap ✅.
+  - **Demo re-recorded** (about 80 s). The jobs and fleet part runs on labelled sample data: a real job on the Demo
+    stack would reuse job numbers, branches and Paperclip issue keys.
+  - **Fixed `test_turn_cap`, which failed on `main` too.** The fake Paperclip stamped every run as started at
+    06:00 UTC, so the job-time cap fired after 08:00 UTC.
+  - **SPEC changes:** a job's detail is a page (§8c exception); §7.3 has a level-3 note; M4a/M4b rows added to §11.
+- **Changes on your machine (outside the repo):**
+  - router image rebuilt (migration 0008) and hostprobe restarted;
+  - in `~/switchboard-playground`: job 10's branch with its commit, job 11's branch (stopped, no commit), and the
+    playground project removed and added again (same row, history kept);
+  - a soft-deleted hired agent `doc-writer` in `agent_profiles` (never created in Paperclip);
+  - demo stack created and removed again.
+- **Deviations:**
+  - **`/chat` grew 1.2 KB** (178.8 → 180.0) from the shared sidebar badge store and the idle queue, against the
+    plan's "not larger"; it is well under the cap and halves `/chat`'s blocking time.
+  - **The demo's job segment uses sample data** (the plan's stated fallback).
+
+## Carry-over to M4.5 and later
+
+- **Level 3 (M7, ADR 0010):**
+  - a `sandbox: container` runner with pinned images per CLI;
+  - an egress-allowlist proxy on an internal network;
+  - a "Log in for sandboxed jobs" flow (vendor CLI login into a named volume; host login files never copied);
+  - doctor checks;
+  - live negative tests per CLI (read outside the worktree, reach a non-allowlisted host, read the host's
+    `~/.claude`) before turning level 3 on per agent.
+- **Optional agents:** Gemini CLI (Linux install), Grok Build (does headless use bill an xAI key?), Hermes: verify
+  flags and login checks, then add runners to agents.yaml so they can be hired.
+- **Paperclip-native mode** (ADR 0007 "Later") for lead agents delegating work.
+- **Badge and toasts poll every 15 s:** fine for one person. If many tabs or users ever matter, switch to one shared
+  SSE stream.
+- **"Open in Paperclip"** links to `/issues/<id>` (the route is in Paperclip 2026.1106.0's UI bundle). The link wasn't
+  clicked live; confirm on the next Paperclip upgrade.
+- **Metrics (M6)** should read job costs per agent (`costs.source = paperclip`, joined to `jobs.agent`) and exclude
+  demo traffic (`switchboard-demo`), as noted in README v1.
+- Still open from earlier:
+  - gemini/grok login commands;
+  - the classifier margin and the two held-out private misses;
+  - `rules_versions` pruning and thread search;
+  - Mistral/Zen/xAI keys;
+  - removing GROQ/GEMINI keys from `deploy/.env`;
+  - `ollama rm qwen3:1.7b`;
+  - medium/large profile defaults not measured on those GPUs.
 
 ## Future providers
 

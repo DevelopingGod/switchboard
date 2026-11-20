@@ -8,6 +8,7 @@ the retention rule.
 
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -117,6 +118,23 @@ async def remove_project(project_id: int, session: AsyncSession = Depends(get_se
     p.removed_at = jobs.now()
     await session.commit()
     return {"removed": True}
+
+
+@router.get("/projects/{project_id}/worktrees")
+async def worktrees(project_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    """The project's job worktrees and their disk use, read only (Settings → Projects)."""
+    p = await session.get(Project, project_id)
+    if p is None or p.removed_at is not None:
+        raise HTTPException(404, "no such project")
+    status, data = await hostprobe_client.call(
+        "GET", "/git/worktrees?" + urllib.parse.urlencode({"project": p.path, "slug": p.slug})
+    )
+    if status != 200:
+        raise HTTPException(
+            503 if status in (0, 503) else 502,
+            data.get("error") or "hostprobe couldn't list the worktrees: is it running?",
+        )
+    return {**data, "keep": await jobs.keep_per_project(session)}
 
 
 @router.post("/projects/{project_id}/cleanup")

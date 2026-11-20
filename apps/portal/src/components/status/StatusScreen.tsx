@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, Wrench } from "lucide-react";
+import { HelpCircle, LockOpen, RefreshCw, ShieldAlert, ShieldCheck, Wrench } from "lucide-react";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { StatusBadge } from "@/components/kit/StatusBadge";
 import { useToast } from "@/components/kit/Toast";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cliCheck, testConnection } from "@/app/connections/actions";
 import { pullModels, resyncModels } from "@/app/status/actions";
 import { usePrefs } from "@/lib/prefs";
-import type { ActionResult, ComponentsResponse, SystemComponent } from "@/lib/router-types";
+import type { ActionResult, ComponentsResponse, PaperclipNotes, SystemComponent } from "@/lib/router-types";
 import { type StatusKey, statusStrings, tStatus } from "@/i18n/status";
 import { tErr } from "@/i18n/errors";
 
@@ -57,6 +57,40 @@ function fixOf(c: SystemComponent): { kind: InAppFix; arg?: string } | { instruc
 }
 
 /** Every component Switchboard runs on, with an in-app fix where there is one (M1.5, self-healing). */
+/** M4b (ADR 0007): Paperclip runs without a login, so Status always says so, with the loopback check that
+ * makes that acceptable (icon + text, never colour alone; Simple mode too). */
+function PaperclipNotesView({ notes }: { notes: PaperclipNotes }) {
+  const lb = notes.loopback;
+  return (
+    <ul className="grid gap-1 text-ink-muted">
+      {notes.auth === "local_trusted" && (
+        <li className="flex items-start gap-1.5">
+          <LockOpen aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
+          <span>{tStatus("paperclip.noLogin")}</span>
+        </li>
+      )}
+      {lb && (
+        <li className="flex items-start gap-1.5">
+          {!lb.checked ? (
+            <HelpCircle aria-hidden className="mt-0.5 size-4 shrink-0" />
+          ) : lb.ok ? (
+            <ShieldCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-ok" />
+          ) : (
+            <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-err" />
+          )}
+          <span>
+            {!lb.checked
+              ? tStatus("paperclip.loopbackUnknown")
+              : lb.ok
+                ? tStatus("paperclip.loopbackOk", { addresses: lb.addresses.join(", ") })
+                : tStatus("paperclip.loopbackBad", { addresses: lb.addresses.join(", ") })}
+          </span>
+        </li>
+      )}
+    </ul>
+  );
+}
+
 export function StatusScreen({ data }: { data: ComponentsResponse }) {
   const router = useRouter();
   const { push } = useToast();
@@ -113,6 +147,7 @@ export function StatusScreen({ data }: { data: ComponentsResponse }) {
                   <p className={c.status === "ok" ? "text-ink-muted" : "text-ink"} suppressHydrationWarning>
                     {sentence(c)}
                   </p>
+                  {c.id === "paperclip" && c.notes && <PaperclipNotesView notes={c.notes} />}
                   {fix && "instruction" in fix && (
                     <p className="flex items-start gap-1.5 text-ink-muted">
                       <Wrench aria-hidden className="mt-0.5 size-4 shrink-0" />

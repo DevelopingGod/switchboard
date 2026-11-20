@@ -839,14 +839,23 @@ def git_ok(args: list[str], cwd: Path) -> bool:
 
 def _abs_dir(value: object) -> Path:
     if not isinstance(value, str) or not value.startswith("/") or "\0" in value or len(value) > 4096:
-        raise GitError(400, "path must be an absolute folder path")
+        raise GitError(400, "Use the folder's full path, such as /home/you/myrepo or ~/myrepo")
     try:
         p = Path(value).resolve(strict=True)
     except (OSError, RuntimeError):
-        raise GitError(404, "that folder doesn't exist") from None
+        raise GitError(
+            404, "That folder doesn't exist (check the spelling; paths are case-sensitive)"
+        ) from None
     if not p.is_dir():
-        raise GitError(400, "that path is not a folder")
+        raise GitError(400, "That path is a file, not a folder")
     return p
+
+
+def _home_relative(value: object) -> object:
+    """`~` and `~/x` mean this user's home (the only expansion; never `~other`)."""
+    if isinstance(value, str) and (value == "~" or value.startswith("~/")):
+        return str(HOME) + value[1:]
+    return value
 
 
 def _is_self(p: Path) -> bool:
@@ -855,7 +864,7 @@ def _is_self(p: Path) -> bool:
 
 def inspect_repo(value: object) -> dict:
     """Read-only facts about a folder someone wants to add as a project."""
-    p = _abs_dir(value)
+    p = _abs_dir(_home_relative(value))
     try:
         top = Path(git(["rev-parse", "--show-toplevel"], p).strip()).resolve()
     except GitError:

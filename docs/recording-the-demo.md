@@ -28,10 +28,16 @@ dummy value, never a key, with the suffix shown as `••••`), the model ca
 `docs/media/demo.mp4` (H.264) and `docs/media/demo.gif` (< 5 MB; it shrinks width, frame rate and colours until it fits).
 `down` removes the demo router and drops the demo database. **Your real stack is never stopped or written to.**
 
-## Storyboard (about 55 s)
+## Storyboard (about 80 s)
 
 Home → a real reply → **Why this?** → New chat → **Private** → a real local reply → Connections (suffixes shown as
-dots) → Rules tester. Edit `PROMPTS` and `story()` in `apps/portal/scripts/record-demo.mts`. Keep prompts harmless:
+dots) → Rules tester → **Jobs** (sample data): the board, a plan to approve, the changes per file, Approve and commit →
+**Agents** and the Hire agent dialog.
+
+The jobs segment runs on a second portal on `127.0.0.1:3221` with fixture data (`PORTAL_DATA=fixture`), labelled
+"Sample data · jobs run on your own repos" on screen. A real job through the Demo stack is not recorded: the demo
+database numbers jobs from 1, and job branches (`switchboard/job-<n>`) and Paperclip issue keys would collide with your
+real jobs in the shared Paperclip company and project (M4b decision; docs/m4b.md). Edit `PROMPTS` and `story()` in `apps/portal/scripts/record-demo.mts`. Keep prompts harmless:
 nothing personal, health or financial.
 
 ## Things to know
