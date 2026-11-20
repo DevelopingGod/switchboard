@@ -207,7 +207,10 @@ async def wait_ready(pc: Paperclip, pid: str, agent: AgentDef) -> None:
         if a is None:
             raise JobError(502, f"Paperclip lost the {agent.label} agent")
         state = a.get("lifecycleState")
-        if state == "ready" and a.get("status") not in ("paused", "terminated", "pending_approval"):
+        if a.get("status") == "error":  # the previous run failed; this job starts fresh
+            await pc.clear_error(pid)
+            a = await pc.agent(pid) or a
+        if state == "ready" and a.get("status") not in ("paused", "terminated", "pending_approval", "error"):
             return
         if state not in ("verifying", "preparing"):
             if retried_at is None:
@@ -449,7 +452,7 @@ async def _start_run(session: AsyncSession, pc: Paperclip, job: Job, company: st
     job.gate = None
     job.status = "running"
     job.started_at = job.started_at or now()
-    await event(session, job, "run_started", run=run_id, kind=kind, agent=agent.id, autonomy=job.autonomy)
+    await event(session, job, "run_started", run=run_id, run_kind=kind, agent=agent.id, autonomy=job.autonomy)
     await session.commit()
     await _issue(pc, session, job)
 
@@ -536,8 +539,13 @@ async def _follow_run(session: AsyncSession, pc: Paperclip, job: Job) -> None:
     _counters.pop(job.current_run_id or "", None)
     if status != "succeeded":
         what = {"cancelled": "stopped", "timed_out": "failed"}.get(status, "failed")
-        msg = run.get("error") or f"The run ended: {status}"
-        await _finish(session, pc, job, what, str(msg)[:500])
+        msg = str(run.get("error") or f"The run ended: {status}")
+        if (
+            "max_budget" in msg
+        ):  # Claude stopped itself at --max-budget-usd (the job's budget): a stop, not a fault
+            what = "stopped"
+            msg = f"Stopped at the job's budget (${float(job.budget_list_usd):.2f} list price)"
+        await _finish(session, pc, job, what, msg[:500])
         return
     level = reg.levels[job.autonomy]
     kind = level.runs[job.run_index]
@@ -702,7 +710,7 @@ async def decide(
                 "project": project.path,
                 "slug": project.slug,
                 "job_id": job.id,
-                "message": f"Switchboard job {job.id}: {job.title}"[:300],
+                "message": _commit_message(job),
             },
         )
         if status != 200:
@@ -721,11 +729,29 @@ async def decide(
     await _finish(session, pc, job, "done", None, keep_worktree=gate == "diff" and level.review == "diff")
 
 
+def _commit_message(job: Job) -> str:
+    """A short subject (git log stays readable) and the full title and agent in the body."""
+    head = f"Switchboard job {job.id}: "
+    title = " ".join(job.title.split())
+    subject = head + (title if len(head + title) <= 72 else title[: 71 - len(head)].rstrip() + "…")
+    return f"{subject}\n\n{title[:300]}\n\nAgent: {job.agent}, autonomy {job.autonomy}"[:500]
+
+
 async def stop(session: AsyncSession, pc: Paperclip, job: Job, by: str = "you") -> None:
     if job.status in TERMINAL:
         return
     if job.current_run_id:
         await pc.cancel_run(job.current_run_id)
+        # Count what the stopped run had already used (budgets stay honest).
+        run = await pc.run(job.current_run_id)
+        if run is not None:
+            agent = load_agents().agents.get(job.agent)
+            if agent is not None:
+                await read_new_output(pc, job, agent)
+                counter = _counters.pop(job.current_run_id, None)
+                if counter is not None:
+                    counter.finish()
+                await _record(session, job, agent, run, counter)
     if job.paperclip_approval_id and job.status == "needs_approval":
         try:
             await pc.decide(job.paperclip_approval_id, False, "Stopped in Switchboard")

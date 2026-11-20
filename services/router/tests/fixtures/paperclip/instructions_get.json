@@ -1,0 +1,13 @@
+{
+ "method": "GET",
+ "path": "/agents/:id/instructions-bundle/file",
+ "response": {
+  "contentHash": "b08c7e978390a91abb0635b3b550dea6d82aa34363840492435b0773f094d7a1",
+  "editable": true,
+  "path": "AGENTS.md",
+  "revision": {
+   "id": "b08c7e97-8390-891a-ab06-35b3b550dea6"
+  }
+ },
+ "status": 200
+}

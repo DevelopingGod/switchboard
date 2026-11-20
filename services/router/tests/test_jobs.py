@@ -4,6 +4,7 @@ The fakes follow the recorded shapes (tests/fixtures/paperclip/) and keep state,
 API drive them through whole jobs: plan → approval → edit → diff → done, rejection, stop, fallbacks, caps.
 """
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -63,7 +64,11 @@ class FakePaperclip:
         m.get(url__regex=rf"{PC}/agents/[^/]+$").mock(side_effect=self._agent_get)
         m.patch(url__regex=rf"{PC}/agents/[^/]+$").mock(side_effect=self._agent_patch)
         m.put(url__regex=rf"{PC}/agents/[^/]+/instructions-bundle/file$").mock(side_effect=self._instructions)
+        m.get(url__regex=rf"{PC}/agents/[^/]+/instructions-bundle/file").mock(
+            side_effect=self._instructions_get
+        )
         m.post(url__regex=rf"{PC}/agents/[^/]+/lifecycle/retry$").mock(side_effect=self._retry)
+        m.post(url__regex=rf"{PC}/agents/[^/]+/clear-error$").mock(side_effect=self._clear_error)
         m.post(url__regex=rf"{PC}/agents/[^/]+/wakeup$").mock(side_effect=self._wake)
         m.get(url__regex=rf"{PC}/heartbeat-runs/[^/]+$").mock(side_effect=self._run_get)
         m.get(url__regex=rf"{PC}/heartbeat-runs/[^/]+/log").mock(side_effect=self._log)
@@ -108,9 +113,38 @@ class FakePaperclip:
         a["adapterConfig"] = json.loads(r.content)["adapterConfig"]
         return httpx.Response(200, json=a)
 
+    def _rev(self, aid: str) -> str:
+        return hashlib.sha256(self.instructions.get(aid, "").encode()).hexdigest()
+
+    def _instructions_get(self, r):
+        aid = r.url.path.split("/")[3]
+        return httpx.Response(
+            200,
+            json={
+                "path": "AGENTS.md",
+                "content": self.instructions.get(aid, ""),
+                "contentHash": self._rev(aid),
+                "revision": {"id": "rev-" + self._rev(aid)[:8]},
+            },
+        )
+
     def _instructions(self, r):
-        self.instructions[r.url.path.split("/")[3]] = json.loads(r.content)["content"]
+        aid = r.url.path.split("/")[3]
+        b = json.loads(r.content)
+        if "baseRevisionId" not in b:  # the real guard (verified live)
+            return httpx.Response(
+                422, json={"error": "Read the entry and supply baseRevisionId (null for a new entry)"}
+            )
+        if b["baseRevisionId"] != "rev-" + self._rev(aid)[:8]:
+            return httpx.Response(409, json={"error": "stale revision"})
+        self.instructions[aid] = b["content"]
         return httpx.Response(200, json={"ok": True})
+
+    def _clear_error(self, r):
+        a = self.agents[r.url.path.split("/")[3]]
+        a["status"] = "idle"
+        self.cleared = getattr(self, "cleared", 0) + 1
+        return httpx.Response(200, json=a)
 
     def _retry(self, r):
         a = self.agents[r.url.path.split("/")[3]]
@@ -242,6 +276,7 @@ class FakeHost:
         self.worktrees: dict[int, dict] = {}
         self.removed: list[int] = []
         self.committed: list[int] = []
+        self.messages: list[str] = []
         self.inspect = {
             "is_repo": True,
             "is_top": True,
@@ -321,6 +356,7 @@ class FakeHost:
     def _commit(self, r):
         j = json.loads(r.content)["job_id"]
         self.committed.append(j)
+        self.messages.append(json.loads(r.content)["message"])
         self.worktrees[j]["tip"] = "b" * 40
         return httpx.Response(
             200, json={"committed": True, "sha": "b" * 40, "branch": f"switchboard/job-{j}"}
@@ -415,6 +451,8 @@ async def test_level_1_plan_approve_edit_review_done(client, fakes, session):
     r = await client.post(f"/jobs/{jid}/approve", json={}, headers=ADMIN)
     assert r.status_code == 200 and r.json()["status"] == "done"
     assert host.committed == [jid] and jid not in host.removed  # the branch has the work; worktree kept
+    subject, _, body = host.messages[0].partition("\n\n")
+    assert subject.startswith(f"Switchboard job {jid}: ") and len(subject) <= 72 and "multiply" in body
     assert issue["status"] == "done"
     # costs: one row per run, list price kept, $0 money on a subscription, linked to the job's request
     rows = (await session.scalars(select(Cost).where(Cost.source == "paperclip").order_by(Cost.id))).all()
@@ -471,6 +509,11 @@ async def test_stop_while_running_cancels_the_run(client, fakes, session):
     assert pc.runs[run]["config"]["args"][:4] == ["exec", "--json", "-s", "workspace-write"]
     r = await client.post(f"/jobs/{jid}/stop", headers=ADMIN)
     assert r.json()["status"] == "stopped" and pc.cancelled == [run] and host.removed == [jid]
+    # what the stopped run had used is still recorded (one row, keyed by the run)
+    assert (
+        await session.scalar(select(Cost.external_id).where(Cost.source == "paperclip"))
+        == f"paperclip-run:{run}"
+    )
     again = await client.post(f"/jobs/{jid}/stop", headers=ADMIN)  # stopping twice is fine
     assert again.status_code == 200
 
@@ -597,6 +640,32 @@ async def test_budget_cap_stops_between_runs(client, fakes, session):
     await step(jid)
     j = await get(session, jid)
     assert j.status == "stopped" and "budget" in j.error and len(pc.wakes) == 1
+
+
+async def test_claude_stopping_itself_at_the_budget_is_a_stop(client, fakes, session):
+    pc, host = fakes
+    jid = (await start(client, agent="claude-code", autonomy=1, budget_list_usd=0.03))["id"]
+    await step(jid)
+    assert "--max-budget-usd" in pc.runs[pc.last_run()]["config"]["extraArgs"]
+    pc.finish(pc.last_run(), status="failed", fixture="run_get_claude_plan")
+    pc.runs[pc.last_run()]["error"] = (
+        "Claude run failed: subtype=error_max_budget_usd: Reached maximum budget ($0.03)"
+    )
+    await step(jid)
+    j = await get(session, jid)
+    assert j.status == "stopped" and j.error == "Stopped at the job's budget ($0.03 list price)"
+    assert float(j.list_price_usd) > 0.03 and host.removed == [jid]
+    # Paperclip leaves the agent in status "error" after a failed run: the next job clears it and runs
+    next(iter(pc.agents.values()))["status"] = "error"
+    nxt = (
+        await client.post(
+            "/jobs",
+            json={"prompt": "again", "project_id": j.project_id, "agent": "claude-code", "autonomy": 0},
+            headers=ADMIN,
+        )
+    ).json()["id"]
+    await step(nxt)
+    assert (await get(session, nxt)).status == "running" and pc.cleared == 1
 
 
 async def test_an_approval_decided_in_paperclip_counts(client, fakes, session):

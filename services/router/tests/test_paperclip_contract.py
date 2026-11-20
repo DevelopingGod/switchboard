@@ -10,6 +10,7 @@ Two layers:
   Read-only.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -57,6 +58,7 @@ REQUIRED = {
     "approval_create": ["id", "status"],
     "approval_approve": ["status"],
     "approval_reject": ["status"],
+    "instructions_get": ["contentHash", "revision"],
 }
 
 # Every route the adapter calls: (method, OpenAPI path).
@@ -68,9 +70,11 @@ ROUTES = [
     ("post", "/api/companies/{companyId}/agents"),
     ("get", "/api/agents/{id}"),
     ("patch", "/api/agents/{id}"),
+    ("get", "/api/agents/{id}/instructions-bundle/file"),
     ("put", "/api/agents/{id}/instructions-bundle/file"),
     ("post", "/api/companies/{companyId}/adapters/{type}/test-environment"),
     ("post", "/api/agents/{id}/lifecycle/retry"),
+    ("post", "/api/agents/{id}/clear-error"),
     ("post", "/api/agents/{id}/wakeup"),
     ("get", "/api/heartbeat-runs/{runId}"),
     ("get", "/api/companies/{companyId}/heartbeat-runs"),
@@ -203,6 +207,18 @@ async def test_loopback_host_header_only_for_the_docker_host_name():
     assert paperclip.loopback_host_header("http://host.docker.internal:3100") == "127.0.0.1:3100"
     assert paperclip.loopback_host_header("http://127.0.0.1:3100") is None
     assert paperclip.loopback_host_header("http://paperclip.test") is None
+
+
+async def test_instructions_are_written_against_the_revision_read(pc, mock_http):
+    rec = fx("instructions_get")["response"]
+    mock_http.get(f"{API}/agents/a1/instructions-bundle/file").respond(200, json=rec)
+    put = mock_http.put(f"{API}/agents/a1/instructions-bundle/file").respond(200, json={})
+    await pc.set_instructions("a1", "new task")
+    assert json.loads(put.calls[0].request.content)["baseRevisionId"] == rec["revision"]["id"]
+    same = {**rec, "contentHash": hashlib.sha256(b"new task").hexdigest()}
+    mock_http.get(f"{API}/agents/a1/instructions-bundle/file").respond(200, json=same)
+    await pc.set_instructions("a1", "new task")
+    assert put.call_count == 1  # unchanged content is not rewritten
 
 
 async def test_bearer_key_only_when_configured(mock_http, monkeypatch):

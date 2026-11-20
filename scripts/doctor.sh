@@ -325,7 +325,7 @@ call() {
 call fast gpt-oss
 call smart-free gemini
 call local qwen3
-call local-code qwen2.5-coder
+call local-code qwen  # follows the local-model profile: its coder, else its general model (M3a)
 
 section "Paperclip"
 begin "Paperclip API"

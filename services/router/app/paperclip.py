@@ -23,6 +23,7 @@ own.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json as jsonlib
 import logging
 from dataclasses import dataclass
@@ -184,13 +185,23 @@ class Paperclip:
         )
 
     async def set_instructions(self, agent_id: str, content: str) -> None:
-        """The task for the next run (Claude reads `AGENTS.md` as its system prompt addition)."""
-        await self._req(
-            "PUT",
-            f"/agents/{agent_id}/instructions-bundle/file",
-            json={"path": "AGENTS.md", "content": content},
-            retry=True,
-        )
+        """The task for the next run (Claude reads `AGENTS.md` as its system prompt addition). Paperclip
+        guards the write with the revision it last served (422 "supply baseRevisionId" without it), so read
+        first; unchanged content is not rewritten."""
+        path = f"/agents/{agent_id}/instructions-bundle/file"
+        for attempt in range(2):
+            cur = await self._req("GET", path, params={"path": "AGENTS.md"}, retry=True, missing_ok=True)
+            if cur and cur.get("contentHash") == hashlib.sha256(content.encode()).hexdigest():
+                return
+            base = ((cur or {}).get("revision") or {}).get("id")
+            try:
+                await self._req(
+                    "PUT", path, json={"path": "AGENTS.md", "content": content, "baseRevisionId": base}
+                )
+                return
+            except PaperclipError as e:
+                if e.status != 409 or attempt:  # someone else wrote it in between: read again once
+                    raise
 
     async def test_environment(
         self, company_id: str, adapter_type: str, adapter_config: dict[str, Any]
@@ -202,6 +213,10 @@ class Paperclip:
             json={"adapterConfig": adapter_config},
             timeout=180,
         )
+
+    async def clear_error(self, agent_id: str) -> None:
+        """An agent whose last run failed (e.g. Claude stopping at its budget) is left in status `error`."""
+        await self._req("POST", f"/agents/{agent_id}/clear-error", json={}, retry=True)
 
     async def retry_lifecycle(self, agent_id: str) -> None:
         await self._req("POST", f"/agents/{agent_id}/lifecycle/retry", json={}, retry=True)
