@@ -204,8 +204,9 @@ ${reduce(`.dot{display:none}.g,.warn{animation:none!important}.warn{opacity:1}.f
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="t d">
 <title id="t">How Switchboard routes a message</title>
 <desc id="d">A message goes to the classifier, then the rules, then the quota guard, then a model. When the quota guard sees a free limit about 80 percent used, or a model is rate-limited, the message goes to the fallback instead. Agents and jobs arrive in milestone 4.</desc>
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">${stops(t.skyGradient)}</linearGradient></defs>
 <style>${css}</style>
-<rect width="${W}" height="${H}" rx="28" fill="${dayMode ? "#ffffff" : t.surfaceSolid}" fill-opacity="${dayMode ? 0.0 : 0.0}"/>
+<rect width="${W}" height="${H}" rx="28" fill="url(#sky)"/>
 ${wires}
 ${agent}
 ${nodeSvg}

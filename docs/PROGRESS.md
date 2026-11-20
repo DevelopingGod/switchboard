@@ -9,15 +9,16 @@
 |---|---|---|---|---|
 | M0 Infra | ✅ Merged | m0 / #1 | Opus 5.5, medium | doctor.sh green; fast + local verified |
 | M0.5 Design system | ✅ Merged | m05 / #2 | Sonnet 5.5, medium | All 4 approved changes delivered; see M0.5 outcome |
-| M1 Connections + wizard | 🔨 Split into M1a + M1b | — | Sonnet 5.5, medium | Done when M1b merges; carry-over items listed below |
+| M1 Connections + wizard | ✅ Split into M1a + M1b, both merged | — | Sonnet 5.5, medium | Done; carry-over items listed below |
 | M1a Router backend | ✅ Merged | m1a / #4 | Opus 5.5 | Split from M1; see M1a outcome |
 | M1b Connections UI + wizard | ✅ Merged | m1b / #5 | Sonnet 5.5 | Install/login flows, wizard, chips; see M1b outcome. Item 7 (verify CLI login commands) waits on your installs |
 | M2 Chat + Router | ✅ Merged | m2 / #6 | Opus 5.5, high | Rules engine, streaming chat, fallbacks with reasons, caps, private; see M2 outcome |
 | Provider fixes | ✅ Merged | provider-fixes / #7 | Sonnet 5.5 | Mistral paid-only, Cerebras credits, OpenRouter `:free`-only + 402, Gemini CLI hint, claude install test; see Provider fixes outcome |
 | M1.5 Design polish + self-healing | ✅ Merged | m15 / #8 | Opus 5.5 | doctor never hangs; self-healing LiteLLM sync + plain errors + Status view; footer, splash, shortcuts, chat sidebar/column, Why fix, Settings, motion v2, ambient cursor, one tooltip; see M1.5 outcome |
-| M3 Rules UI + classifier | 🔨 Split into M3a + M3b | — | Opus 5.5, high | Done when M3b merges (M3a merged) |
+| M3 Rules UI + classifier | ✅ Split into M3a + M3b, both merged | — | Opus 5.5, high | Done |
 | M3a Routing brain | ✅ Merged | m3a / #9 | Opus 5.5 | Arch-Router 96.2% (held-out 92.5%), recommender, quota guard, generic adapter (test-only proof), summaries, local-model profiles, auto-private + secret masking; see M3a outcome |
-| M3b Rules UI + sidebar | 🔎 In review | m3b / #10 | Sonnet 5.5 | Left-sidebar shell, Rules UI (Simple presets / Pro editor, versions, rollback, dry-run tester), classifier + tasks on the CPU on small GPUs, Gemini limits, flake root-caused, claude/codex login checks; see M3b outcome |
+| M3b Rules UI + sidebar | ✅ Merged | m3b / #10 | Sonnet 5.5 | Left-sidebar shell, Rules UI (Simple presets / Pro editor, versions, rollback, dry-run tester), classifier + tasks on the CPU on small GPUs, Gemini limits, flake root-caused, claude/codex login checks; see M3b outcome |
+| README v1 | 🔎 In review | readme-v1 / PR | Sonnet 5.5 | Honest, animated README + demo; one project VERSION; Motion and the wizard's Connect step lazy-loaded (every route −12 to −18 KB); chat stays pinned while lazy chunks load; demo stack; see README v1 outcome |
 | M4 Jobs via Paperclip | ⏳ | — | Opus 5.5, high | |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
@@ -342,6 +343,31 @@ Branch `m3b`. Guide: [docs/m3b.md](m3b.md) (what changed, the checks, and the de
 - **Machine setup:** after pulling M3b, rebuild the router (`docker compose -f deploy/docker-compose.yml up -d --build router`; migrations 0005 and 0006 run on start) and restart hostprobe (`systemctl --user restart switchboard-hostprobe`).
 - **Still open from earlier (yours):** Mistral/Zen/xAI keys as wanted; remove `GROQ_API_KEY`/`GEMINI_API_KEY` from `deploy/.env`.
 
+## README v1 outcome
+
+Branch `readme-v1`. Guides: [recording-the-demo.md](recording-the-demo.md), [ADR 0005](adr/0005-readme-media-and-single-version.md). Commits: version + demo-router flags; Motion and Connect step lazy-loaded; media generator and CONTRIBUTING; chat pinned at the end; docs check and demo stack; demo, screenshots, README.
+
+- **README.md** is rewritten: animated hero (Day and Dusk, `<picture>`), badges, demo GIF + MP4, "Why Switchboard", an animated routing diagram with a Mermaid text version, a four-step Quickstart (Windows + WSL2 now; macOS and Linux "coming in M7"; Jobs "coming in M4", no screenshot because the screen is a placeholder), a feature tour of shipped features only, Privacy and security (including the honest "no portal login yet"), a dated comparison table (Open WebUI, OmniRoute, 9Router, Paperclip, Ollama app; built from public docs and listings, "not stated" where unconfirmed), roadmap (matches the status table above, checked by script), FAQ, Contributing, License, Star History. New: `CONTRIBUTING.md`, `docs/recording-the-demo.md`.
+- **Media** (`docs/media`, 6.2 MB of the 15 MB budget): `hero-*` 4.7 KB and `routing-*` 7.5 KB SVGs (generated from the design tokens; CSS keyframes; all animation off under `prefers-reduced-motion`, which shows the complete static frame; system font stack because an `<img>` SVG can't load web fonts), `demo.gif` 4.8 MB (800 px, 10 fps) and `demo.mp4` 1.2 MB (58 s, 1280×720), 14 `shot-*.webp` screenshots (25 to 43 KB each, fixture data). GitHub can't play a repo-relative `<video>` in a README, so the GIF links to the MP4.
+- **Demo** (real Groq reply, real local private reply, Connections with `••••`, Rules tester) is recorded against a throwaway Demo stack (`scripts/demo-stack.sh`): a separate `switchboard_demo` database (schema from migrations; only connection rows, "key saved" markers with a dummy ciphertext and masked suffix, the model catalog and a few settings rows copied; never threads, messages, requests, costs or keys), plus one router container. Your real stack was not stopped. The demo router sets `ROUTER_SYNC_ENABLED=false` (no LiteLLM writes, no catalog refresh; a test) and tags traffic `switchboard-demo` (`ROUTER_REQUEST_TAG`; LiteLLM `user` and tags, and `decision_json.tag`; tests). The local model took 15 to 90 s per reply across takes, so waits over 6 s are sped up and labelled on screen.
+- **One project version:** root `VERSION` (0.4.0). The router reads it (compose `additional_contexts`); the portal footer shows the router's version; `apps/portal/package.json`, its lockfile and the fixtures matched to it (they said 0.1.5). `npm run docs:check` fails if any copy or the README badge disagrees. No tag yet: tag `v1.0.0` at launch (M7).
+- **JS budget** (gzip, first load, before → after): `/welcome` 199.2 → 170.3, `/chat` 196.4 → 178.8, `/connections` 195.0 → 177.3, `/dev/components` 193.5 → 191.6, `/settings/rules` 189.2 → 171.4, `/` 187.0 → 169.2, `/status` 186.1 → 168.3, `/settings` 186.2 → 168.3, `/jobs`, `/metrics`, `/studio` 180.9 → 163.1. Every route has at least 8.4 KB of headroom (the dev gallery is the tightest). Two changes did it: **Motion** (~19 KB, in every route for the toast and PillTabs only) now loads with the first toast or PillTabs (`MotionScope`, same animations), and the wizard's Connect step, which pulls in the provider-card stack, is a lazy chunk with a same-size skeleton (`ConnectStep.tsx`).
+- **Two things the smaller bundles exposed, fixed at the cause:**
+  1. The chat scrolled to the newest message, then the lazy Markdown and highlighting chunks changed message heights above it, shifting what the reader sees (CLS up to 0.09 under load; 0.002 before). The thread now stays pinned to the end until the reader scrolls or 2.5 s pass.
+  2. "New chat" from a thread that was just started in place (URL rewritten with `replaceState`) changed the URL but kept the old messages on screen. `ChatScreen` now resets when `?t=` goes away; a regression test fails without the fix and passes with it (found while recording).
+  Baselines `chat-*` and `chat-why-pro-*` were regenerated: the old ones had captured the race (sticky sidebar painted at a timing-dependent scroll offset; a viewport-clipped popover missing its last line). The chat capture now starts from the top. The footer version in baselines is now 0.4.0.
+- **Checks:** router 311 pytest (306 + 4 demo-router tests + 1 version test), ruff clean; portal tsc, eslint, 85 vitest clean; Playwright 348 (347 + the New-chat test); docs check passes. Full runs at 8 workers on the final build: 2 of 3 clean; the other had two failures, both load flakes below. Not re-run after the last change: Lighthouse (the lazy-loading only removes JS from first load; run it with M4) and `test:bundle` (no server-side code changed).
+- **Flakes, measured against clean `main` rather than assumed** (same stress: one test repeated under 8 workers; failures / runs, `main` vs this branch): `chat · thread with code` visual 12/60 vs **1/60** (the pin and top-of-page capture made it better); `no long tasks (> 50 ms)` on `/connections` 3/30 vs 1/30; `axe · sidebar states › phone drawer open` 3/72 vs 3/72 (`link-name` on the recent-chat rows; the row is fine a moment later). So all three already flake on `main` under load, and none got worse here. (An earlier "3 of 3 full runs clean on `main`" was luck, not proof.) Single runs of each pass.
+- **Deviations:** the demo uses a separate database and router, as agreed, rather than the owner's stack. I started Ollama (`ollama.exe serve`) through WSL interop for the recording because it had stopped, and pulled `curlimages/curl` once while diagnosing; neither is needed afterwards.
+
+## Carry-over to M4 (from README v1)
+
+- **Metrics (M6) must exclude demo traffic:** filter out LiteLLM `user = switchboard-demo` and `requests.decision_json.tag = 'switchboard-demo'`.
+- **Fix the three existing load flakes at their cause** (rates in the README v1 outcome): `axe · sidebar states › phone drawer open` (`link-name` on recent-chat rows, transient), `no long tasks` on `/connections`, and the `chat · thread with code` capture (1/60 left). Reproduce with `npx playwright test <spec> -g <name> --repeat-each=30 --workers=8`.
+- **Re-record the demo** whenever the UI changes (`docs/recording-the-demo.md`); update README screenshots with `npm run screens:readme`.
+- The README claims nothing about install time or other machines; run the Quickstart on a clean WSL machine before M7 and fix what breaks.
+- `package-lock.json` gained `ffmpeg-static` (dev only; downloads an ffmpeg binary at install).
+
 ## Future providers
 
 - **Cloudflare Workers AI**: 10,000 Neurons/day free, no card per the pricing page. The URL needs your account id (supported now through `params:`), and there's no OpenAI-style `/models`, so it needs a `models_url` plus `models_fields` mapping. Check its data terms first.
@@ -359,4 +385,5 @@ Ideas and later milestones, not scheduled. Additions only.
 - **M4.5 Workflow packs** (SPEC §8a).
 - **M5 Studio:** no free Gemini images (see Gemini limits above), so local Stable Diffusion or paid Grok Imagine.
 - **M5.5 Content Studio** (SPEC §8d).
-- **M7 launch:** one-command cross-platform install (Docker for Mac, Linux and Windows), **portal user auth before any remote access**, README and a 60-second demo GIF.
+- **M7 launch:** one-command cross-platform install (Docker for Mac, Linux and Windows), **portal user auth before any remote access**, tag `v1.0.0`. (The README and the demo GIF were done in README v1.)
+- **GitHub Pages landing site with real interactivity (M7):** a live routing demo and a real video player, which a GitHub README can't run (it strips JS and CSS). Reuses the hero and routing SVGs and `docs/media`.

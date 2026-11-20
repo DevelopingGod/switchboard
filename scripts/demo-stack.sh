@@ -80,7 +80,12 @@ case "$cmd" in
       -e ROUTER_SYNC_ENABLED=false -e ROUTER_REQUEST_TAG=switchboard-demo \
       "$IMAGE" >/dev/null
     for _ in $(seq 1 40); do
-      curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && { echo "demo router is up: http://127.0.0.1:$PORT (portal: PORT $PORTAL_PORT)"; exit 0; }
+      if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+        # The copied status rows may be stale (e.g. Ollama was down at copy time): re-check the local
+        # connection from the demo router, which writes to the demo database only.
+        curl -fsS --max-time 15 -X POST -H "Authorization: Bearer $ROUTER_ADMIN_TOKEN" "http://127.0.0.1:$PORT/connections/ollama/test" >/dev/null 2>&1 || echo "note: Ollama did not answer; private chat in the demo needs it running" >&2
+        echo "demo router is up: http://127.0.0.1:$PORT (portal: PORT $PORTAL_PORT)"; exit 0
+      fi
       sleep 1
     done
     echo "the demo router did not become healthy: docker logs $CONTAINER" >&2

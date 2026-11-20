@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-labelledby="t d">
 <title id="t">How Switchboard routes a message</title>
 <desc id="d">A message goes to the classifier, then the rules, then the quota guard, then a model. When the quota guard sees a free limit about 80 percent used, or a model is rate-limited, the message goes to the fallback instead. Agents and jobs arrive in milestone 4.</desc>
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0d0e2e"/><stop offset="48%" stop-color="#1d1654"/><stop offset="100%" stop-color="#3a2480"/></linearGradient></defs>
 <style>text{font-family:'Plus Jakarta Sans','Manrope','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif}
 .wire{fill:none;stroke:#b3b6fa;stroke-opacity:.45;stroke-width:2.5;stroke-linecap:round}
 .fbwire{stroke:#6fe3a4;stroke-opacity:.9;stroke-dasharray:7 7}
@@ -19,7 +20,7 @@
 .warn{opacity:0;animation:warn 18s linear infinite}
 @keyframes warn{0%,76.9%{opacity:0}78.9%,88.9%{opacity:1}92.9%,100%{opacity:0}}
 @media (prefers-reduced-motion: reduce){.dot{display:none}.g,.warn{animation:none!important}.warn{opacity:1}.fb{opacity:1}}</style>
-<rect width="1200" height="380" rx="28" fill="#1a1850" fill-opacity="0"/>
+<rect width="1200" height="380" rx="28" fill="url(#sky)"/>
 <path class="wire " d="M221 109L258 109" />
 <path class="wire " d="M458 109L495 109" />
 <path class="wire " d="M695 109L732 109" />

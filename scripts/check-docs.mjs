@@ -125,7 +125,7 @@ const copies = {
   "services/router/pyproject.toml": /^version\s*=\s*"([^"]+)"/m.exec(read("services/router/pyproject.toml"))?.[1],
   "apps/portal/package.json": JSON.parse(read("apps/portal/package.json")).version,
   "apps/portal/package-lock.json": JSON.parse(read("apps/portal/package-lock.json")).version,
-  "apps/portal/src/lib/server/fixtures.ts": /version:\s*"(\d+\.\d+\.\d+)"/.exec(read("apps/portal/src/lib/server/fixtures.ts"))?.[1],
+  "apps/portal/src/lib/server/fixtures.ts": /version:\s*"(\d+\.\d+\.\d+)",\s*\/\/ PROJECT_VERSION/.exec(read("apps/portal/src/lib/server/fixtures.ts"))?.[1],
   "README.md (version badge)": /badge\/version-(\d+\.\d+\.\d+)-/.exec(read("README.md"))?.[1],
 };
 for (const [where, v] of Object.entries(copies)) if (v !== version) fail(where, `version ${v ?? "(missing)"} differs from VERSION ${version}`);
