@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ArrowDown, MessageSquare } from "lucide-react";
 import { Composer, type ComposerSend } from "@/components/kit/Composer";
@@ -78,6 +79,21 @@ export function ChatScreen({
   React.useEffect(() => {
     threadRef.current = thread;
   }, [thread]);
+  // A thread started in place (the URL is rewritten with replaceState) keeps this component mounted when
+  // "New chat" goes back to /chat: the server tree is the same "new" one, so nothing remounts. Reset by hand.
+  const openedId = useSearchParams().get("t");
+  React.useEffect(() => {
+    if (openedId || !threadRef.current) return;
+    abort.current?.abort();
+    threadRef.current = null;
+    requestId.current = null;
+    setThread(null);
+    setMessages([]);
+    setText("");
+    setSendError(null);
+    setStreaming(false);
+    setPrivateOn(privateDefault);
+  }, [openedId, privateDefault]);
   React.useEffect(() => () => abort.current?.abort(), []);
   // The sidebar renamed or pinned the open chat: keep the header in step.
   React.useEffect(() => {
