@@ -33,9 +33,9 @@ def test_registry_loads_with_the_verified_agents():
     runnable = sorted(a.id for a in reg.agents.values() if a.runnable)
     assert runnable == ["claude-code", "codex", "opencode"]
     assert {a.id for a in reg.agents.values() if not a.runnable} == {"gemini-cli", "grok-build", "hermes"}
-    # level 3: only Claude has a verified bwrap sandbox profile
+    # level 3: no agent has a sandbox that works here yet (Paperclip's bwrap fails on merged /usr)
     assert reg.agent("codex").level_unavailable(reg.levels[3]).startswith("Level 3 needs a bwrap wrapper")
-    assert reg.agent("claude-code").level_unavailable(reg.levels[3]) is None
+    assert "never runs without a sandbox" in reg.agent("claude-code").level_unavailable(reg.levels[3])
     assert "not verified" in reg.agent("hermes").level_unavailable(reg.levels[0]).lower()
 
 
@@ -54,9 +54,22 @@ def test_claude_flags_per_kind():
     assert allowed and all(x.startswith("Bash(") and x.endswith(":*)") for x in allowed)
     assert "Bash(python3 -m unittest:*)" in allowed
     assert "Bash(git push:*)" in a and "WebFetch" in a
-    _, full, _ = run_args("claude-code", "full")
-    assert full["filesystemScope"] == "workspace" and full["networkScope"] == "allowlist"
-    assert full["extraArgs"][:2] == ["--permission-mode", "bypassPermissions"]
+
+
+def test_a_full_profile_carries_the_sandbox_settings():
+    """The shape to restore once a sandbox works (see config/agents.yaml): adapter settings pass through."""
+    d = copy.deepcopy(raw())
+    d["agents"]["claude-code"]["profiles"]["full"] = {
+        "args": ["--permission-mode", "bypassPermissions"],
+        "adapter": {"filesystemScope": "workspace", "networkScope": "allowlist"},
+    }
+    reg = parse(d)
+    spec = build_run(reg, reg.agent("claude-code"), "full", worktree=WT, task="t", budget_left_usd=1)
+    cfg = spec.adapter_config
+    assert cfg["filesystemScope"] == "workspace" and cfg["extraArgs"][:2] == [
+        "--permission-mode",
+        "bypassPermissions",
+    ]
 
 
 def test_codex_and_opencode_run_as_plain_processes_with_the_task_as_last_arg():
@@ -131,7 +144,12 @@ def test_user_braces_stay_literal_in_claudes_instructions():
         (lambda d: d["agents"]["codex"]["profiles"].pop("edit"), "edit profile"),
         (lambda d: d["agents"]["codex"]["profiles"].update(read_only=["exec", "--json"]), "{prompt}"),
         (lambda d: d["agents"]["claude-code"]["profiles"]["read_only"].append("{prompt}"), "AGENTS.md"),
-        (lambda d: d["agents"]["claude-code"]["profiles"]["full"]["adapter"].pop("filesystemScope"), "bwrap"),
+        (
+            lambda d: d["agents"]["claude-code"]["profiles"].update(
+                full={"args": ["--permission-mode", "x"]}
+            ),
+            "bwrap",
+        ),
         (lambda d: d["agents"]["codex"].update(runner="codex_local"), "runner"),
         (lambda d: d["defaults"].update(allowed_commands=["npm test; curl x"]), "allowed_commands"),
         (lambda d: d["agents"]["codex"]["profiles"]["edit"].append("{secret}"), "placeholder"),

@@ -584,32 +584,24 @@ async def test_no_agent_available_fails_with_reasons(client, fakes, session):
     assert j.status == "failed" and "No agent can take this job" in j.error and pc.wakes == []
 
 
-async def test_level_3_needs_bwrap_and_a_budget(client, fakes, session):
+async def test_level_3_needs_a_budget_and_is_never_run_without_a_sandbox(client, fakes, session):
     pc, host = fakes
     pid = await add_project(client)
     r = await client.post(
         "/jobs", json={"prompt": "x", "project_id": pid, "agent": "claude-code", "autonomy": 3}, headers=ADMIN
     )
     assert r.status_code == 400 and "budget" in r.json()["detail"]
-    host.bwrap = False
-    r = await client.post(
-        "/jobs",
-        json={"prompt": "x", "project_id": pid, "agent": "claude-code", "autonomy": 3, "budget_list_usd": 1},
-        headers=ADMIN,
-    )
-    jid = r.json()["id"]
-    await step(jid)
-    j = await get(session, jid)
-    assert j.status == "failed" and "bwrap" in j.error and pc.wakes == []  # never unsandboxed
-    host.bwrap = True
-    r = await client.post(
-        "/jobs",
-        json={"prompt": "x", "project_id": pid, "agent": "claude-code", "autonomy": 3, "budget_list_usd": 1},
-        headers=ADMIN,
-    )
-    await step(r.json()["id"])
-    cfg = pc.runs[pc.last_run()]["config"]
-    assert cfg["filesystemScope"] == "workspace" and cfg["extraArgs"][1] == "bypassPermissions"
+    for agent in ("claude-code", "codex", "opencode"):
+        r = await client.post(
+            "/jobs",
+            json={"prompt": "x", "project_id": pid, "agent": agent, "autonomy": 3, "budget_list_usd": 1},
+            headers=ADMIN,
+        )
+        jid = r.json()["id"]
+        await step(jid)
+        j = await get(session, jid)
+        assert j.status == "failed" and "Level 3" in j.error
+    assert pc.wakes == []  # nothing ran
 
 
 async def test_one_active_run_per_agent_the_rest_queue(client, fakes, session):

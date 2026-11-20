@@ -62,10 +62,15 @@ agents:
       read_only: [--permission-mode, plan, --setting-sources, user, --disallowedTools, WebFetch, WebSearch]
       edit: [--permission-mode, acceptEdits, --setting-sources, user, --allowedTools, "{allowed}",
              --disallowedTools, WebFetch, WebSearch, "Bash(git push:*)", "Bash(curl:*)", "Bash(wget:*)"]
-      full:
-        args: [--permission-mode, bypassPermissions, --setting-sources, user]
-        # Paperclip's bwrap confinement: the worktree (and Claude's own config) only; network to Anthropic only.
-        adapter: { filesystemScope: workspace, networkScope: allowlist, networkAllowlist: ["api.anthropic.com:443"] }
+    # Level 3 would use Paperclip's bwrap confinement (filesystemScope: workspace), but on Ubuntu 24.04 (merged /usr,
+    # /bin is a symlink) its sandbox fails to start: "bwrap: Can't bind mount /oldroot/usr/bin on /newroot/bin"
+    # (verified live 2026-11-20, docs/m4a.md). Off until a working sandbox is verified; never run unsandboxed.
+    # The verified-shape profile to restore then:
+    #   full: { args: [--permission-mode, bypassPermissions, --setting-sources, user],
+    #           adapter: { filesystemScope: workspace, networkScope: allowlist, networkAllowlist: ["api.anthropic.com:443"] } }
+    full_unavailable: >-
+      Level 3 is off: Paperclip's bwrap sandbox fails to start on this Linux (merged /usr), and level 3 never runs
+      without a sandbox (M4b).
 
   codex:
     label: Codex
