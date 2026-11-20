@@ -95,11 +95,19 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, ag
 
         {id === "welcome" && <WelcomeStep name={name} onName={setName} nameId={nameId} />}
         {id === "goals" && <GoalsStep available={Object.keys(goalMap)} goals={goals} onToggle={toggle} />}
-        {id === "connect" && (
-          <LazyFallback value={<ConnectSkeleton count={needed.length} />}>
-            <ConnectStep needed={needed} rows={rows} modelsByProvider={modelsByProvider} localProfile={localProfile} />
-          </LazyFallback>
-        )}
+        {/* The step's text renders with the page; only the provider cards wait for their chunk (it is the
+            largest paint: rendering it with the cards held LCP at 4.4 s on a throttled phone, M4a). */}
+        {id === "connect" &&
+          (needed.length === 0 ? (
+            <p className="text-ink-muted">{tWizard("wizard.connect.none")}</p>
+          ) : (
+            <div className="grid gap-4">
+              <p className="max-w-xl text-ink-muted">{tWizard("wizard.connect.body")}</p>
+              <LazyFallback value={<ConnectSkeleton count={needed.length} />}>
+                <ConnectStep needed={needed} rows={rows} modelsByProvider={modelsByProvider} localProfile={localProfile} />
+              </LazyFallback>
+            </div>
+          ))}
         {id === "preset" && <PresetStep preset={preset} onPick={setPreset} />}
         {id === "finish" && <FinishStep goals={goals} preset={preset} connected={connected} />}
 

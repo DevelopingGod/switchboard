@@ -122,10 +122,13 @@ export function ChatScreen({
   const nearBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
   React.useEffect(() => {
     // Where the pin last put the page. Any scroll that moves up from there was not the pin's doing.
+    // Computed from the height already read for the scroll: reading scrollY right after scrollTo would force a
+    // second synchronous layout on every resize while lazy chunks load (+60 ms blocking time on /chat, M4a).
     let pinnedAt = 0;
     const toEnd = () => {
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
-      pinnedAt = window.scrollY;
+      const top = document.documentElement.scrollHeight;
+      window.scrollTo({ top });
+      pinnedAt = Math.max(0, top - window.innerHeight);
     };
     toEnd();
     // Lazy chunks (Markdown, code highlighting) change message heights above the newest one a moment later.
