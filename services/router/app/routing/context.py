@@ -81,16 +81,22 @@ async def value_saved_today(session: AsyncSession) -> float:
     """What today's free-tier calls would have cost at list price (shown as "value saved")."""
     total = await session.scalar(
         select(func.coalesce(func.sum(Cost.list_price_usd), 0)).where(
-            Cost.created_at >= day_start(), Cost.cost_usd == 0, Cost.list_price_usd.is_not(None)
+            Cost.created_at >= day_start(),
+            Cost.cost_usd == 0,
+            Cost.list_price_usd.is_not(None),
+            Cost.source != "paperclip",  # agent jobs have their own budgets (M4a)
         )
     )
     return float(total or 0)
 
 
 async def spent_today(session: AsyncSession) -> float:
-    """What counts toward the daily cap: `cost_usd` only (free-tier calls are $0 there)."""
+    """What counts toward the daily cap: `cost_usd` only (free-tier calls are $0 there). Agent jobs
+    (`source = paperclip`) never count: they have their own list-price budgets (M4a)."""
     total = await session.scalar(
-        select(func.coalesce(func.sum(Cost.cost_usd), 0)).where(Cost.created_at >= day_start())
+        select(func.coalesce(func.sum(Cost.cost_usd), 0)).where(
+            Cost.created_at >= day_start(), Cost.source != "paperclip"
+        )
     )
     return float(total or 0)
 

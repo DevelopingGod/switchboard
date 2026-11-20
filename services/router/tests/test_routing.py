@@ -221,7 +221,12 @@ def test_media_slash_commands_go_to_studio(text, kind):
 def test_research_is_job_like_and_skips_agents_with_reason():
     dec = decide(RouteRequest("/research competitors of Notion"), ctx())
     assert dec.job_suggested
-    assert skipped(dec)["agent:hermes"] == "agent" and "M4" in dec.skipped[0].reason
+    assert skipped(dec)["agent:hermes"] == "agent" and "Run as job" in dec.skipped[0].reason
+    # M4a: the decision carries the job proposal: the rule's agents in order, with the registry's labels.
+    job = dec.as_dict()["job"]
+    assert [a["id"] for a in job["agents"]] == ["hermes", "gemini-cli", "claude-code"] and job["suggested"]
+    assert job["agents"][0]["label"] == "Hermes Agent" and job["autonomy"] == dec.autonomy
+    assert decide(RouteRequest("what's the capital of France?"), ctx()).as_dict()["job"] is None
 
 
 @pytest.mark.parametrize(
@@ -284,6 +289,21 @@ def test_private_never_leaves_the_machine():
 def test_private_with_a_local_pick_is_honoured():
     dec = decide(RouteRequest("hello", private=True, target="model:local-code"), ctx())
     assert targets(dec)[0] == "model:local-code" and dec.rule_id == "manual"
+
+
+def test_think_harder_switches_local_answers_to_the_thinking_model():
+    """M4a (ADR 0006): local chat answers with the fast model; "Think harder" uses `local-think`."""
+    fast = decide(RouteRequest("hello", private=True), ctx())
+    deep = decide(RouteRequest("hello", private=True, think=True), ctx())
+    assert fast.candidates[0].litellm_model == "local" and not fast.think
+    assert deep.candidates[0].litellm_model == "local-think" and deep.as_dict()["think"] is True
+    # the target and the rule are unchanged, and nothing leaves the machine
+    assert (
+        deep.candidates[0].target == "model:local" and deep.rule_id == "private" and deep.candidates[0].local
+    )
+    # cloud answers are untouched by the flag
+    cloud = decide(RouteRequest("what's the capital of France?", think=True), ctx())
+    assert targets(cloud)[0] == "model:fast" and cloud.candidates[0].litellm_model == "fast"
 
 
 def test_cooldown_skips_target():

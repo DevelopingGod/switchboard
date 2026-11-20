@@ -1,0 +1,14 @@
+{
+ "method": "GET",
+ "path": "/health",
+ "response": {
+  "authReady": true,
+  "bootstrapStatus": "ready",
+  "deploymentExposure": "private",
+  "deploymentMode": "local_trusted",
+  "serverVersion": "2026.1106.0",
+  "status": "ok",
+  "version": "2026.1106.0"
+ },
+ "status": 200
+}

@@ -2,7 +2,10 @@
 # setup and doctor detect the GPU memory (nvidia-smi through hostprobe) and pick a profile; you can
 # change it in Settings → Local models. The active profile decides:
 #   classifier  Arch-Router model for intent routing (null = keyword heuristics only)
-#   general     the `local` / `private` aliases (private chats, last-resort fallback)
+#   general     the `local` / `private` aliases (private chats, last-resort fallback). A model that
+#               answers without a thinking phase, so local replies start at once (M4a, ADR 0006)
+#   thinker     "Think harder" (`local-think`): a model that reasons first, used only when asked for
+#               one message (null = `general`). Slower: on a small GPU it also swaps with `general`
 #   tasks       titles and long-thread summaries (null = a free cloud model, never for private threads)
 #   coder       the `local-code` alias (null = `general`)
 # `max_loaded` is how many models may hold GPU memory at once (a model pinned to the CPU with
@@ -26,6 +29,7 @@ profiles:
     min_vram_gb: 0
     classifier: null
     general: llama3.2:3b         # runs on CPU here: private replies are slow
+    thinker: null                # "Think harder" uses the general model (no thinking model on CPU)
     tasks: null
     coder: null
     cpu: true
@@ -34,7 +38,12 @@ profiles:
     label: 4–6 GB GPU
     min_vram_gb: 4
     classifier: *arch
-    general: qwen3:4b
+    # M4a (ADR 0006, measured on an RTX 3050 4 GB): qwen3:4b thinks before every answer, so the first
+    # word took a median 31 s (worst 268 s). With thinking off it writes the reasoning into the answer
+    # instead (9 of 10), so it isn't faster. The 2507 instruct build never thinks: first word 0.2 s,
+    # whole answer 7.5 s, same answer quality. qwen3:4b stays for "Think harder".
+    general: qwen3:4b-instruct-2507-q4_K_M
+    thinker: qwen3:4b
     # Titles and summaries: llama3.2:3b. qwen3:4b was the plan, but it writes its reasoning into the
     # answer even with think:false ("Okay, the user wants me to...", verified 2026-11-18, docs/m3a.md),
     # so every title fell back to the first words.
@@ -48,7 +57,8 @@ profiles:
     label: 8–12 GB GPU
     min_vram_gb: 8
     classifier: *arch
-    general: qwen3:8b
+    general: qwen3:4b-instruct-2507-q4_K_M   # fits fully in GPU memory here (not measured on 8 GB)
+    thinker: qwen3:8b
     tasks: llama3.2:3b
     coder: null
     max_loaded: 2
@@ -56,7 +66,8 @@ profiles:
     label: 16 GB+ GPU
     min_vram_gb: 16
     classifier: *arch
-    general: qwen3:14b
+    general: qwen3:4b-instruct-2507-q4_K_M   # not measured on 16 GB; pick a larger non-thinking model in Settings
+    thinker: qwen3:14b
     tasks: llama3.2:3b
     coder: qwen2.5-coder:14b
     max_loaded: 2

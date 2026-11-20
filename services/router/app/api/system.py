@@ -33,6 +33,8 @@ from app.deps import litellm, require_admin
 from app.errors import classify, problem
 from app.litellm_admin import LiteLLMAdmin
 from app.models import Connection
+from app.paperclip import PINNED_VERSION as PAPERCLIP_PINNED
+from app.paperclip import Paperclip
 from app.registry import load_registry
 from app.routing import classifier
 from app.routing.context import connected_providers, spent_today, value_saved_today
@@ -42,6 +44,47 @@ router = APIRouter(tags=["system"])
 
 PROBE_TTL_S = 15
 _probe_cache: dict[str, tuple[float, bool, str | None]] = {}
+
+
+async def _paperclip_loopback_only() -> bool:
+    """ADR 0007: with no login, Paperclip must only listen on loopback. hostprobe reads the listening
+    addresses on the host (/proc/net/tcp); when it can't tell (hostprobe down), this raises no alarm."""
+    port = httpx.URL(get_settings().paperclip_url).port or 3100
+    ok, data, _ = await hostprobe_client.probe(f"/net/listen?port={port}", timeout=5)
+    if not ok or not data or not data.get("addresses"):
+        return True
+    return bool(data.get("loopback_only"))
+
+
+async def _paperclip() -> tuple[str, str | None]:
+    """Paperclip through the jobs adapter (M4a): a real `/api/health` (the old reachability check counted
+    its 403 "hostname not allowed" as up), the pinned version, and its auth mode (ADR 0007). Cached like the
+    others."""
+    hit = _probe_cache.get("paperclip")
+    if hit and time.monotonic() - hit[0] < PROBE_TTL_S:
+        return hit[1], hit[2]
+    client = Paperclip()
+    try:
+        h = await client.health()
+    finally:
+        await client.aclose()
+    if not h or h.get("status") != "ok":
+        status, detail = "down", "Paperclip is not answering"
+    elif h.get("version") != PAPERCLIP_PINNED:
+        status = "degraded"
+        detail = f"Paperclip {h.get('version')} is running; Switchboard is verified with {PAPERCLIP_PINNED}"
+    elif not await _paperclip_loopback_only():
+        status = "down"
+        detail = (
+            "Paperclip listens beyond this computer and has no login: anyone on your network could run "
+            "agents. Re-run its onboarding with --bind loopback"
+        )
+    elif h.get("deploymentMode") == "local_trusted":
+        status, detail = "ok", "No login (local only): any program on this computer can use Paperclip"
+    else:
+        status, detail = "ok", None
+    _probe_cache["paperclip"] = (time.monotonic(), status, detail)
+    return status, detail
 
 
 async def _reachable(name: str, url: str) -> tuple[bool, str | None]:
@@ -78,12 +121,13 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
         db_ok = True
     except Exception:
         db_ok = False
-    (litellm_up, (ollama_ok, ollama_err), (pc_ok, pc_err), probe_up) = await asyncio.gather(
+    (litellm_up, (ollama_ok, ollama_err), (pc_status, pc_detail), probe_up) = await asyncio.gather(
         request.app.state.litellm.alive(),
         _reachable("ollama", s.ollama_api_base.rstrip("/") + "/api/tags"),
-        _reachable("paperclip", s.paperclip_url.rstrip("/") + "/api/health"),
+        _paperclip(),
         hostprobe_client.alive(),
     )
+    pc_ok = pc_status != "down"
     st = sync.state
     sync_status = "ok" if st.status == "ok" else ("down" if st.status == "retrying" else "degraded")
     out = [
@@ -99,7 +143,7 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
             next_retry_at=st.next_retry_at.isoformat() if st.next_retry_at else None,
         ),
         _c("ollama", "ok" if ollama_ok else "down", None if ollama_ok else "open_ollama", ollama_err),
-        _c("paperclip", "ok" if pc_ok else "down", None if pc_ok else "start_paperclip", pc_err),
+        _c("paperclip", pc_status, None if pc_ok else "start_paperclip", pc_detail),
         _c("hostprobe", "ok" if probe_up else "down", "recheck_cli" if probe_up else "start_hostprobe"),
     ]
     # Local models (M3a): the active profile, its classifier, missing models.
@@ -259,11 +303,12 @@ async def summary(request: Request, session: AsyncSession = Depends(get_session)
     """The portal footer, polled every 60 s while visible: four health dots, today's spend and the
     value of free calls, quota status and the version. Probes are cached 15 s (`_reachable`)."""
     s = get_settings()
-    litellm_up, (ollama_ok, _), (pc_ok, _) = await asyncio.gather(
+    litellm_up, (ollama_ok, _), (pc_status, _) = await asyncio.gather(
         request.app.state.litellm.alive(),
         _reachable("ollama", s.ollama_api_base.rstrip("/") + "/api/tags"),
-        _reachable("paperclip", s.paperclip_url.rstrip("/") + "/api/health"),
+        _paperclip(),
     )
+    pc_ok = pc_status != "down"
     o = await user_settings.load(session)
     rules = await rules_versions.effective_rules(session)
     cap = float(o.get("daily_cap_usd", rules.defaults.daily_cap_usd))

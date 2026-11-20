@@ -71,13 +71,19 @@ async def test_add_test_remove_key(client, litellm, providers_ok, hostprobe_up, 
         "local",
         "private",
         "local-code",
+        "local-think",  # M4a: "Think harder" (the profile's thinking model)
         "groq/*",  # M2: any catalog model by name (model:groq/<id>)
         "ollama/*",
     }
     wild = litellm.deployments("groq/*")[0]["litellm_params"]
     assert wild["model"] == "groq/*" and wild["litellm_credential_name"] == "sb-groq"
     local_code = litellm.deployments("local-code")[0]["litellm_params"]
-    assert local_code == {"model": "ollama_chat/qwen3:4b", "api_base": "os.environ/OLLAMA_API_BASE"}
+    assert local_code == {
+        "model": "ollama_chat/qwen3:4b-instruct-2507-q4_K_M",
+        "api_base": "os.environ/OLLAMA_API_BASE",
+    }
+    think = litellm.deployments("local-think")[0]["litellm_params"]
+    assert think["model"] == "ollama_chat/qwen3:4b"
 
     r = await client.get("/connections")
     groq = next(p for p in r.json()["providers"] if p["provider"] == "groq")

@@ -239,21 +239,27 @@ test.describe("ambient cursor and motion", () => {
     }
   });
 
-  test("no long tasks (> 50 ms) while the pointer moves over cards and hover effects run", async ({ page }) => {
+  test("no long tasks (> 50 ms) while the pointer moves over cards and hover effects run", async ({ page, browser }) => {
     await page.goto("/connections?nosplash");
     await page.waitForFunction(() => document.documentElement.hasAttribute("data-cursor-live"));
     await ready(page); // the sidebar's recents finish loading first: this test is about pointer movement, not page load
-    await page.evaluate(() => {
-      (window as unknown as { __lt: number[] }).__lt = [];
-      new PerformanceObserver((l) => l.getEntries().forEach((e) => (window as unknown as { __lt: number[] }).__lt.push(e.duration))).observe({ type: "longtask" });
-    });
+    // Each main-thread task's *CPU* time (trace `RunTask` thread time), not its wall-clock time. The `longtask` API
+    // measures wall-clock, which includes time the OS spent running other processes: with 8+ test workers a 10 ms
+    // task often took 60–390 ms by the clock, while no task used more than 29 ms of CPU (M4a, 100 runs at 14 workers).
+    // CPU time is the page's own work, which is what the cursor glow and hover effects must keep small.
+    await browser.startTracing(page, { categories: ["toplevel", "disabled-by-default-devtools.timeline"] });
     for (let i = 0; i < 4; i++) {
       await page.mouse.move(40, 200 + i * 60);
       await page.mouse.move(1240, 260 + i * 60, { steps: 40 });
     }
     await page.waitForTimeout(300);
-    const long = await page.evaluate(() => (window as unknown as { __lt: number[] }).__lt);
-    expect(long.filter((d) => d > 50)).toEqual([]);
+    type TraceEvent = { name: string; ph: string; pid: number; tid: number; tdur?: number; args?: { name?: string } };
+    const { traceEvents } = JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] };
+    const main = new Set(traceEvents.filter((e) => e.name === "thread_name" && e.args?.name === "CrRendererMain").map((e) => `${e.pid}:${e.tid}`));
+    const tasks = traceEvents.filter((e) => e.name === "RunTask" && e.ph === "X" && main.has(`${e.pid}:${e.tid}`));
+    expect(tasks.length).toBeGreaterThan(100); // the sweep really ran and was traced
+    const cpuMs = tasks.map((t) => (t.tdur ?? 0) / 1000);
+    expect(cpuMs.filter((ms) => ms > 50)).toEqual([]);
   });
 
   test("everything animated stops under Settings → Motion: Reduce", async ({ page }) => {

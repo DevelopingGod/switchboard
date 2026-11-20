@@ -121,7 +121,15 @@ export function ChatScreen({
   const lastLen = messages.at(-1)?.content.length ?? 0;
   const nearBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
   React.useEffect(() => {
-    const toEnd = () => window.scrollTo({ top: document.documentElement.scrollHeight });
+    // Where the pin last put the page. Any scroll that moves up from there was not the pin's doing.
+    // Computed from the height already read for the scroll: reading scrollY right after scrollTo would force a
+    // second synchronous layout on every resize while lazy chunks load (+60 ms blocking time on /chat, M4a).
+    let pinnedAt = 0;
+    const toEnd = () => {
+      const top = document.documentElement.scrollHeight;
+      window.scrollTo({ top });
+      pinnedAt = Math.max(0, top - window.innerHeight);
+    };
     toEnd();
     // Lazy chunks (Markdown, code highlighting) change message heights above the newest one a moment later.
     // Stay at the end until the reader scrolls, so nothing visibly jumps (a layout shift) as they arrive.
@@ -133,6 +141,14 @@ export function ChatScreen({
     const unpin = () => {
       pinned = false;
     };
+    // Input events catch most readers, but not every way of scrolling: dragging the scrollbar, find in page, a
+    // screen reader moving through the thread, or code scrolling to the top. Any of those moving the page up
+    // away from the end also stops the pin; otherwise the next height change would pull them back down (M4a:
+    // a full-page capture taken from the top was dragged to the end while the pin was still on under load).
+    const onScroll = () => {
+      if (window.scrollY < pinnedAt - 2) unpin();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
     const inputs = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
     inputs.forEach((e) => window.addEventListener(e, unpin, { passive: true, once: true }));
     const stop = window.setTimeout(() => {
@@ -142,6 +158,7 @@ export function ChatScreen({
     return () => {
       ro.disconnect();
       window.clearTimeout(stop);
+      window.removeEventListener("scroll", onScroll);
       inputs.forEach((e) => window.removeEventListener(e, unpin));
     };
   }, [lastIdForScroll]);
@@ -289,7 +306,10 @@ export function ChatScreen({
         { id: tempId, role: "user", content: msg.text, status: "done", private: msg.private, feedback: null, route: null, created_at: new Date().toISOString() },
       ]);
       setText("");
-      void run({ mode: "send", thread_id: threadRef.current?.id ?? null, text: msg.text, ...options(msg.private, msg.autonomy, msg.temperature) }, tempId);
+      void run(
+        { mode: "send", thread_id: threadRef.current?.id ?? null, text: msg.text, ...options(msg.private, msg.autonomy, msg.temperature), ...(msg.think ? { think: true } : {}) },
+        tempId,
+      );
     },
     [run, options],
   );
@@ -313,7 +333,7 @@ export function ChatScreen({
       sentPending.current = true;
       setPrivateOn(msg.private);
       setAutonomy(msg.autonomy);
-      send({ text: msg.text, private: msg.private, autonomy: msg.autonomy, temperature: msg.temperature });
+      send({ text: msg.text, private: msg.private, autonomy: msg.autonomy, temperature: msg.temperature, think: msg.think });
     }, 0);
     return () => clearTimeout(timer);
   }, [current, send]);

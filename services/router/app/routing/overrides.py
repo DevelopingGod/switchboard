@@ -61,7 +61,7 @@ CAPABILITIES = (
 )
 PAID_POLICIES = ("never", "manual", "allowed")
 PROTECTED_RULES = ("private", "default")  # can't be removed
-LOCAL_ALIASES = ("local", "private", "local-code")
+LOCAL_ALIASES = ("local", "private", "local-code", "local-think")
 
 MAX_BYTES = 64_000
 MAX_RULES = 100

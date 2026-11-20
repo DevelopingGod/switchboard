@@ -1,0 +1,15 @@
+{
+ "method": "POST",
+ "path": "/companies",
+ "request": {
+  "description": "Temporary: API verification",
+  "name": "Switchboard contract probe (M4a)"
+ },
+ "response": {
+  "id": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "issuePrefix": "SWI",
+  "name": "Switchboard contract probe (M4a)",
+  "status": "active"
+ },
+ "status": 201
+}

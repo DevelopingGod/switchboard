@@ -1,0 +1,118 @@
+# Agent registry (M4a; SPEC §6.1, §7.3; ADR 0007). Read by the Router API (app/agents.py) and validated at load.
+#
+# An agent is an official CLI that Switchboard runs through Paperclip for jobs. Subscriptions are used only through
+# the vendor's own CLI: Switchboard and Paperclip never copy, read, move or write a CLI's login files.
+#
+# Autonomy (SPEC §7.3) is one scale for every agent. `levels` says which runs a job of that level makes and where it
+# stops for you; each agent says how to run each kind of run (`profiles`), with the flags verified on that CLI
+# version (docs/m4a.md has the evidence; re-verify before changing a version).
+#
+#   read_only  plan or report: no edits, no shell commands that change anything
+#   edit       edits inside the job's worktree; shell only for `allowed_commands`; no network, no push
+#   full       anything inside the job's worktree, inside the bwrap sandbox (level 3 needs bwrap: if it is missing,
+#              level 3 is off for that agent with a plain message, never run unsandboxed)
+#
+# A profile is a list of CLI args, or {args, adapter} where `adapter` adds Paperclip adapter settings (the bwrap
+# sandbox). No `full` profile = level 3 is not available for that agent yet (shown with the reason).
+# Placeholders in profile args: {model}, {worktree}, {prompt}, {allowed}. How {allowed} is written depends on the
+# agent's `permissions` style (claude: one Bash(<cmd>:*) rule each; opencode: a permission object; codex: none, its
+# sandbox has no network and writes only to the worktree).
+
+defaults:
+  max_active_per_agent: 1      # more jobs for a busy agent wait in the queue (ADR 0007: one Paperclip agent per slot)
+  run_timeout_s: 1800          # one run (Paperclip stops it, then the router does)
+  run_grace_s: 15
+  job_timeout_s: 7200          # all runs of one job together
+  max_turns: 40                # model turns per run; also the cap for agents that report no cost
+  budget:
+    per_job_list_usd: 2.00     # list price (what the run would cost at API prices), not money spent
+    per_agent_daily_list_usd: 10.00
+  worktrees:
+    keep_per_project: 10       # finished jobs' worktrees kept for review; older ones are removed (branches stay)
+  # Shell commands an agent may run at levels 1 and 2 (prefixes). Tests only: no installs, no network, no git push.
+  allowed_commands:
+    - python3 -m unittest
+    - python -m unittest
+    - python3 -m pytest
+    - python -m pytest
+    - pytest
+    - npm test
+    - npm run test
+    - npx vitest run
+    - go test
+    - cargo test
+
+levels:
+  0: { runs: [read_only], review: result }               # "Ask first": a plan or report, nothing changed
+  1: { runs: [read_only, edit], approve_plan: true, review: diff }   # "Plan, then ask"
+  2: { runs: [edit], review: diff }                      # "Work in sandbox"
+  3: { runs: [full], review: diff, needs_sandbox: true, needs_budget: true }   # "Full auto"
+
+agents:
+  claude-code:
+    label: Claude Code
+    cli: claude                 # hostprobe's CLI id (installed / logged in)
+    runner: claude_local        # Paperclip's adapter: uses ~/.claude in place (docs/m4a.md)
+    command: claude             # found on Paperclip's PATH (scripts/setup-wsl.sh)
+    model: claude-sonnet-5-5
+    capabilities: [code, research]
+    cost: reported              # the CLI reports list price; on a subscription it is $0 to you
+    permissions: claude
+    profiles:
+      read_only: [--permission-mode, plan, --setting-sources, user, --disallowedTools, WebFetch, WebSearch]
+      edit: [--permission-mode, acceptEdits, --setting-sources, user, --allowedTools, "{allowed}",
+             --disallowedTools, WebFetch, WebSearch, "Bash(git push:*)", "Bash(curl:*)", "Bash(wget:*)"]
+    # Level 3 would use Paperclip's bwrap confinement (filesystemScope: workspace), but on Ubuntu 24.04 (merged /usr,
+    # /bin is a symlink) its sandbox fails to start: "bwrap: Can't bind mount /oldroot/usr/bin on /newroot/bin"
+    # (verified live 2026-11-20, docs/m4a.md). Off until a working sandbox is verified; never run unsandboxed.
+    # The verified-shape profile to restore then:
+    #   full: { args: [--permission-mode, bypassPermissions, --setting-sources, user],
+    #           adapter: { filesystemScope: workspace, networkScope: allowlist, networkAllowlist: ["api.anthropic.com:443"] } }
+    full_unavailable: >-
+      Level 3 is off: Paperclip's bwrap sandbox fails to start on this Linux (merged /usr), and level 3 never runs
+      without a sandbox (M4b).
+
+  codex:
+    label: Codex
+    cli: codex
+    runner: process             # Paperclip's codex_local copies the login file; this runs the CLI as is
+    command: codex
+    capabilities: [code]
+    cost: none                  # tokens only: capped by turns and time
+    permissions: codex
+    profiles:
+      read_only: [exec, --json, -s, read-only, -C, "{worktree}", "{prompt}"]
+      edit: [exec, --json, -s, workspace-write, -c, sandbox_workspace_write.network_access=false,
+             -C, "{worktree}", "{prompt}"]
+    full_unavailable: Level 3 needs a bwrap wrapper for Codex, which isn't verified yet (M4b).
+
+  opencode:
+    label: OpenCode
+    cli: opencode
+    runner: process             # Paperclip's opencode_local writes skills into ~/.claude/skills
+    command: opencode
+    model: opencode/big-pickle  # a free OpenCode Zen model (the free lineup rotates: change it here)
+    capabilities: [code]
+    cost: reported
+    permissions: opencode
+    profiles:
+      read_only: [run, --format, json, -m, "{model}", --dir, "{worktree}", "{prompt}"]
+      edit: [run, --format, json, -m, "{model}", --dir, "{worktree}", "{prompt}"]
+    full_unavailable: Level 3 needs a bwrap wrapper for OpenCode, which isn't verified yet (M4b).
+
+  # Shown in the registry but not run yet: their flags aren't verified on a Linux install (docs/m4a.md).
+  gemini-cli:
+    label: Gemini CLI
+    cli: gemini
+    capabilities: [research, code]
+    note: Not verified for jobs yet (only a Windows install was found).
+  grok-build:
+    label: Grok Build
+    cli: grok
+    capabilities: [code]
+    note: Not verified for jobs yet. Check whether headless runs bill an xAI API key before adding it (SPEC §6.1).
+  hermes:
+    label: Hermes Agent
+    cli: hermes
+    capabilities: [research]
+    note: Not verified for jobs yet.

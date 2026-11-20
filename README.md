@@ -7,20 +7,21 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.4.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.5.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>
 
 <p align="center">
-  <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo, about one minute: ask a question on Home and get a real reply; open Why this? to see which model answered and why; start a private chat answered by a local model; look at Connections, where keys show only as dots; try a message in the Rules tester." width="860"></a>
+  <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo, under a minute: ask a question on Home and get a real reply; open Why this? to see which model answered and why; start a private chat that a local model answers at once; look at Connections, where keys show only as dots; try a message in the Rules tester." width="860"></a>
   <br>
-  <sub>Real replies, recorded on a separate demo profile. The wait for the local model is sped up (labelled in the video). <a href="docs/media/demo.mp4">Watch the MP4</a> · <a href="docs/recording-the-demo.md">how it was recorded</a></sub>
+  <sub>Real replies, recorded on a separate demo profile, in real time. <a href="docs/media/demo.mp4">Watch the MP4</a> · <a href="docs/recording-the-demo.md">how it was recorded</a></sub>
 </p>
 
-> **Status: early, and honest about it.** Chat, routing, the Rules editor and Connections work today. Jobs
-> (agents that work on your repos), image and video Studio and Metrics are not built yet; they are marked
-> *coming in Mx* below. Developed and tested on one Windows 11 + WSL2 machine, so expect rough edges.
+> **Status: early, and honest about it.** Chat, routing, the Rules editor and Connections work today. Agent jobs
+> (agents that work on your repos) work through the API, but their page comes in M4b; image and video Studio and
+> Metrics are not built yet. Those are marked *coming in Mx* below. Developed and tested on one Windows 11 + WSL2
+> machine, so expect rough edges.
 
 ## Why Switchboard
 
@@ -37,7 +38,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/routing-dusk.svg">
-    <img src="docs/media/routing-day.svg" alt="Animated diagram: a message dot travels from your message through the classifier, the rules and the quota guard to a model. In a second pass the quota guard sees about 80 percent of a free limit used, or a rate limit, and the dot goes to the fallback instead. Agents and jobs are dashed and marked coming in M4." width="100%">
+    <img src="docs/media/routing-day.svg" alt="Animated diagram: a message dot travels from your message through the classifier, the rules and the quota guard to a model. In a second pass the quota guard sees about 80 percent of a free limit used, or a rate limit, and the dot goes to the fallback instead. Agents and jobs are dashed: they run through the API today and their page comes in M4b." width="100%">
   </picture>
 </p>
 
@@ -51,7 +52,7 @@ flowchart LR
   R --> Q["Quota guard<br/>reroutes at 80% used"]
   Q -->|"limit has room"| P["Model<br/>Groq, Gemini, local, ..."]
   Q -->|"80% used or 429"| F["Fallback<br/>next model in the rule"]
-  R -.->|"coming in M4"| A["Agent or job"]
+  R -.->|"page in M4b"| A["Agent or job"]
 ```
 
 A manual pick or a slash command skips the classifier. Every hop is logged, and **Why this?** shows the rule,
@@ -126,7 +127,8 @@ press **Test**: it is checked against the provider before it is stored, then kep
 UI only ever shows the last four characters). Start with a free one such as Groq or Google AI Studio. Each card
 shows its free limits and whether the provider may train on your data. Agent CLIs (Claude Code, Codex, Gemini
 CLI, Grok Build, OpenCode) can be installed from the same screen: you read the exact commands first and confirm, and
-nothing runs with `sudo`. They are installed and login-checked today and are used for Jobs in M4.
+nothing runs with `sudo`. They are installed and login-checked today, and Claude Code, Codex and OpenCode run agent
+jobs (the Jobs page comes in M4b).
 
 <p align="center">
   <picture>
@@ -146,7 +148,8 @@ nothing runs with `sudo`. They are installed and login-checked today and are use
 
 Leave **Target** on *Auto* and ask something. Click the route chip (**Why this?**) to see which model answered and
 why. Type `/code`, `/research`, `/bulk` or `/private` to steer a single message, or flip the **Private** switch
-to keep a whole chat on your machine. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> anywhere to search.
+to keep a whole chat on your machine. Private replies come from a local model that answers at once; press
+**Think harder** for one message when it needs a slower model that reasons first. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> anywhere to search.
 
 <p align="center">
   <picture>
@@ -162,11 +165,14 @@ to keep a whole chat on your machine. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kb
 <a id="jobs"></a>
 
 <details>
-<summary><b>4. Jobs</b> (coming in M4)</summary>
+<summary><b>4. Jobs</b> (the page is coming in M4b)</summary>
 
-"Fix the failing tests in repo X" as a tracked job for the right agent, with live status, approvals and a diff view,
-driven by [Paperclip](https://github.com/paperclipai/paperclip). **Not built yet** (the Jobs page is a placeholder),
-so there is no screenshot. Follow [the roadmap](#roadmap).
+"Add a function and its tests in repo X" as a tracked job for an agent (Claude Code, Codex or OpenCode), run through
+[Paperclip](https://github.com/paperclipai/paperclip): the agent plans, you approve, it edits in its own git worktree
+on a new branch, you review the diff, and the work is committed on that branch. Nothing is pushed, and jobs only
+run in folders you add to the Projects allowlist. **This works today through the router's API** (`POST /jobs`,
+[docs/m4a.md](docs/m4a.md)); the Jobs page is still a placeholder, so there is no screenshot. Follow
+[the roadmap](#roadmap).
 
 </details>
 
@@ -195,9 +201,9 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-chat-private-dusk.webp">
-        <img src="docs/media/shot-chat-private-day.webp" alt="A private chat answered by a local Ollama model, with the thinking shown live and a note that it stays on this computer.">
+        <img src="docs/media/shot-chat-private-day.webp" alt="A private chat answered at once by a local Ollama model, with a note that it stays on this computer and a Think harder button next to the Private switch.">
       </picture>
-      <br><sub><b>Private chats stay local.</b> Only local models are allowed, with no cloud fallback.</sub>
+      <br><sub><b>Private chats stay local.</b> Only local models, no cloud fallback. Fast by default; Think harder when you need it.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
@@ -239,9 +245,15 @@ Day and Dusk themes, and local-model profiles matched to your GPU.
   and pasted secrets always stay local and are masked in everything stored.
 - **No subscription token passthrough.** Subscriptions are used only through each vendor's own official CLI.
   Switchboard never extracts a login and hands it to another tool, because that risks your account.
+- **Agents are fenced in.** Jobs run only in folders you add to the Projects allowlist (never the Switchboard repo
+  itself), in their own git worktree on a new branch, never on your checked-out branch. Nothing is pushed: each agent's
+  permissions, a sandbox without network (Codex) and a git setting in its environment all block it. Agents get no
+  Switchboard keys, no SSH agent and no GitHub login, and every job has a budget, a turn cap and time limits.
+  Switchboard and Paperclip never copy, read, move or write a CLI's login files.
 - **Never `sudo`.** Installers are pinned, downloaded to a file, hashed and shown to you before they run.
 - **Known limit: the portal has no login yet.** Anyone who can reach port 3000 has full access, which is why it
-  listens on loopback only. **Don't expose it to a network** until login lands (M7).
+  listens on loopback only. **Don't expose it to a network** until login lands (M7). Paperclip, which runs the agents,
+  has no login either in its local mode: doctor and Status check that it listens on `127.0.0.1` only.
 - Some free tiers (for example Gemini's) may train on your prompts. Each provider card says so; use **Private** for anything you wouldn't send them.
 
 ## How it compares
@@ -251,14 +263,14 @@ Day and Dusk themes, and local-model profiles matched to your GPU.
 
 | | What it is | Routes across providers automatically | Explains each routing choice | Subscription logins | License |
 |---|---|---|---|---|---|
-| **Switchboard** | Chat portal + router for free tiers, subscriptions and local models | Yes: rules, an on-device classifier and a quota guard | Yes ("Why this?") | Official vendor CLIs only (used for Jobs in M4) | MIT |
+| **Switchboard** | Chat portal + router for free tiers, subscriptions and local models | Yes: rules, an on-device classifier and a quota guard | Yes ("Why this?") | Official vendor CLIs only (used for agent jobs) | MIT |
 | [Open WebUI](https://github.com/open-webui/open-webui) | Self-hosted chat UI for Ollama and OpenAI-compatible APIs, with built-in RAG | Not stated | Not stated | n/a | Custom "Open WebUI License" with a branding clause |
 | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) | AI gateway with tiered fallback (subscription, API key, cheap, free) | Yes (fallback tiers) | Not stated | Routes subscription logins through the gateway, per its project description | MIT, per its listings |
 | [9Router](https://github.com/decolua/9Router) | Local OpenAI-compatible endpoint for coding agents with three-tier fallback | Yes (fallback tiers) | Not stated | Routes subscription logins through its endpoint, per its project description | MIT, per its listings |
 | [Paperclip](https://github.com/paperclipai/paperclip) | Agent orchestration: org charts, tickets, per-agent budgets (not a chat app or router) | No (it runs your agents) | n/a | Via agent adapters | MIT |
 | [Ollama app](https://ollama.com) | Desktop chat for local models, with optional cloud models | No | n/a | n/a | See the project |
 
-Switchboard plans to use Paperclip for Jobs (M4) rather than rebuild it. We chose not to route subscription logins
+Switchboard uses Paperclip to run its agent jobs rather than rebuild it. We chose not to route subscription logins
 through a gateway (see [Privacy](#privacy-and-security)); that is a decision about account risk, not a claim about other projects.
 
 ## Roadmap
@@ -276,7 +288,8 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M1.5** Polish and self-healing | Footer, Status, settings, self-healing LiteLLM sync |
 | ✅ | **M3a** Routing brain | On-device classifier, recommender, quota guard, summaries, auto-private |
 | ✅ | **M3b** Rules UI and sidebar | Rules editor with history, dry-run tester, left sidebar, small-GPU profile |
-| 🔜 | **M4** Jobs via Paperclip | Agent jobs with live status, approvals and diffs |
+| ✅ | **M4a** Agents and jobs backend | Agent registry, jobs through Paperclip with approvals, worktrees and budgets; fast private chat |
+| 🔜 | **M4b** Jobs page | Job board, live log, plan and diff review in the portal |
 | 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand |
 | 🔜 | **M5** Studio | Image and video generation with cost confirmation |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
@@ -300,8 +313,9 @@ Switchboard tries to spend those first and keeps paid models behind your approva
 <details>
 <summary>Does it use my ChatGPT, Claude or Grok subscription?</summary>
 
-Only through each vendor's official CLI, and only for agent jobs, which arrive in M4. Today those CLIs are
-detected, installable and login-checked. Switchboard never extracts a subscription login or passes it to another tool.
+Only through each vendor's official CLI, and only for agent jobs (through the API today; the Jobs page comes in M4b).
+Switchboard and Paperclip never copy, read, move or write a CLI's login files, and never pass a subscription login to
+another tool.
 
 </details>
 

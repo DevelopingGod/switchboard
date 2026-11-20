@@ -19,10 +19,9 @@ export function ConnectStep({
   modelsByProvider: Record<string, CatalogModel[]>;
   localProfile?: LocalProfileView | null;
 }) {
-  if (needed.length === 0) return <p className="text-ink-muted">{tWizard("wizard.connect.none")}</p>;
+  // The intro text and the "nothing needed" message are rendered by Wizard with the page (LCP).
   return (
     <div className="grid gap-4">
-      <p className="max-w-xl text-ink-muted">{tWizard("wizard.connect.body")}</p>
       <div className="grid gap-(--gap) grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
         {needed.map((n) => {
           const row = rows.find((r) => r.provider === n.provider);

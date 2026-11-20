@@ -4,18 +4,18 @@ import json
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import secrets
 from app.chat import service
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
-from app.models import Connection, Cost, Message, ModelCatalog, ModelStats, Request, Thread
+from app.models import Connection, Cost, Job, Message, ModelCatalog, ModelStats, Request, Thread
 from app.reconcile import reconcile
 from app.routing.health import cooldowns
 from tests.conftest import ADMIN
 
-LOCAL = {"local", "private", "local-code"}
+LOCAL = {"local", "private", "local-code", "local-think"}
 
 
 def parse(text: str) -> list[tuple[str, dict]]:
@@ -288,7 +288,11 @@ async def test_midstream_error_ends_reply_without_duplicate(client, stack, sessi
 async def test_private_provably_stays_local(client, stack, session):
     """Every LiteLLM call for a private request is an Ollama deployment, even when local fails,
     with a cloud model picked, and for later non-private messages in the same thread (sticky)."""
-    reg_local = {"ollama_chat/qwen3:4b", "ollama_chat/qwen2.5-coder:3b"}
+    reg_local = {
+        "ollama_chat/qwen3:4b",
+        "ollama_chat/qwen3:4b-instruct-2507-q4_K_M",
+        "ollama_chat/qwen2.5-coder:3b",
+    }
 
     def assert_all_local():
         assert stack.stream_calls
@@ -363,12 +367,16 @@ async def test_image_and_video_are_studio_notices(client, stack, session):
     assert stack.stream_calls == []
 
 
-async def test_job_like_request_answers_in_chat_with_hint(client, stack):
+async def test_job_like_request_answers_in_chat_with_hint(client, stack, session):
     ev = await turn(client, text="Fix the failing tests in the repo switchboard")
     assert first(ev, "start")["job_suggested"] and first(ev, "done")["route"]["job_suggested"]
     assert first(ev, "done")["route"]["rule"] == "code-heavy"
     agents = [s for s in first(ev, "done")["route"]["skipped"] if s["code"] == "agent"]
-    assert agents and all("M4" in s["reason"] for s in agents)
+    assert agents and all("Run as job" in s["reason"] for s in agents)
+    # M4a: chat still answers; the job is only a proposal, never started on its own.
+    req = await session.get(Request, first(ev, "start")["request_id"])
+    assert req.decision_json["job"]["agents"][0]["id"] == "claude-code"
+    assert (await session.scalar(select(func.count()).select_from(Job))) == 0
 
 
 async def test_daily_cap_blocks_with_clear_message(client, stack, session):

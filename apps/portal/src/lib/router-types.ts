@@ -289,6 +289,8 @@ export interface ChatStreamBody {
   autonomy?: number | null;
   /** M3a: "Not sensitive — use cloud" (regenerate only). */
   cloud_override?: boolean;
+  /** M4a: "Think harder" for this message (local answers use the profile's thinking model). */
+  think?: boolean;
 }
 
 /** Status view (GET /system/components). */

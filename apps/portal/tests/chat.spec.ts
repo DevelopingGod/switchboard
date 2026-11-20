@@ -72,9 +72,23 @@ test.describe("chat · sending", () => {
 
   test("private stays local: badge, local chip, picker limited to local models", async ({ page }) => {
     await newChat(page);
+    const think = page.getByRole("button", { name: "Think harder" });
+    await expect(think).toHaveCount(0); // only offered when the answer stays local
     await page.getByRole("switch", { name: "Private" }).click();
+    // M4a: the local model answers at once, without a thinking phase…
     await send(page, "my health notes");
-    const reply = lastReply(page);
+    let reply = lastReply(page);
+    await expect(reply.getByRole("button", { name: /Routed to Ollama · qwen3:4b-instruct-2507-q4_K_M by rule private/ })).toBeVisible();
+    await expect(reply.getByRole("button", { name: /Thought for/ })).toHaveCount(0);
+    // …and "Think harder" asks the thinking model, for that one message only.
+    await expect(think).toHaveAttribute("aria-pressed", "false");
+    await think.click();
+    await expect(think).toHaveAttribute("aria-pressed", "true");
+    const sent = page.waitForRequest((r) => r.url().endsWith("/api/chat/stream"));
+    await send(page, "my health notes, think it through");
+    expect((await sent).postDataJSON()).toMatchObject({ private: true, think: true });
+    await expect(think).toHaveAttribute("aria-pressed", "false");
+    reply = lastReply(page);
     await expect(reply.getByRole("button", { name: /Routed to Ollama · qwen3:4b by rule private/ })).toBeVisible();
     await expect(page.getByText("Private: stays on this computer")).toBeVisible();
     // Thinking streamed live, collapsed by default, never saved.
@@ -188,6 +202,20 @@ test.describe("chat · composer and Home", () => {
     await page.keyboard.press("Enter");
     await expect(box).toHaveValue("/private ");
     await expect(hints).toHaveCount(0);
+  });
+
+  test("opening a thread shows the newest message; scrolling up by any means is never undone", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 }); // the seeded thread is taller than this
+    await page.goto(`/chat?t=${SEED}`);
+    const atEnd = () => page.evaluate(() => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2);
+    await expect.poll(atEnd).toBe(true);
+    // Not a wheel, key or touch: like dragging the scrollbar, find in page or a screen reader moving up.
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    // While the pin would still be on (2.5 s), the page height changes (a lazy chunk arriving, the window resizing).
+    await page.evaluate(() => document.getElementById("main")!.append(Object.assign(document.createElement("div"), { style: "height:40px" })));
+    await page.setViewportSize({ width: 1280, height: 620 });
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });
 
   test("seeded thread renders Markdown, highlighted code with copy, and the fallback chip", async ({ page }) => {

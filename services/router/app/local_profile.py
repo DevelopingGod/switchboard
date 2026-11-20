@@ -3,7 +3,8 @@
 Switchboard is open source and runs on many machines, so the local models are not hard-coded: the GPU
 memory is detected (nvidia-smi through hostprobe `/hw`), a profile is recommended, and the owner can
 pick another in Settings → Local models. The active profile decides the classifier model, the
-`local` / `private` / `local-code` aliases and the model for titles and summaries.
+`local` / `private` / `local-code` aliases, the "Think harder" model (`local-think`, M4a, ADR 0006) and
+the model for titles and summaries.
 
 State lives in `system_meta` key `local_profile`: {active, detected: {vram_gb, ram_gb, gpu, source},
 recommended, overridden}. The active name is cached in this module (set at startup and on change) so
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("app.local_profile")
 
 KEY = "local_profile"
-LOCAL_ALIASES = ("local", "private", "local-code")
+LOCAL_ALIASES = ("local", "private", "local-code", "local-think")
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class Profile:
     min_vram_gb: float
     classifier: str | None
     general: str
+    thinker: str | None  # M4a: "Think harder" model (null = the general model; ADR 0006)
     tasks: str | None
     coder: str | None
     cpu: bool
@@ -59,7 +61,7 @@ class Profile:
     def models(self) -> list[str]:
         """Every model this profile uses, classifier first (what setup/doctor pull)."""
         out: list[str] = []
-        for m in (self.classifier, self.general, self.tasks, self.coder):
+        for m in (self.classifier, self.general, self.thinker, self.tasks, self.coder):
             if m and m not in out:
                 out.append(m)
         return out
@@ -71,6 +73,7 @@ class Profile:
             "min_vram_gb": self.min_vram_gb,
             "classifier": self.classifier,
             "general": self.general,
+            "thinker": self.thinker or self.general,
             "tasks": self.tasks,
             "coder": self.coder or self.general,
             "cpu": self.cpu,
@@ -97,6 +100,7 @@ def load_profiles(config_dir: Path | None = None) -> tuple[dict[str, Profile], s
             min_vram_gb=float(p.get("min_vram_gb", 0)),
             classifier=p.get("classifier"),
             general=str(p["general"]),
+            thinker=p.get("thinker"),
             tasks=p.get("tasks"),
             coder=p.get("coder"),
             cpu=bool(p.get("cpu", False)),
@@ -139,7 +143,12 @@ def apply(aliases: list[AliasDeployment]) -> list[AliasDeployment]:
         prof = active()
     except (OSError, ValueError):  # no local-models.yaml (old config dir): keep providers.yaml
         return aliases
-    want = {"local": prof.general, "private": prof.general, "local-code": prof.coder or prof.general}
+    want = {
+        "local": prof.general,
+        "private": prof.general,
+        "local-code": prof.coder or prof.general,
+        "local-think": prof.thinker or prof.general,
+    }
     return [
         replace(a, model=want[a.alias]) if a.alias in want and a.provider == "ollama" else a for a in aliases
     ]

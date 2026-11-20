@@ -244,13 +244,16 @@ aliases:
     - { provider: openrouter, pick: best-free, tags: [chat], timeout: 60 }
   code-free:
     - { provider: opencode-zen, model: big-pickle, timeout: 90 }
-  # local / private / local-code follow the active local-model profile (config/local-models.yaml);
-  # these entries are the `small` profile's models and are replaced when another profile is active.
+  # local / private / local-code / local-think follow the active local-model profile
+  # (config/local-models.yaml); these entries are placeholders replaced by the active profile's models.
+  # local-think is "Think harder" (M4a, ADR 0006): the profile's thinking model, used only when asked.
   local:
     - { provider: ollama, model: "qwen3:4b" }
   private:
     - { provider: ollama, model: "qwen3:4b" }
   local-code:
+    - { provider: ollama, model: "qwen3:4b" }
+  local-think:
     - { provider: ollama, model: "qwen3:4b" }
 
 # Stand-ins (M3a quota guard): when an alias's model is near its free limit, automatic routing uses

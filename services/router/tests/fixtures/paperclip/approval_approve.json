@@ -1,0 +1,13 @@
+{
+ "method": "POST",
+ "path": "/approvals/:id/approve",
+ "request": {
+  "decisionNote": "Looks good"
+ },
+ "response": {
+  "decisionNote": "Looks good",
+  "id": "212215d8-8b39-470e-9d3f-59fc1ed2f43f",
+  "status": "approved"
+ },
+ "status": 200
+}

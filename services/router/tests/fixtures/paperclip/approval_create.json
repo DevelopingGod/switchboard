@@ -1,0 +1,29 @@
+{
+ "method": "POST",
+ "path": "/companies/:id/approvals",
+ "request": {
+  "issueIds": [
+   "8e807e93-2e99-4396-8223-49ad1526e66c"
+  ],
+  "payload": {
+   "kind": "plan",
+   "summary": "5-step plan",
+   "switchboardJobId": 1,
+   "title": "Approve the plan for job 1"
+  },
+  "type": "request_board_approval"
+ },
+ "response": {
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "id": "212215d8-8b39-470e-9d3f-59fc1ed2f43f",
+  "payload": {
+   "kind": "plan",
+   "summary": "5-step plan",
+   "switchboardJobId": 1,
+   "title": "Approve the plan for job 1"
+  },
+  "status": "pending",
+  "type": "request_board_approval"
+ },
+ "status": 201
+}

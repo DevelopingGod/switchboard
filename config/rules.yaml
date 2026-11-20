@@ -65,7 +65,9 @@ rules:
   - id: research
     when: { intent: research }
     target: agent:hermes
-    fallbacks: [agent:gemini-cli, model:smart-free, model:fast, model:local]
+    # M4a: Hermes and Gemini CLI aren't verified for jobs yet (config/agents.yaml), so a research job falls back to
+    # Claude Code. Chat still answers with the models at the end.
+    fallbacks: [agent:gemini-cli, agent:claude-code, model:smart-free, model:fast, model:local]
     autonomy: 1
     job: true
 

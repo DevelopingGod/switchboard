@@ -81,6 +81,7 @@ class TurnOptions:
     autonomy: int | None = None
     fault: Fault | None = None
     cloud_override: bool = False  # "Not sensitive — use cloud" on an auto-private reply (regenerate)
+    think: bool = False  # M4a: "Think harder" (local answers use the profile's thinking model)
 
 
 @dataclass
@@ -349,6 +350,7 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
                 classifier_info=cinfo,
                 secret_kinds=prep.secret_kinds,
                 no_auto_private=prep.no_auto_private,
+                think=opts.think,
             ),
             ctx,
         )

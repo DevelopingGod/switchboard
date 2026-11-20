@@ -25,14 +25,17 @@ SLASH = re.compile(r"^/([a-z][\w-]{0,20})(?:\s+|$)", re.I)
 MODEL_TARGET = re.compile(r"^model:[\w.:/@-]{1,200}$")
 NON_CHAT_TAGS = {"embedding", "moderation", "audio", "image", "video"}
 MIN_OUTPUT_TOKENS = 256
-AGENT_NAMES = {
-    "claude-code": "Claude Code",
-    "grok-build": "Grok Build",
-    "codex": "Codex",
-    "opencode": "OpenCode",
-    "hermes": "Hermes",
-    "gemini-cli": "Gemini CLI",
-}
+
+
+def agent_label(agent_id: str) -> str:
+    """The registry's label (config/agents.yaml); the id when the registry can't be read."""
+    try:
+        from app.agents import load_agents
+
+        a = load_agents().agents.get(agent_id)
+        return a.label if a else agent_id
+    except (OSError, ValueError):
+        return agent_id
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,13 @@ class RouteRequest:
     classifier_info: dict[str, Any] | None = None  # source, route, ms, fallback reason (logged)
     secret_kinds: tuple[str, ...] = ()  # the message contained a secret (already masked)
     no_auto_private: bool = False  # "Not sensitive — use cloud" re-run: skip auto-detection
+    # M4a: "Think harder" for this message. Local chat answers with the profile's fast, non-thinking
+    # model; this switches the local aliases to `local-think` (the profile's `thinker`, ADR 0006).
+    think: bool = False
+
+
+# Local aliases that "Think harder" switches to the thinking model (config/local-models.yaml `thinker`).
+THINK_ALIAS = {"local": "local-think", "private": "local-think"}
 
 
 @dataclass
@@ -148,6 +158,9 @@ class Decision:
     # M3a: why a request went local without the toggle: {source: classifier | secret, category,
     # overridable, overridden}
     sensitive: dict[str, Any] | None = None
+    think: bool = False  # M4a: "Think harder" asked for this message
+    # M4a: the rule's agents in order, for a job (POST /jobs). Chat still answers; nothing starts on its own.
+    job_agents: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def blocked_by_budget(self) -> bool:
@@ -176,6 +189,12 @@ class Decision:
             "context_tokens": self.context_tokens,
             "classifier": self.classifier,
             "sensitive": self.sensitive,
+            "think": self.think,
+            "job": (
+                {"agents": self.job_agents, "autonomy": self.autonomy, "suggested": self.job_suggested}
+                if self.job_agents
+                else None
+            ),
         }
 
 
@@ -203,8 +222,8 @@ def pick_rule(rules: RuleSet, facts: dict[str, Any]) -> Rule:
 
 
 class _Resolver:
-    def __init__(self, ctx: Context, dec: Decision, manual: bool):
-        self.ctx, self.dec, self.manual = ctx, dec, manual
+    def __init__(self, ctx: Context, dec: Decision, manual: bool, think: bool = False):
+        self.ctx, self.dec, self.manual, self.think = ctx, dec, manual, think
         self.reg = ctx.registry
         self.cooled: list[Candidate] = []  # last resort when nothing else is viable
         self.over_quota: set[str] = set()  # targets skipped by the quota guard (for spreading)
@@ -216,8 +235,12 @@ class _Resolver:
     def resolve(self, target: str, position: int) -> list[Candidate]:
         kind, _, name = target.partition(":")
         if kind == "agent":
-            label = AGENT_NAMES.get(name, name)
-            self.skip(target, label, "agent", f"{label} runs jobs, which arrive in M4; answering in chat")
+            # M4a: an agent target is a job. Chat answers with the chat models in the chain; the job is a
+            # proposal the owner starts explicitly (POST /jobs, "Run as job" in M4b), never automatically.
+            label = agent_label(name)
+            if not any(a["id"] == name for a in self.dec.job_agents):
+                self.dec.job_agents.append({"id": name, "label": label})
+            self.skip(target, label, "agent", f"{label} works as a job: start it with Run as job")
             return []
         if kind == "media":
             return []
@@ -244,6 +267,8 @@ class _Resolver:
         return [c] if c and self._viable(c) else []
 
     def _alias(self, target: str, alias: str, position: int) -> Candidate | None:
+        if self.think and alias in THINK_ALIAS and self.reg.alias(THINK_ALIAS[alias]):
+            alias = THINK_ALIAS[alias]
         deps = self.reg.alias(alias)
         live = [d for d in deps if d.provider in self.ctx.connected]
         first = (live or deps)[0]
@@ -281,7 +306,7 @@ class _Resolver:
         p = self.reg.providers[provider]
         label = f"{p.name.split(' (')[0]} · {model_id.split('/')[-1]}"
         if p.kind == "cli":
-            self.skip(target, label, "agent", f"{p.name} is a CLI agent; jobs arrive in M4")
+            self.skip(target, label, "agent", f"{p.name} is a CLI agent: it runs jobs, not chat replies")
             return None
         if provider in self.ctx.exhausted:
             self.skip(target, label, "credits", self.ctx.exhausted[provider])
@@ -584,7 +609,8 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
     if media_kind and not manual:
         return dec
 
-    r = _Resolver(ctx, dec, manual)
+    dec.think = req.think
+    r = _Resolver(ctx, dec, manual, req.think)
     if manual and private:
         # A local pick is honoured; anything else is skipped (reason: private) and the private
         # rule's local chain answers instead.
