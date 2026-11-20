@@ -8,7 +8,7 @@ import { ready } from "./helpers";
  */
 const SEED = "/chat?t=6f1c2a10-0000-4000-8000-000000000001";
 const WIDTHS = [360, 768, 1024, 1280, 1440, 1920];
-const PAGES = ["/", SEED, "/connections", "/settings", "/status", "/jobs", "/welcome?step=2", "/welcome?step=3"];
+const PAGES = ["/", SEED, "/connections", "/settings", "/status", "/jobs", "/jobs/28", "/jobs/agents", "/settings/projects", "/welcome?step=2", "/welcome?step=3"];
 const sidebar = (page: Page) => page.getByRole("complementary", { name: "Sidebar" });
 
 /** Browser zoom = fewer CSS pixels at a higher device scale factor. */

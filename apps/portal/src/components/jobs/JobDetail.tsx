@@ -324,11 +324,11 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
                   </span>
                 </dd>
               </div>
-              <div className="flex flex-wrap gap-x-3 text-[0.8125rem] text-ink-muted">
-                <span>{tJobs("detail.turns", { n: job.turns })}</span>
-                {job.started_at && job.finished_at && <span>{tJobs("detail.elapsed", { time: duration(job.started_at, job.finished_at) })}</span>}
-              </div>
             </dl>
+            <p className="flex flex-wrap gap-x-3 text-[0.8125rem] text-ink-muted">
+              <span>{tJobs("detail.turns", { n: job.turns })}</span>
+              {job.started_at && job.finished_at && <span>{tJobs("detail.elapsed", { time: duration(job.started_at, job.finished_at) })}</span>}
+            </p>
             <p className="text-[0.8125rem] text-ink-muted">{tJobs("cost.subscription")}</p>
             {job.paperclip.issue_id && (
               <a

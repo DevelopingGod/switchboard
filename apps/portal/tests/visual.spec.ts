@@ -131,6 +131,34 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page).toHaveScreenshot(`status-${scheme}.png`, { fullPage: true });
     });
 
+    // M4b: the jobs screens (fixture data).
+    for (const [name, path] of [
+      ["jobs-board", "/jobs?status=needs_approval"],
+      ["job-plan", "/jobs/30"],
+      ["job-diff", "/jobs/28"],
+      ["job-done", "/jobs/25"],
+      ["agents", "/jobs/agents"],
+      ["projects", "/settings/projects"],
+    ] as const) {
+      test(name, async ({ page }) => {
+        await page.goto(path);
+        await ready(page);
+        await settled(page);
+        await expect(page).toHaveScreenshot(`${name}-${scheme}.png`, { fullPage: true });
+      });
+    }
+
+    test("job · run as job preview", async ({ page }) => {
+      await page.goto("/jobs");
+      await ready(page);
+      await page.getByRole("button", { name: "New job" }).click();
+      const dlg = page.getByRole("dialog", { name: "New job" });
+      await dlg.getByRole("textbox", { name: "Task" }).fill("Add a function multiply(a, b) with tests");
+      await dlg.getByRole("button", { name: "Review" }).click();
+      await expect(dlg.getByRole("heading", { name: "What will happen" })).toBeVisible();
+      await expect(dlg).toHaveScreenshot(`job-preview-${scheme}.png`);
+    });
+
     test("chat · hover actions on an earlier reply", async ({ page }) => {
       await page.goto("/chat?t=6f1c2a10-0000-4000-8000-000000000001");
       await ready(page);

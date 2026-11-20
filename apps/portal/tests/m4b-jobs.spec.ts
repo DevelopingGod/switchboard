@@ -18,23 +18,24 @@ test.describe("read-only", () => {
     const tabs = page.getByRole("navigation", { name: "Status" });
     await expect(tabs.getByRole("link", { name: /All\s*30/ })).toHaveAttribute("aria-current", "page");
     await expect(tabs.getByRole("link", { name: /Needs you\s*2/ })).toBeVisible();
-    const list = page.getByRole("region", { name: "Jobs" });
-    await expect(list.getByRole("link", { name: /^Open job/ })).toHaveCount(25);
-    await expect(list.getByText("25 of 30")).toBeVisible();
-    await list.getByRole("button", { name: "Load more" }).click();
-    await expect(list.getByRole("link", { name: /^Open job/ })).toHaveCount(30);
-    await expect(list.getByRole("button", { name: "Load more" })).toHaveCount(0);
+    const region = page.getByRole("region", { name: "Jobs" });
+    const list = region.getByRole("list", { name: "Jobs" });
+    await expect(list.getByRole("listitem")).toHaveCount(25);
+    await expect(region.getByText("25 of 30")).toBeVisible();
+    await region.getByRole("button", { name: "Load more" }).click();
+    await expect(list.getByRole("listitem")).toHaveCount(30);
+    await expect(region.getByRole("button", { name: "Load more" })).toHaveCount(0);
 
     await tabs.getByRole("link", { name: /Needs you/ }).click();
     await expect(page).toHaveURL(/status=needs_approval/);
-    await expect(list.getByRole("link", { name: /^Open job/ })).toHaveCount(2);
+    await expect(list.getByRole("listitem")).toHaveCount(2);
     await expect(list.getByText("Approve the plan")).toBeVisible();
     await expect(list.getByText("Review the changes")).toBeVisible();
 
     await page.goto("/jobs");
     await page.getByLabel("Agent").selectOption("codex");
     await expect(page).toHaveURL(/agent=codex/);
-    await expect(list.getByRole("link", { name: /^Open job/ })).toHaveCount(2);
+    await expect(list.getByRole("listitem")).toHaveCount(2);
     await expect(tabs.getByRole("link", { name: /All\s*2/ })).toBeVisible();
     await page.getByRole("link", { name: "Clear filters" }).click();
     await expect(page).toHaveURL(/\/jobs$/);
@@ -209,8 +210,8 @@ test.describe("read-only", () => {
     await ready(page);
     const jobs = sidebar(page).getByRole("link", { name: /^Jobs/ });
     // The watcher loads when the page is idle, then asks once.
-    await expect(jobs).toHaveAccessibleName("Jobs, 2 need you", { timeout: 20_000 });
-    await expect(jobs.locator(".sb-badge")).toHaveText("2");
+    await expect(jobs).toHaveAccessibleName("Jobs 2 need you", { timeout: 20_000 });
+    await expect(jobs.locator(".sb-badge")).toHaveText("2 need you"); // "need you" is screen-reader text
   });
 });
 
@@ -224,7 +225,7 @@ test.describe("changes state", () => {
     const watcher = await ctx.newPage();
     await watcher.goto("/jobs/agents");
     await ready(watcher);
-    await expect(sidebar(watcher).getByRole("link", { name: "Jobs, 2 need you" })).toBeVisible({ timeout: 20_000 }); // baseline taken
+    await expect(sidebar(watcher).getByRole("link", { name: "Jobs 2 need you" })).toBeVisible({ timeout: 20_000 }); // baseline taken
     const actor = await ctx.newPage();
     await actor.goto("/jobs/28");
     await ready(actor);
@@ -232,7 +233,7 @@ test.describe("changes state", () => {
     await expect(actor.getByRole("status").filter({ hasText: "Approved" })).toBeVisible();
     // The watcher polls every 15 s; the job page itself never announces its own job.
     await expect(watcher.getByText("Job 28 is done")).toBeVisible({ timeout: 30_000 });
-    await expect(sidebar(watcher).getByRole("link", { name: "Jobs, 1 needs you" })).toBeVisible();
+    await expect(sidebar(watcher).getByRole("link", { name: "Jobs 1 needs you" })).toBeVisible();
     await ctx.close();
   });
 

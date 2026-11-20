@@ -225,15 +225,15 @@ export function Sidebar({
                   <Link
                     href={href}
                     aria-current={active === id ? "page" : undefined}
-                    aria-label={badge ? `${t(label)}, ${badge}` : undefined}
                     data-tip={rail ? (badge ? `${t(label)}: ${badge}` : t(label)) : undefined}
                     className="sb-link"
                   >
                     <Icon aria-hidden className="size-[1.125rem] shrink-0" />
                     <span className="sb-label">{t(label)}</span>
                     {badge && (
-                      <span className="sb-badge" aria-hidden data-count={needsYou}>
+                      <span className="sb-badge" data-count={needsYou}>
                         {needsYou}
+                        <span className="sr-only">{needsYou === 1 ? ` ${tShell("jobs.badgeRestOne")}` : ` ${tShell("jobs.badgeRest")}`}</span>
                       </span>
                     )}
                   </Link>

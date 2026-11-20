@@ -39,7 +39,6 @@ export const jobsStrings = {
     countOf: "{shown} of {total}",
   },
   row: {
-    open: "Open job {id}: {title}",
     autonomy: "Autonomy {level}",
     created: "Started {time}",
     waiting: "Waiting for you",

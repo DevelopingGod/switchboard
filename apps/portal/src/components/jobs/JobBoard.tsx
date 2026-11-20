@@ -41,7 +41,6 @@ export function JobRow({ j }: { j: JobView }) {
     <li>
       <Link
         href={`/jobs/${j.id}`}
-        aria-label={tJobs("row.open", { id: j.id, title: j.title })}
         className="job-row surface-strong grid gap-2 rounded-panel p-4 hover:-translate-y-px sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4"
       >
         <div className="grid min-w-0 gap-1">
@@ -208,7 +207,7 @@ export function JobBoard({
           <p className="text-ink-muted">{tJobs("board.noMatch")}</p>
         </GlassPanel>
       ) : (
-        <ul className="grid gap-2.5">
+        <ul aria-label={tJobs("board.label")} className="grid gap-2.5">
           {jobs.map((j) => (
             <JobRow key={j.id} j={j} />
           ))}

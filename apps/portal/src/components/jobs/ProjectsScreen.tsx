@@ -13,16 +13,17 @@ import { bytes } from "@/lib/job-format";
 import type { ProjectRow, ProjectWorktrees } from "@/lib/router-types";
 import { tJobs } from "@/i18n/jobs";
 
-function ProjectItem({ p, onRemoved }: { p: ProjectRow; onRemoved: () => void }) {
+function ProjectItem({ p, onRemoved, initial }: { p: ProjectRow; onRemoved: () => void; initial: ProjectWorktrees | null | undefined }) {
   const { push } = useToast();
-  const [wt, setWt] = React.useState<ProjectWorktrees | null>(null);
-  const [wtError, setWtError] = React.useState(false);
+  const [wt, setWt] = React.useState<ProjectWorktrees | null>(initial ?? null);
+  const [wtError, setWtError] = React.useState(initial === null);
   const [busy, setBusy] = React.useState<null | "remove" | "cleanup">(null);
   const [confirm, setConfirm] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const ids = React.useId();
 
   React.useEffect(() => {
+    if (initial !== undefined) return; // came with the page (a project added here loads its own)
     let alive = true;
     void loadWorktrees(p.id).then((r) => {
       if (!alive) return;
@@ -32,7 +33,7 @@ function ProjectItem({ p, onRemoved }: { p: ProjectRow; onRemoved: () => void })
     return () => {
       alive = false;
     };
-  }, [p.id]);
+  }, [p.id, initial]);
 
   const remove = async () => {
     setBusy("remove");
@@ -100,8 +101,8 @@ function ProjectItem({ p, onRemoved }: { p: ProjectRow; onRemoved: () => void })
           {wt && wt.worktrees.length > 0 && (
             <ul className="grid gap-1 pl-6 text-[0.8125rem] text-ink-muted">
               {wt.worktrees.map((w) => (
-                <li key={w.job_id} className="flex flex-wrap gap-x-2">
-                  <a href={`/jobs/${w.job_id}`} className="font-mono text-accent-strong underline underline-offset-4">
+                <li key={w.job_id} className="flex flex-wrap items-center gap-x-2">
+                  <a href={`/jobs/${w.job_id}`} className="inline-flex min-h-6 items-center font-mono text-accent-strong underline underline-offset-4">
                     {w.branch || `job-${w.job_id}`}
                   </a>
                   <span className="tabular-nums">{bytes(w.bytes)}</span>
@@ -127,7 +128,18 @@ function ProjectItem({ p, onRemoved }: { p: ProjectRow; onRemoved: () => void })
   );
 }
 
-export function ProjectsScreen({ initial, keep, keepDefault }: { initial: ProjectRow[]; keep: number | null; keepDefault: number | null }) {
+export function ProjectsScreen({
+  initial,
+  worktrees,
+  keep,
+  keepDefault,
+}: {
+  initial: ProjectRow[];
+  /** Per project id: its copies (null = hostprobe couldn't say). */
+  worktrees: Record<number, ProjectWorktrees | null>;
+  keep: number | null;
+  keepDefault: number | null;
+}) {
   const router = useRouter();
   const { push } = useToast();
   const [projects, setProjects] = React.useState(initial);
@@ -214,7 +226,7 @@ export function ProjectsScreen({ initial, keep, keepDefault }: { initial: Projec
       ) : (
         <ul className="grid gap-4">
           {projects.map((p) => (
-            <ProjectItem key={p.id} p={p} onRemoved={() => setProjects((cur) => cur.filter((x) => x.id !== p.id))} />
+            <ProjectItem key={p.id} p={p} initial={worktrees[p.id]} onRemoved={() => setProjects((cur) => cur.filter((x) => x.id !== p.id))} />
           ))}
         </ul>
       )}

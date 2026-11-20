@@ -3,7 +3,28 @@ import AxeBuilder from "@axe-core/playwright";
 import { ready } from "./helpers";
 
 const schemes = ["light", "dark"] as const;
-const pages = ["/", "/dev/components", "/chat", "/chat?t=6f1c2a10-0000-4000-8000-000000000001", "/settings", "/status", "/connections", "/welcome?step=1", "/welcome?step=2", "/welcome?step=3", "/welcome?step=4", "/welcome?step=5"];
+const pages = [
+  "/",
+  "/dev/components",
+  "/chat",
+  "/chat?t=6f1c2a10-0000-4000-8000-000000000001",
+  "/settings",
+  "/status",
+  "/connections",
+  "/welcome?step=1",
+  "/welcome?step=2",
+  "/welcome?step=3",
+  "/welcome?step=4",
+  "/welcome?step=5",
+  // M4b
+  "/jobs",
+  "/jobs?status=needs_approval",
+  "/jobs/30",
+  "/jobs/28",
+  "/jobs/27",
+  "/jobs/agents",
+  "/settings/projects",
+];
 
 /** `scope`: audit only this part of the page (a modal: the page behind it is inert and dimmed on purpose). */
 async function audit(page: Page, label: string, scope?: string) {
@@ -94,6 +115,42 @@ for (const scheme of schemes) {
       await page.keyboard.press("Escape");
       await page.getByRole("button", { name: /Explain Fallbacks/ }).first().click();
       await audit(page, `explain ${scheme}`);
+    });
+  });
+}
+
+for (const scheme of schemes) {
+  test.describe(`axe · M4b dialogs · ${scheme}`, () => {
+    test.use({ colorScheme: scheme });
+
+    test("new job: form and preview", async ({ page }) => {
+      await page.goto("/jobs");
+      await ready(page);
+      await page.getByRole("button", { name: "New job" }).click();
+      const dlg = page.getByRole("dialog", { name: "New job" });
+      await expect(dlg.getByRole("slider", { name: "Autonomy" })).toBeVisible();
+      await audit(page, `new job form ${scheme}`, '[role="dialog"]');
+      await dlg.getByRole("textbox", { name: "Task" }).fill("Add a function multiply(a, b) with tests");
+      await dlg.getByRole("button", { name: "Review" }).click();
+      await expect(dlg.getByRole("heading", { name: "What will happen" })).toBeVisible();
+      await audit(page, `new job preview ${scheme}`, '[role="dialog"]');
+    });
+
+    test("hire agent", async ({ page }) => {
+      await page.goto("/jobs/agents");
+      await ready(page);
+      await page.getByRole("button", { name: "Hire agent" }).click();
+      await expect(page.getByRole("dialog", { name: "Hire an agent" })).toBeVisible();
+      await audit(page, `hire ${scheme}`, '[role="dialog"]');
+    });
+
+    test("job · diff expanded and stop confirmation", async ({ page }) => {
+      await page.goto("/jobs/28");
+      await ready(page);
+      await page.getByRole("button", { name: "Collapse all" }).click();
+      await page.getByRole("button", { name: "Expand all" }).click();
+      await page.getByRole("button", { name: "Stop" }).click();
+      await audit(page, `job diff ${scheme}`);
     });
   });
 }

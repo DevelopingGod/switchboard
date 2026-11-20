@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.5.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.6.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>

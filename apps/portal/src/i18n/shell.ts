@@ -28,6 +28,9 @@ export const shellStrings = {
   jobs: {
     badge: "{n} need you",
     badgeOne: "1 needs you",
+    /** After the visible number, for screen readers: "Jobs 2 need you". */
+    badgeRest: "need you",
+    badgeRestOne: "needs you",
     toastPlan: "Job {id} needs you: approve the plan",
     toastDiff: "Job {id} needs you: review the changes",
     toastResult: "Job {id} needs you: review the report",
