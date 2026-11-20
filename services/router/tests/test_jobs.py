@@ -556,6 +556,25 @@ async def test_fallback_before_the_first_run_only(client, fakes, session):
     )
 
 
+async def test_a_research_job_falls_back_to_a_runnable_agent(client, fakes, session):
+    pc, host = fakes
+    pid = await add_project(client)
+    r = await client.post(
+        "/jobs",
+        json={
+            "prompt": "/research compare three Python test runners and report",
+            "project_id": pid,
+            "autonomy": 0,
+        },
+        headers=ADMIN,
+    )
+    jid = r.json()["id"]
+    assert r.json()["agent_chain"] == ["hermes", "gemini-cli", "claude-code"]
+    await step(jid)
+    j = await get(session, jid)
+    assert j.agent == "claude-code" and j.status == "running" and j.phase == "read_only"
+
+
 async def test_no_agent_available_fails_with_reasons(client, fakes, session):
     pc, host = fakes
     host.installed = set()
