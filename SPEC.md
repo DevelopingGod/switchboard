@@ -232,6 +232,9 @@ Implemented in M2 as `config/rules.yaml` (docs/m2.md). It adds `defaults.daily_c
 | 3 Full auto | Runs end-to-end in sandbox/worktree; human reviews result | Only inside Docker/worktree; never on real accounts or secrets |
 
 Default is 1. Level 3 requires: sandbox on, budget set, git worktree, no production credentials.
+**Level 3 is off until M7** (ADR 0010): Paperclip's bwrap sandbox can't start on merged-`/usr` systems, and the chosen
+sandbox (a locked-down container per job, behind an egress-allowlist proxy) is built with M7 packaging. The autonomy
+dial shows level 3 but can't land on it, with the reason next to it.
 
 **Implemented in M3b** (ADR 0004, docs/m3b.md): `rules.yaml` stays the read-only base; the owner's edits are one partial document (`defaults`, `rules` by id with `disabled` / `before`, `slash`, `presets`, `classifier` route descriptions, `recommender`, `quota`, `summary`) stored as append-only versions in `rules_versions` and merged onto the base before the same `parse()` validates it. The `private` rule cannot leave the machine, be removed or be changed by a preset. Endpoints: `GET /rules`, `POST /rules/validate`, `PUT /rules/overrides`, `GET /rules/versions[/{id}[/diff]]`, `POST /rules/versions/{id}/rollback`; `POST /route/dry-run` accepts an unsaved `draft`. A saved override that stops fitting a changed `rules.yaml` is ignored (routing uses the file) and reported until fixed.
 
@@ -240,6 +243,7 @@ Default is 1. Level 3 requires: sandbox on, budget set, git worktree, no product
 1. **Chat** — threads, streaming, file/image attach, composer with: `Auto` / manual target picker, temperature slider, autonomy selector, private toggle. Each reply shows a chip: *routed to X by rule Y* (click → decision log). "Convert to job" button.
 2. **Studio** — image and video generation, gallery, prompt history, per-item cost, re-run with another provider. Cost confirmation for video.
 3. **Agents & Jobs** — list Paperclip agents with status; job board (queued / running / needs approval / done); live log stream; diff or report view; approve / reject / stop. Deep-link to Paperclip for advanced config.
+   **Built in M4b** (docs/m4b.md): `/jobs` board (status tabs with counts, agent/project filters, paging), `/jobs/<id>` (timeline, live log, plan, per-file diff, approve/reject with a note, stop, cost or "cost not reported", branch and plain merge instructions; Switchboard never pushes), "Run as job" from a chat reply, `/jobs/agents` (fleet: hire from templates, edit, pause, reset, delete; ADR 0009), Settings → Projects (allowlist, copies, retention) and Settings → Jobs (approval expiry, desktop notifications).
 4. **Connections** — one card per provider:
    - *CLI providers*: detect installed (`<cli> --version`), detect logged-in, **Install** and **Log in** buttons (opens a terminal/browser OAuth via the CLI itself), **Test** button.
    - *API-key providers*: paste key → stored server-side → registered in LiteLLM → **Test** → shows models + current limits.
@@ -360,7 +364,8 @@ Users must always know **what** they are using, **why** it was picked, and **wha
 **Layout and interaction**
 - **Left sidebar (M3b, ADR 0003)** replaces the top pill bar: logo, collapse (⌘B), New chat, Search (⌘K), then Chat · Studio · Jobs · Connections · Metrics · Status, global recent chats (grouped, pinned, searched on the server), and at the bottom the day's budget as a small Dial, a breathing health dot, Simple/Pro, Appearance, Settings and profile. Glass rail over the sky; collapsed = 4.75 rem icon rail with tooltips; under 768 px it is a drawer (focus trapped, Esc closes, the page behind is inert). A slim sticky page header holds the section name and a slot for page actions. Never horizontal scroll at any width ≥ 360 px or at 125%/150% zoom; grids use container-friendly `auto-fill` columns, not viewport breakpoints. Rules live at Settings → Routing rules.
 - **Home**: "Hello, {name}. What do you want to build today?" and one large glass composer.
-- One primary action per screen. Details in side drawers, not new pages.
+- One primary action per screen. Details in side drawers, not new pages. Exception (M4b): a job's detail is its own
+  page (`/jobs/<id>`): its live log, plan and per-file diff need the full width, and a job is something you link to.
 - Progressive disclosure: summaries first, expand for detail. Cards carry three numbers at most.
 - ⌘K command palette for navigation and preferences; keyboard-first, visible focus rings everywhere.
 - Notifications batched in one toast region; approvals are the only thing that interrupts.
@@ -516,6 +521,8 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M3a | Routing brain (backend first): Arch-Router classifier, recommender scoring, quota guard, generic OpenAI-compatible adapter, long-thread summaries, local-model profiles, auto-private + secret masking | ≥ 85% on ≥ 60 labelled prompts (`services/router/tests/routing.jsonl`); quota guard reroutes before a 429 (test + live demo); a provider added with YAML only (test); summaries work; M1.5 carry-overs fixed |
 | M3b | Rules UI: table + form editor over `rules.yaml`, DB overrides and versioning with rollback, dry-run tester; left-sidebar app shell; small-GPU profile (classifier + tasks on CPU); real Gemini limits | Edit a rule in the UI, test a prompt, roll back; history kept; `/chat` first-load JS not larger than before; sidebar clean at 360–1920 px and 125%/150% zoom |
 | M4 | Jobs via Paperclip | "Fix tests in repo X" creates a Paperclip issue for the right agent; live status, approve/reject, diff view |
+| M4a | Agents & jobs backend: Paperclip adapter, agent registry, job engine, worktrees through hostprobe, budgets | Level 1 job (plan → approve → edit → diff → commit on a branch) proven live with Claude Code, Codex and OpenCode; allowlist and push refusals verified |
+| M4b | Jobs page and agent fleet: board, job detail (live log, plan, diff, decisions), Run as job, Agents (hire, pause, edit), Projects and Jobs settings, level-3 sandbox decision | A job started from a chat reply is planned, approved, reviewed and committed on its branch from the portal; axe, Lighthouse ≥ 90 (incl. `/chat`), JS ≤ 200 KB per route |
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |
 | M5.5 | Content Studio (§8d): templates, voice profiles, drafts library, media pairing, export | A LinkedIn post + matching image created, versioned, exported; cost shown under "content" in Metrics |

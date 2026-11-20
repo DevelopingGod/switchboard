@@ -131,44 +131,6 @@ test.describe("read-only", () => {
     expect(attention.status()).toBe(403);
   });
 
-  test("Run as job from a chat reply: proposal, order, level 3 off with its reason, preview, nothing starts", async ({ page }) => {
-    await page.goto("/chat");
-    await ready(page);
-    await page.getByRole("textbox", { name: /Message/ }).fill("Please fix the failing tests in my repo");
-    await page.keyboard.press("Enter");
-    const run = page.getByRole("button", { name: "Run as job" });
-    await expect(run).toBeEnabled({ timeout: 15_000 });
-    await run.click();
-    const dlg = page.getByRole("dialog", { name: "Run as job" });
-    await expect(dlg.getByRole("textbox", { name: "Task" })).toHaveValue("Please fix the failing tests in my repo");
-    const agents = dlg.getByRole("group", { name: "Agents, in order" });
-    await expect(agents.getByRole("listitem")).toHaveCount(2);
-    await expect(agents.getByRole("listitem").first()).toContainText("Claude Code");
-    await agents.getByRole("button", { name: "Move OpenCode up" }).click();
-    await expect(agents.getByRole("listitem").first()).toContainText("OpenCode");
-
-    const dial = dlg.getByRole("slider", { name: "Autonomy" });
-    await expect(dial).toHaveAttribute("aria-valuenow", "1");
-    await dial.press("End"); // level 3 can't be chosen: the handle stops at 2
-    await expect(dial).toHaveAttribute("aria-valuenow", "2");
-    await dial.press("ArrowRight");
-    await expect(dial).toHaveAttribute("aria-valuenow", "2");
-    await expect(dlg).toContainText("Level 3 isn’t available");
-    await dial.press("Home");
-    await dial.press("ArrowRight");
-
-    await dlg.getByRole("button", { name: "Review" }).click();
-    await expect(dlg.getByRole("heading", { name: "What will happen" })).toBeVisible();
-    await expect(dlg).toContainText("OpenCode reads the project and writes a plan");
-    await expect(dlg).toContainText("Nothing more happens until you approve the plan");
-    await expect(dlg).toContainText("Nothing is pushed.");
-    await expect(dlg.getByRole("button", { name: "Start job" })).toBeEnabled();
-    await dlg.getByRole("button", { name: "Back" }).click();
-    await expect(dlg.getByRole("button", { name: "Review" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(dlg).toHaveCount(0);
-  });
-
   test("fleet: status, success, budgets, levels with reasons, hire dialog", async ({ page }) => {
     await page.goto("/jobs/agents");
     await ready(page);
@@ -212,6 +174,47 @@ test.describe("read-only", () => {
     // The watcher loads when the page is idle, then asks once.
     await expect(jobs).toHaveAccessibleName("Jobs 2 need you", { timeout: 20_000 });
     await expect(jobs.locator(".sb-badge")).toHaveText("2 need you"); // "need you" is screen-reader text
+  });
+});
+
+test.describe("chat → job", () => {
+  test("Run as job from a chat reply: proposal, order, level 3 off with its reason, preview, nothing starts", async ({ page }) => {
+    // Sending a message adds a chat to the recents, so this runs on the mutating server like the chat tests.
+    await page.goto(`${urls.mutating}/chat`);
+    await ready(page);
+    await page.getByRole("textbox", { name: /Message/ }).fill("Please fix the failing tests in my repo");
+    await page.keyboard.press("Enter");
+    const run = page.getByRole("button", { name: "Run as job" });
+    await expect(run).toBeEnabled({ timeout: 15_000 });
+    await run.click();
+    const dlg = page.getByRole("dialog", { name: "Run as job" });
+    await expect(dlg.getByRole("textbox", { name: "Task" })).toHaveValue("Please fix the failing tests in my repo");
+    const agents = dlg.getByRole("group", { name: "Agents, in order" });
+    await expect(agents.getByRole("listitem")).toHaveCount(2);
+    await expect(agents.getByRole("listitem").first()).toContainText("Claude Code");
+    await agents.getByRole("button", { name: "Move OpenCode up" }).click();
+    await expect(agents.getByRole("listitem").first()).toContainText("OpenCode");
+
+    const dial = dlg.getByRole("slider", { name: "Autonomy" });
+    await expect(dial).toHaveAttribute("aria-valuenow", "1");
+    await dial.press("End"); // level 3 can't be chosen: the handle stops at 2
+    await expect(dial).toHaveAttribute("aria-valuenow", "2");
+    await dial.press("ArrowRight");
+    await expect(dial).toHaveAttribute("aria-valuenow", "2");
+    await expect(dlg).toContainText("Level 3 isn’t available");
+    await dial.press("Home");
+    await dial.press("ArrowRight");
+
+    await dlg.getByRole("button", { name: "Review" }).click();
+    await expect(dlg.getByRole("heading", { name: "What will happen" })).toBeVisible();
+    await expect(dlg).toContainText("OpenCode reads the project and writes a plan");
+    await expect(dlg).toContainText("Nothing more happens until you approve the plan");
+    await expect(dlg).toContainText("Nothing is pushed.");
+    await expect(dlg.getByRole("button", { name: "Start job" })).toBeEnabled();
+    await dlg.getByRole("button", { name: "Back" }).click();
+    await expect(dlg.getByRole("button", { name: "Review" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dlg).toHaveCount(0);
   });
 });
 

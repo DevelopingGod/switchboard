@@ -170,11 +170,11 @@ function routing(name: "light" | "dark") {
     conn(right(byId.n3), left(byId.n4)),
     `<path class="wire fbwire" d="M${mid(byId.n3)[0]} ${byId.n3.y + NH}C${mid(byId.n3)[0]} ${fbY - 40} ${left(byId.fb)[0] - 20} ${mid(byId.fb)[1]} ${left(byId.fb)[0]} ${mid(byId.fb)[1]}"/>`,
   ].join("\n");
-  // Agents and jobs: dashed and muted until their page ships (M4a built the backend, M4b the page).
+  // Agents and jobs: a dashed side path, because a job only starts when you confirm "Run as job" (M4b).
   const agentX = colX(2);
   const agent = `<g class="soon"><rect x="${agentX}" y="${fbY}" width="${NW}" height="${NH}" rx="18" fill="none" stroke="${t.inkMuted}" stroke-dasharray="6 6" stroke-width="1.5"/>
 <text x="${agentX + NW / 2}" y="${fbY + 33}" text-anchor="middle" font-size="19" font-weight="700" fill="${t.inkMuted}">Agent or job</text>
-<text x="${agentX + NW / 2}" y="${fbY + 56}" text-anchor="middle" font-size="13" fill="${t.inkMuted}">page in M4b</text></g>
+<text x="${agentX + NW / 2}" y="${fbY + 56}" text-anchor="middle" font-size="13" fill="${t.inkMuted}">when you confirm</text></g>
 <path d="M${mid(byId.n2)[0]} ${rowY + NH}V${fbY}" stroke="${t.inkMuted}" stroke-width="1.5" stroke-dasharray="3 6" fill="none"/>`;
   const nodeSvg = nodes
     .map(
