@@ -1,0 +1,19 @@
+{
+ "method": "GET",
+ "path": "/heartbeat-runs/:id",
+ "response": {
+  "agentId": "1a1ae639-a44b-4f7e-b13c-431e72783dd4",
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "error": "Cancelled by a board operator",
+  "errorCode": "cancelled",
+  "exitCode": null,
+  "finishedAt": "2026-11-20T05:32:02.194Z",
+  "id": "d0858c44-b289-499a-9c96-e5dafd6dd052",
+  "invocationSource": "assignment",
+  "issueId": "9d0311ff-68b8-4070-8b1d-a6b5536e8481",
+  "scopeKind": "issue",
+  "startedAt": "2026-11-20T05:31:58.217Z",
+  "status": "cancelled"
+ },
+ "status": 200
+}

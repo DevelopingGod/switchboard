@@ -158,7 +158,7 @@ port_check() {
   elif listening "$1"; then red "$1 ($2)" "in use by another process — ss -ltnp 'sport = :$1'"
   else red "$1 ($2)" "nothing listening"; fi
 }
-PAPERCLIP_URL=${PAPERCLIP_URL:-http://127.0.0.1:3100}
+PAPERCLIP_URL=${PAPERCLIP_URL:-http://127.0.0.1:${PAPERCLIP_PORT:-3100}}
 owns_postgres()  { dc port postgres 5432 | grep -q ":${POSTGRES_PORT:-5432}\$"; }
 owns_litellm()   { http -f "$LITELLM/health/liveliness"; }
 owns_paperclip() { http -f "$PAPERCLIP_URL/api/health"; }
@@ -332,6 +332,36 @@ begin "Paperclip API"
 if h=$(http -f "$PAPERCLIP_URL/api/health" 2>/dev/null); then
   green "Paperclip API" "$PAPERCLIP_URL $(echo "$h" | json 'd.get("status","")')"
 else red "Paperclip API" "no answer$(why_failed) — paperclipai service start (see docs/TROUBLESHOOTING.md)"; fi
+if [[ -n "${h:-}" ]]; then
+  begin "Paperclip version"
+  pv=$(echo "$h" | json 'd.get("version","")')
+  if [[ "$pv" == "${PAPERCLIP_VERSION:-2026.1106.0}" ]]; then green "Paperclip version" "$pv (pinned)"
+  else yellow "Paperclip version" "$pv running, Switchboard is verified with ${PAPERCLIP_VERSION:-2026.1106.0} — re-check docs/m4a.md before using jobs"; fi
+  # ADR 0007: no login in local_trusted mode, so it must only ever listen on loopback.
+  begin "Paperclip listens on loopback only"
+  pport=${PAPERCLIP_URL##*:}
+  binds=$(run "$T_CMD" ss -Hltn "sport = :$pport" 2>/dev/null | awk '{print $4}' | sed 's/:[0-9]*$//' | sort -u | tr '\n' ' ')
+  if [[ -z "${binds// /}" ]]; then yellow "Paperclip listens on loopback only" "could not read the listening address (ss)"
+  elif grep -qvE '^(127\.|\[::1\]|::1)' <<<"$(tr ' ' '\n' <<<"$binds" | sed '/^$/d')"; then
+    red "Paperclip listens on loopback only" "listening on $binds — anyone on your network could run agents; re-run its onboarding with --bind loopback"
+  else green "Paperclip listens on loopback only" "$binds"; fi
+  if [[ "$(echo "$h" | json 'd.get("deploymentMode","")')" == "local_trusted" ]]; then
+    yellow "Paperclip login" "none (local_trusted): any program on this computer can use it (ADR 0007; login comes with M7)"
+  fi
+  # M4a: Paperclip must find the agent CLIs on its own PATH (setup-wsl.sh writes a systemd drop-in).
+  begin "Paperclip can run the agent CLIs"
+  pc_pid=$(run "$T_CMD" systemctl --user show -p MainPID --value paperclipai.service 2>/dev/null)
+  pc_path=$( [[ -n "$pc_pid" && "$pc_pid" != 0 ]] && tr '\0' '\n' <"/proc/$pc_pid/environ" 2>/dev/null | sed -n 's/^PATH=//p')
+  missing=""
+  for c in claude codex opencode; do
+    cp=$(command -v "$c" 2>/dev/null) || continue
+    case "$cp" in /mnt/*) continue ;; esac
+    [[ ":$pc_path:" == *":$(dirname "$cp"):"* ]] || missing="$missing $c"
+  done
+  if [[ -z "$pc_path" ]]; then yellow "Paperclip can run the agent CLIs" "could not read Paperclip's PATH"
+  elif [[ -n "$missing" ]]; then red "Paperclip can run the agent CLIs" "not on its PATH:$missing — run scripts/setup-wsl.sh"
+  else green "Paperclip can run the agent CLIs" "installed CLIs are on its PATH"; fi
+fi
 
 section "hostprobe (CLI detection, M1a)"
 begin "hostprobe service"

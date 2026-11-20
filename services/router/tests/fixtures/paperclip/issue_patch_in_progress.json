@@ -1,0 +1,11 @@
+{
+ "method": "PATCH",
+ "path": "/issues/:id",
+ "request": {
+  "status": "in_progress"
+ },
+ "response": {
+  "error": "in_progress issues require an assignee"
+ },
+ "status": 422
+}

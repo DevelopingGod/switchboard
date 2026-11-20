@@ -1,0 +1,37 @@
+{
+ "method": "POST",
+ "path": "/companies/:id/adapters/claude_local/test-environment",
+ "request": {},
+ "response": {
+  "adapterType": "claude_local",
+  "checks": [
+   {
+    "code": "claude_environment_target",
+    "level": "info",
+    "message": "Probing on the Paperclip host."
+   },
+   {
+    "code": "claude_cwd_valid",
+    "level": "info",
+    "message": "Working directory is valid: /home/user/switchboard-playground"
+   },
+   {
+    "code": "claude_command_resolvable",
+    "level": "info",
+    "message": "Command is executable: /home/user/.local/bin/claude"
+   },
+   {
+    "code": "claude_subscription_mode_possible",
+    "level": "info",
+    "message": "ANTHROPIC_API_KEY is not set; subscription-based auth can be used if Claude is logged in."
+   },
+   {
+    "code": "claude_hello_probe_passed",
+    "level": "info",
+    "message": "Claude hello probe succeeded."
+   }
+  ],
+  "status": "pass"
+ },
+ "status": 200
+}

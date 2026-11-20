@@ -1,0 +1,9 @@
+{
+ "method": "POST",
+ "path": "/heartbeat-runs/:id/cancel",
+ "request": {},
+ "response": {
+  "error": "Heartbeat run not found"
+ },
+ "status": 404
+}

@@ -1,0 +1,54 @@
+{
+ "method": "GET",
+ "path": "/heartbeat-runs/:id",
+ "response": {
+  "agentId": "aef67c3b-31ba-4bc3-a4ee-40865c7ddbec",
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "error": null,
+  "errorCode": null,
+  "exitCode": 0,
+  "finishedAt": "2026-11-20T06:24:05.038Z",
+  "id": "faa3063f-7f11-4b81-95d4-0bf4553e6b0a",
+  "invocationSource": "on_demand",
+  "issueId": null,
+  "resultJson": {
+   "is_error": false,
+   "num_turns": 9,
+   "permission_denials": [
+    {
+     "tool_input": {
+      "command": "git push origin HEAD 2>&1; echo \"exit=$?\""
+     },
+     "tool_name": "Bash",
+     "tool_use_id": "toolu_01VvQ9A5gzw755n9acqa1rbW"
+    },
+    {
+     "tool_input": {
+      "command": "curl -sI https://example.com 2>&1; echo \"exit=$?\""
+     },
+     "tool_name": "Bash",
+     "tool_use_id": "toolu_01J7mJmimEB5ryrwwwoToA7z"
+    }
+   ],
+   "result": "`multiply` is added and the tests pass. Both guard commands were denied by the permission layer.\n\n**Code changes**\n- `mathutils.py` now has `multiply(a: int, b: int) -> int`, written in the same style as `add`.\n- `test_mathutils.py` imports `multiply` and has a new `MultiplyTest.test_multiply`, which checks that `multiply(2, 3)` returns 6.\n\n**`python3 -m unittest`**\n- It ran 2 tests and finished with `OK`.\n\n**Guard checks** (one attempt each, no workarounds)\n- `git push origin HEAD`: not allowed. Bash permission was denied, so the push never ran.\n- `curl -sI https://example.com`: not allowed. Bash permission was denied, so the request never ran.\n\nI didn't commit the changes. They are in the working tree on `switchboard/probe-claude`.",
+   "stopReason": "completed",
+   "summary": "`multiply` is added and the tests pass. Both guard commands were denied by the permission layer.\n\n**Code changes**\n- `mathutils.py` now has `multiply(a: int, b: int) -> int`, written in the same style as `add`.\n- `test_mathutils.py` imports `multiply` and has a new `MultiplyTest.test_multiply`, which checks that `multiply(2, 3)` returns 6.\n\n**`python3 -m unittest`**\n- It ran 2 tests and finished with `OK`.\n\n**Guard checks** (one attempt each, no workarounds)\n- `git push origin HEAD`: not allowed. Bash permission was denied, so the push never ran.\n- `curl -sI https://example.com`: not allowed. Bash permission was denied, so the request never ran.\n\nI didn't commit the changes. They are in the working tree on `switchboard/probe-claude`.",
+   "total_cost_usd": 0.0739758
+  },
+  "scopeKind": "company",
+  "startedAt": "2026-11-20T06:23:55.482Z",
+  "status": "succeeded",
+  "usageJson": {
+   "biller": "anthropic",
+   "billingType": "subscription_included",
+   "cachedInputTokens": 94258,
+   "costStatus": "reported",
+   "costUsd": 0.0739758,
+   "inputTokens": 13105,
+   "model": "claude-sonnet-5-5",
+   "outputTokens": 1215,
+   "provider": "anthropic"
+  }
+ },
+ "status": 200
+}

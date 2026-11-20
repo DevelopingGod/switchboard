@@ -1,0 +1,21 @@
+{
+ "method": "POST",
+ "path": "/companies/:id/issues",
+ "request": {
+  "description": "probe",
+  "idempotencyKey": "sb-job-probe-1",
+  "status": "todo",
+  "title": "Switchboard job 1: add multiply"
+ },
+ "response": {
+  "assigneeAgentId": null,
+  "assigneeUserId": null,
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "createdByUserId": "local-board",
+  "id": "8e807e93-2e99-4396-8223-49ad1526e66c",
+  "identifier": "SWI-9",
+  "status": "todo",
+  "title": "Switchboard job 1: add multiply"
+ },
+ "status": 201
+}

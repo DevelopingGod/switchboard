@@ -135,6 +135,8 @@ fill_secret SWITCHBOARD_SECRET_KEY "$(openssl rand -base64 32 | tr '+/' '-_')"
 fill_secret ROUTER_ADMIN_TOKEN "$(openssl rand -hex 32)"
 fill_secret HOSTPROBE_TOKEN "$(openssl rand -hex 32)"
 set -a; . "$ENV_FILE"; set +a
+# One port setting (M4a): older .env files set PAPERCLIP_URL instead, which still wins.
+PAPERCLIP_URL=${PAPERCLIP_URL:-http://127.0.0.1:${PAPERCLIP_PORT:-3100}}
 say "Back up SWITCHBOARD_SECRET_KEY and LITELLM_SALT_KEY (docs/m1a.md, Backups): stored keys can't be decrypted without them."
 
 # --- 4b. Portal env (M1b). The portal runs outside Docker, so it gets its own server-side file with
@@ -184,5 +186,36 @@ else
     warn "Skipped Paperclip onboarding."
   fi
 fi
+
+# --- 8b. Paperclip runs the agent CLIs (M4a, docs/m4a.md) --------------------------------------
+# Paperclip's service PATH is the systemd default, so it can't find CLIs installed under your home
+# (~/.local/bin, ~/.opencode/bin, ...) and agents stay "paused". A drop-in adds the folders of the
+# Linux CLIs found on your PATH (Windows ones under /mnt are skipped). Remove the file to undo.
+paperclip_cli_path() {
+  local unit="$HOME/.config/systemd/user/paperclipai.service.d" dirs="" c p d svc_path
+  systemctl --user cat paperclipai.service >/dev/null 2>&1 || { warn "Paperclip service not installed; skipped its CLI PATH"; return 0; }
+  for c in claude codex opencode gemini grok hermes; do
+    p=$(command -v "$c" 2>/dev/null) || continue
+    case "$p" in /mnt/*) continue ;; esac
+    d=$(dirname "$p")
+    case ":$dirs:" in *":$d:"*) ;; *) dirs="${dirs:+$dirs:}$d" ;; esac
+  done
+  [[ -n "$dirs" ]] || { say "No agent CLIs installed yet; re-run this script after installing them"; return 0; }
+  svc_path=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^PATH=//p')
+  svc_path=${svc_path:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}
+  mkdir -p "$unit"
+  printf '%s\n' "# Added by Switchboard (M4a): Paperclip runs the official agent CLIs, so their install folders" \
+    "# must be on its PATH. Regenerate with scripts/setup-wsl.sh; remove this file to undo." \
+    "[Service]" "Environment=\"PATH=$dirs:$svc_path\"" >"$unit/switchboard-path.conf.new"
+  if ! cmp -s "$unit/switchboard-path.conf.new" "$unit/switchboard-path.conf" 2>/dev/null; then
+    mv "$unit/switchboard-path.conf.new" "$unit/switchboard-path.conf"
+    systemctl --user daemon-reload && systemctl --user restart paperclipai.service
+    say "Paperclip can now run: $dirs"
+  else
+    rm -f "$unit/switchboard-path.conf.new"
+    say "Paperclip's CLI PATH is up to date"
+  fi
+}
+paperclip_cli_path
 
 say "Done. Run scripts/doctor.sh to check every component."

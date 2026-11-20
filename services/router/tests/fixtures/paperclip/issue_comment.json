@@ -1,0 +1,13 @@
+{
+ "method": "POST",
+ "path": "/issues/:id/comments",
+ "request": {
+  "body": "Run 08b915f2 (plan) finished: 5-step plan."
+ },
+ "response": {
+  "body": "Run 08b915f2 (plan) finished: 5-step plan.",
+  "id": "50b0720c-2587-4a4b-865c-e23706d479aa",
+  "issueId": "8e807e93-2e99-4396-8223-49ad1526e66c"
+ },
+ "status": 201
+}

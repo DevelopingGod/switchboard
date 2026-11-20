@@ -1,0 +1,12 @@
+{
+ "method": "PATCH",
+ "path": "/issues/:id",
+ "request": {
+  "status": "in_review"
+ },
+ "response": {
+  "id": "8e807e93-2e99-4396-8223-49ad1526e66c",
+  "status": "in_review"
+ },
+ "status": 200
+}

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     ollama_api_base: str = "http://host.docker.internal:11434"
     hostprobe_url: str = "http://host.docker.internal:8101"
     paperclip_url: str = "http://host.docker.internal:3100"
+    # Paperclip board API key, only for an `authenticated` Paperclip (ADR 0007: local_trusted needs none).
+    paperclip_api_key: SecretStr | None = None
     hostprobe_token: SecretStr | None = None
     config_dir: Path = Path("/srv/config")
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]

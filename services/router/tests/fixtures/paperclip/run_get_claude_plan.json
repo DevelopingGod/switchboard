@@ -1,0 +1,39 @@
+{
+ "method": "GET",
+ "path": "/heartbeat-runs/:id",
+ "response": {
+  "agentId": "03b3755f-b820-49ed-b8ca-0d0696297f6d",
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "error": null,
+  "errorCode": null,
+  "exitCode": 0,
+  "finishedAt": "2026-11-20T06:18:14.172Z",
+  "id": "08b915f2-c35d-46fc-ae24-daa99f46affd",
+  "invocationSource": "on_demand",
+  "issueId": null,
+  "resultJson": {
+   "is_error": false,
+   "num_turns": 2,
+   "permission_denials": [],
+   "result": "Plan (no files edited):\n\n1. In `mathutils.py`, add below `add()` a `multiply(a: int, b: int) -> int` function with the docstring `\"\"\"Return the product of a and b.\"\"\"`. It returns `a * b` and follows the style of `add`.\n2. In `test_mathutils.py`, change the import to `from mathutils import add, multiply`.\n3. Add a `MultiplyTest(unittest.TestCase)` class after `AddTest`. Its `test_multiply` method asserts `multiply(2, 3) == 6`. Optionally it also covers the edge cases `multiply(0, 5) == 0` and `multiply(-2, 3) == -6`.\n4. Run `python -m unittest -v` from the repo root and confirm both `add` and `multiply` tests pass.\n5. Optionally, commit with a message like \"Playground: add multiply() and its test\". Only do this if asked.",
+   "stopReason": "completed",
+   "summary": "Plan (no files edited):\n\n1. In `mathutils.py`, add below `add()` a `multiply(a: int, b: int) -> int` function with the docstring `\"\"\"Return the product of a and b.\"\"\"`. It returns `a * b` and follows the style of `add`.\n2. In `test_mathutils.py`, change the import to `from mathutils import add, multiply`.\n3. Add a `MultiplyTest(unittest.TestCase)` class after `AddTest`. Its `test_multiply` method asserts `multiply(2, 3) == 6`. Optionally it also covers the edge cases `multiply(0, 5) == 0` and `multiply(-2, 3) == -6`.\n4. Run `python -m unittest -v` from the repo root and confirm both `add` and `multiply` tests pass.\n5. Optionally, commit with a message like \"Playground: add multiply() and its test\". Only do this if asked.",
+   "total_cost_usd": 0.0626815
+  },
+  "scopeKind": "company",
+  "startedAt": "2026-11-20T06:18:06.980Z",
+  "status": "succeeded",
+  "usageJson": {
+   "biller": "anthropic",
+   "billingType": "subscription_included",
+   "cachedInputTokens": 31815,
+   "costStatus": "reported",
+   "costUsd": 0.0626815,
+   "inputTokens": 13917,
+   "model": "claude-sonnet-5-5",
+   "outputTokens": 384,
+   "provider": "anthropic"
+  }
+ },
+ "status": 200
+}

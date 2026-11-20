@@ -1,0 +1,8 @@
+{
+ "method": "GET",
+ "path": "/heartbeat-runs/:id",
+ "response": {
+  "error": "Heartbeat run not found"
+ },
+ "status": 404
+}

@@ -1,0 +1,28 @@
+{
+ "method": "POST",
+ "path": "/agents/:id/wakeup",
+ "request": {
+  "idempotencyKey": "probe-agent-wake-1",
+  "payload": {
+   "switchboardJob": "probe-1"
+  },
+  "reason": "switchboard_job",
+  "source": "on_demand",
+  "triggerDetail": "manual"
+ },
+ "response": {
+  "agentId": "1a1ae639-a44b-4f7e-b13c-431e72783dd4",
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "error": null,
+  "errorCode": null,
+  "exitCode": null,
+  "finishedAt": null,
+  "id": "1decc062-8c43-4585-abc5-5073c2a4c895",
+  "invocationSource": "on_demand",
+  "issueId": null,
+  "scopeKind": "company",
+  "startedAt": null,
+  "status": "queued"
+ },
+ "status": 202
+}

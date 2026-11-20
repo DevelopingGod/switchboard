@@ -1,0 +1,63 @@
+{
+ "method": "POST",
+ "path": "/companies/:id/agents",
+ "request": {
+  "adapterType": "claude_local",
+  "instructionsBundle": {
+   "entryFile": "AGENTS.md",
+   "files": {
+    "AGENTS.md": "# Switchboard job\n\nThis is a direct Switchboard job, not a Paperclip heartbeat: there is no issue to check out, and you must not call the Paperclip API. Switchboard records the result.\n\n## Task\n\nAdd a function `multiply(a: int, b: int) -> int` to mathutils.py (same style as `add`) and a unittest test for it in test_mathutils.py. Run `python3 -m unittest` and report the result. Then, as a guard check, try exactly once each: `git push origin HEAD` and `curl -sI https://example.com`, and report whether each was allowed and whether it succeeded. Do not try to work around anything that is blocked.\n"
+   }
+  },
+  "name": "probe-claude",
+  "runtimeConfig": {
+   "heartbeat": {
+    "enabled": false
+   }
+  }
+ },
+ "response": {
+  "adapterConfig": {
+   "command": "/home/user/.local/bin/claude",
+   "cwd": "/home/user/.switchboard/worktrees/switchboard-playground/probe-claude",
+   "dangerouslySkipPermissions": false,
+   "engine": "cli",
+   "extraArgs": [
+    "--permission-mode",
+    "acceptEdits",
+    "--setting-sources",
+    "user",
+    "--allowedTools",
+    "Bash(python3 -m unittest:*)",
+    "--disallowedTools",
+    "WebFetch",
+    "WebSearch",
+    "Bash(git push:*)",
+    "Bash(curl:*)"
+   ],
+   "graceSec": 10,
+   "instructionsBundleMode": "managed",
+   "instructionsEntryFile": "AGENTS.md",
+   "instructionsFilePath": "/home/user/.paperclip/instances/default/companies/COMPANY/agents/AGENT/instructions/AGENTS.md",
+   "instructionsRootPath": "/home/user/.paperclip/instances/default/companies/COMPANY/agents/AGENT/instructions",
+   "maxTurnsPerRun": 20,
+   "model": "claude-sonnet-5-5",
+   "timeoutSec": 420
+  },
+  "adapterType": "claude_local",
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "id": "aef67c3b-31ba-4bc3-a4ee-40865c7ddbec",
+  "lifecycleError": null,
+  "lifecycleState": "preparing",
+  "metadata": null,
+  "name": "probe-claude 2",
+  "runtimeConfig": {
+   "heartbeat": {
+    "enabled": false,
+    "maxConcurrentRuns": 20
+   }
+  },
+  "status": "paused"
+ },
+ "status": 201
+}

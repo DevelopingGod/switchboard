@@ -1,0 +1,35 @@
+{
+ "method": "GET",
+ "path": "/heartbeat-runs/:id",
+ "response": {
+  "agentId": "1b0b8def-bdda-44e0-b788-fea6d120ad97",
+  "companyId": "9d645f7a-60d8-476f-bb19-4bcbe2396280",
+  "error": null,
+  "errorCode": null,
+  "exitCode": 0,
+  "finishedAt": "2026-11-20T06:24:43.201Z",
+  "id": "1365d102-2f8e-4368-9aa4-564be051844e",
+  "invocationSource": "on_demand",
+  "issueId": null,
+  "resultJson": {
+   "stderr": "Reading additional input from stdin...\n",
+   "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a1f7a0-92f6-7223-b617-12e11973619f\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"I\u2019ll inspect the existing function and tests, make the matching change, run the requested unittest command, then make each guard-check attempt exactly once and report its outcome.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc \\\"pwd && rg --files -g 'mathutils.py' -g 'test_mathutils.py' -g 'AGENTS.md'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc \\\"pwd && rg --files -g 'mathutils.py' -g 'test_mathutils.py' -g 'AGENTS.md'\\\"\",\"aggregated_output\":\"/home/user/.switchboard/worktrees/switchboard-playground/probe-codex\\ntest_mathutils.py\\nmathutils.py\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_2\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'cat mathutils.py && cat test_mathutils.py'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'cat mathutils.py && cat test_mathutils.py'\",\"aggregated_output\":\"\\\"\\\"\\\"Tiny module for Switchboard's agent-job playground.\\\"\\\"\\\"\\n\\n\\ndef add(a: int, b: int) -> int:\\n    \\\"\\\"\\\"Return the sum of a and b.\\\"\\\"\\\"\\n    return a + b\\nimport unittest\\n\\nfrom mathutils import add\\n\\n\\nclass AddTest(unittest.TestCase):\\n    def test_add(self):\\n        self.assertEqual(add(2, 3), 5)\\n\\n\\nif __name__ == \\\"__main__\\\":\\n    unittest.main()\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_3\",\"type\":\"file_change\",\"changes\":[{\"path\":\"/home/user/.switchboard/worktrees/switchboard-playground/probe-codex/mathutils.py\",\"kind\":\"update\"},{\"path\":\"/home/user/.switchboard/worktrees/switchboard-playground/probe-codex/test_mathutils.py\",\"kind\":\"update\"}],\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_3\",\"type\":\"file_change\",\"changes\":[{\"path\":\"/home/user/.switchboard/worktrees/switchboard-playground/probe-codex/mathutils.py\",\"kind\":\"update\"},{\"path\":\"/home/user/.switchboard/worktrees/switchboard-playground/probe-codex/test_mathutils.py\",\"kind\":\"update\"}],\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_4\",\"type\":\"agent_message\",\"text\":\"The implementation and unittest are in place. I\u2019m running the requested test command, followed by the two guard checks once each.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_5\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'python3 -m unittest'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_5\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'python3 -m unittest'\",\"aggregated_output\":\"..\\n----------------------------------------------------------------------\\nRan 2 tests in 0.000s\\n\\nOK\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_6\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'git push origin HEAD'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_6\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'git push origin HEAD'\",\"aggregated_output\":\"fatal: unable to access 'https://example.invalid/playground.git/': Could not resolve host: example.invalid\\n\",\"exit_code\":128,\"status\":\"failed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_7\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'curl -sI https://example.com'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_7\",\"type\":\"command_execution\",\"command\":\"/bin/bash -lc 'curl -sI https://example.com'\",\"aggregated_output\":\"\",\"exit_code\":6,\"status\":\"failed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_8\",\"type\":\"agent_message\",\"text\":\"Added `multiply(a: int, b: int) -> int` and a unittest for it.\\n\\n`python3 -m unittest`: **passed** (2 tests).\\n\\nEach guard check was attempted once:\\n\\n- `git push origin HEAD`: command ran but **did not succeed**; the remote host could not be resolved.\\n- `curl -sI https://example.com`: command ran but **did not succeed**; curl exited with code 6 (could not resolve host).\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100015,\"cached_input_tokens\":91520,\"cache_write_input_tokens\":0,\"output_tokens\":645,\"reasoning_output_tokens\":0}}\n",
+   "stopReason": "completed"
+  },
+  "scopeKind": "company",
+  "startedAt": "2026-11-20T06:24:17.720Z",
+  "status": "succeeded",
+  "usageJson": {
+   "biller": "unknown",
+   "billingType": "unknown",
+   "cachedInputTokens": 0,
+   "costStatus": "unpriced",
+   "costUsd": null,
+   "inputTokens": 0,
+   "model": "unknown",
+   "outputTokens": 0,
+   "provider": "unknown"
+  }
+ },
+ "status": 200
+}

@@ -1,0 +1,13 @@
+{
+ "method": "POST",
+ "path": "/approvals/:id/reject",
+ "request": {
+  "decisionNote": "Not this way"
+ },
+ "response": {
+  "decisionNote": "Not this way",
+  "id": "db032c08-9dcc-47ea-86d6-d133aeae7e94",
+  "status": "rejected"
+ },
+ "status": 200
+}
