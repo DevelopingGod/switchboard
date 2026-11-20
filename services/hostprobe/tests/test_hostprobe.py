@@ -501,7 +501,9 @@ class ClaudeStatusTests(unittest.TestCase):
         fake_bin(
             d,
             "claude",
-            'case "$1" in --version) echo "2.1.326 (Claude Code)";; auth) cat <<\'J\'\n' + self.LOGGED_IN + 'J\n;; esac',
+            'case "$1" in --version) echo "2.1.326 (Claude Code)";; auth) cat <<\'J\'\n'
+            + self.LOGGED_IN
+            + "J\n;; esac",
         )
         r = hostprobe.probe_cli(hostprobe.CLIS["claude"], [str(d)])
         self.assertIs(r["logged_in"], True)
@@ -522,7 +524,8 @@ class InstallTableTests(unittest.TestCase):
     """The real allowlist: never sudo, never unsafe-perm, https from a known host, pinned versions."""
 
     def test_table_is_safe(self):
-        self.assertEqual(set(hostprobe.INSTALLS), set(hostprobe.CLIS))
+        # hermes is detected only (M4a): there is no verified installer to pin yet.
+        self.assertEqual(set(hostprobe.INSTALLS), set(hostprobe.CLIS) - {"hermes"})
         for name, s in hostprobe.INSTALLS.items():
             words = [s.source, s.interpreter, *s.args, *(f"{k}={v}" for k, v in s.env)]
             for w in words:
@@ -668,3 +671,153 @@ class HardwareTests(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=5) as r:
                 self.assertEqual(json.loads(r.read())["vram_mb"], 4096)
         self.assertEqual(len(calls), 1)
+
+
+# --- M4a: job worktrees (ADR 0008) -----------------------------------------------------------------
+def sh_git(cwd: Path, *args: str) -> str:
+    import subprocess
+
+    env = {"HOME": str(cwd), "PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1"}
+    return subprocess.run(  # noqa: S603 - fixed test argv
+        ["/usr/bin/git", "-c", "user.name=T", "-c", "user.email=t@x", "-c", "init.defaultBranch=main", *args],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+class GitWorktreeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name).resolve()
+        self.home = base / "home"
+        self.home.mkdir()
+        self.repo = base / "repo"
+        self.repo.mkdir()
+        sh_git(self.repo, "init", "-q")
+        (self.repo / "a.py").write_text("x = 1\n")
+        sh_git(self.repo, "add", "-A")
+        sh_git(self.repo, "commit", "-qm", "first")
+        self.root = self.home / ".switchboard" / "worktrees"
+        self.patches = [
+            mock.patch.object(hostprobe, "HOME", self.home),
+            mock.patch.dict(os.environ, {"SWITCHBOARD_WORKTREE_ROOT": str(self.root)}),
+        ]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def body(self, **kw):
+        return {"project": str(self.repo), "slug": "repo", "job_id": 7, **kw}
+
+    def test_inspect(self):
+        info = hostprobe.inspect_repo(str(self.repo))
+        self.assertTrue(info["is_repo"] and info["is_top"] and info["has_commits"])
+        self.assertEqual(info["head_branch"], "main")
+        self.assertFalse(info["is_self"])
+        (self.repo / "sub").mkdir()
+        self.assertFalse(hostprobe.inspect_repo(str(self.repo / "sub"))["is_top"])
+        plain = Path(self.tmp.name) / "plain"
+        plain.mkdir()
+        self.assertFalse(hostprobe.inspect_repo(str(plain))["is_repo"])
+        self.assertTrue(hostprobe.inspect_repo(str(hostprobe.SELF_REPO))["is_self"])
+        for bad in ("relative/path", "/no/such/folder", 5, "/nonexistent/\0x"):
+            with self.assertRaises(hostprobe.GitError):
+                hostprobe.inspect_repo(bad)
+
+    def test_create_is_a_new_branch_outside_the_repo_and_idempotent(self):
+        out = hostprobe.create_worktree(self.body())
+        wt = self.root / "repo" / "job-7"
+        self.assertEqual((out["path"], out["branch"], out["created"]), (str(wt), "switchboard/job-7", True))
+        self.assertEqual(sh_git(wt, "branch", "--show-current").strip(), "switchboard/job-7")
+        self.assertEqual(sh_git(self.repo, "branch", "--show-current").strip(), "main")  # yours untouched
+        self.assertEqual(sh_git(self.repo, "status", "--porcelain"), "")  # nothing appears in your checkout
+        again = hostprobe.create_worktree(self.body())
+        self.assertEqual(
+            (again["path"], again["created"], again["base_sha"]), (str(wt), False, out["base_sha"])
+        )
+
+    def test_refusals(self):
+        cases = [
+            (self.body(slug="../evil"), 400),
+            (self.body(slug="Repo"), 400),
+            (self.body(job_id=0), 400),
+            (self.body(job_id="7"), 400),
+            (self.body(job_id=True), 400),
+            (self.body(project=str(self.repo / "nope")), 404),
+            (self.body(project="repo"), 400),
+        ]
+        for body, status in cases:
+            with self.assertRaises(hostprobe.GitError) as e:
+                hostprobe.create_worktree(body)
+            self.assertEqual(e.exception.status, status, body)
+        empty = Path(self.tmp.name) / "empty"
+        empty.mkdir()
+        sh_git(empty, "init", "-q")
+        with self.assertRaises(hostprobe.GitError) as e:
+            hostprobe.create_worktree(self.body(project=str(empty)))
+        self.assertIn("no commits", e.exception.message)
+
+    def test_never_the_switchboard_repo_itself(self):
+        with self.assertRaises(hostprobe.GitError) as e:
+            hostprobe.create_worktree(self.body(project=str(hostprobe.SELF_REPO)))
+        self.assertEqual(e.exception.status, 403)
+
+    def test_diff_commit_list_remove(self):
+        out = hostprobe.create_worktree(self.body())
+        wt = Path(out["path"])
+        (wt / "a.py").write_text("x = 2\n")
+        (wt / "new.py").write_text("y = 3\n")
+        d = hostprobe.diff_worktree(self.body(base=out["base_sha"]))
+        self.assertEqual({f["path"] for f in d["files"]}, {"a.py", "new.py"})
+        self.assertIn("+x = 2", d["diff"])
+        self.assertIn("+y = 3", d["diff"])
+        with self.assertRaises(hostprobe.GitError):
+            hostprobe.diff_worktree(self.body(base="HEAD; rm -rf /"))
+        listed = hostprobe.list_worktrees(str(self.repo), "repo")["worktrees"]
+        self.assertEqual([(w["job_id"], w["merged"]) for w in listed], [(7, True)])  # tip == base so far
+        c = hostprobe.commit_worktree(self.body(message="Switchboard job 7: change x"))
+        self.assertTrue(c["committed"])
+        self.assertEqual(
+            sh_git(self.repo, "log", "-1", "--format=%s", "switchboard/job-7").strip(),
+            "Switchboard job 7: change x",
+        )
+        self.assertEqual(
+            sh_git(self.repo, "log", "-1", "--format=%s", "main").strip(), "first"
+        )  # main unchanged
+        self.assertFalse(hostprobe.commit_worktree(self.body(message="again"))["committed"])
+        listed = hostprobe.list_worktrees(str(self.repo), "repo")
+        self.assertFalse(listed["worktrees"][0]["merged"])
+        self.assertGreater(listed["bytes"], 0)
+        sh_git(self.repo, "merge", "-q", "--ff-only", "switchboard/job-7")
+        self.assertTrue(hostprobe.list_worktrees(str(self.repo), "repo")["worktrees"][0]["merged"])
+        self.assertTrue(hostprobe.remove_worktree(self.body())["removed"])
+        self.assertFalse(wt.exists())
+        self.assertIn("switchboard/job-7", sh_git(self.repo, "branch", "--list", "switchboard/job-7"))  # kept
+        self.assertTrue(hostprobe.remove_worktree(self.body())["removed"])  # already gone = success
+        with self.assertRaises(hostprobe.GitError) as e:
+            hostprobe.diff_worktree(self.body(base=out["base_sha"]))
+        self.assertEqual(e.exception.status, 404)
+
+    def test_listening_reads_proc_net(self):
+        tcp = (
+            "  sl  local_address rem_address   st\n"
+            "   0: 0100007F:0C1C 00000000:0000 0A 0\n"  # 127.0.0.1:3100 LISTEN
+            "   1: 00000000:1F90 00000000:0000 0A 0\n"  # 0.0.0.0:8080 LISTEN
+        )
+        with mock.patch.object(
+            hostprobe, "read_proc", side_effect=lambda n: tcp if n.endswith("tcp") else ""
+        ):
+            self.assertEqual(
+                hostprobe.listening("3100"), {"port": 3100, "addresses": ["127.0.0.1"], "loopback_only": True}
+            )
+            self.assertFalse(hostprobe.listening("8080")["loopback_only"])
+            self.assertEqual(hostprobe.listening("9")["addresses"], [])
+        with self.assertRaises(hostprobe.GitError):
+            hostprobe.listening("3100; ls")

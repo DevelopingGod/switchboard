@@ -18,6 +18,13 @@ Security rules (M1a, docs/m1a.md):
 - PATH detection (M1b): one fixed `bash -lic` call prints a login shell's PATH (the PATH of a new
   terminal) so the UI can say when an installed CLI's directory is not on it. Nothing is changed.
 
+- Job worktrees (M4a, ADR 0008): narrow git actions for agent jobs. A project path and a job number
+  are the only request data that reach `git`, as argv (never a shell), after these checks: the path
+  is resolved and must be the top of a git work tree, never this Switchboard repo; worktrees live
+  only under one root (SWITCHBOARD_WORKTREE_ROOT, default ~/.switchboard/worktrees); branches are
+  exactly `switchboard/job-<n>` from the project's HEAD; nothing is ever pushed or fetched, and the
+  project's own checkout and branch are never changed.
+
 Stdlib only, so it runs on the system python3 without a venv.
 """
 
@@ -25,6 +32,7 @@ import argparse
 import glob
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -65,6 +73,8 @@ CLIS: dict[str, CliSpec] = {
     "gemini": CliSpec("gemini", None, "", (".gemini/oauth_creds.json",)),
     "grok": CliSpec("grok", None, "", (".grok/auth.json", ".config/grok/auth.json")),
     "opencode": CliSpec("opencode", ("auth", "list"), "opencode", (".local/share/opencode/auth.json",)),
+    # M4a: listed so the registry can say "not installed"; no verified status command or login file yet.
+    "hermes": CliSpec("hermes", None, "", ()),
 }
 
 
@@ -262,6 +272,8 @@ def probe_hw() -> dict:
         "ram_mb": ram,
         "source": "nvidia-smi" if vram else "none",
         "error": err,
+        # M4a: level 3 jobs run only inside the bwrap sandbox (never unsandboxed).
+        "bwrap": which("bwrap", ["/usr/bin", "/usr/local/bin", "/bin"]) is not None,
     }
 
 
@@ -754,6 +766,324 @@ class Installer:
         return job
 
 
+# --- Job worktrees (M4a, ADR 0008) -----------------------------------------------------------------
+GIT_TIMEOUT_S = 60
+SELF_REPO = Path(__file__).resolve().parents[2]  # services/hostprobe/hostprobe.py -> the Switchboard repo
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,60}")
+MAX_DIFF_BYTES = 1_000_000
+MAX_NEW_FILES = 200
+MAX_DU_FILES = 200_000
+
+
+class GitError(InstallError):
+    pass
+
+
+GIT_LOCK = threading.Lock()
+
+
+def worktree_root() -> Path:
+    return Path(
+        os.environ.get("SWITCHBOARD_WORKTREE_ROOT") or HOME / ".switchboard" / "worktrees"
+    ).expanduser()
+
+
+def git_bin() -> str:
+    g = which("git", ["/usr/bin", "/usr/local/bin", "/bin"])
+    if not g:
+        raise GitError(503, "git is not installed")
+    return g
+
+
+def git(args: list[str], cwd: Path, timeout: float = GIT_TIMEOUT_S, ok: tuple[int, ...] = (0,)) -> str:
+    """Run git with a fixed argv list (no shell), no prompts, editor or pager. Raises GitError otherwise."""
+    env = {
+        "HOME": str(HOME),
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C.UTF-8",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_EDITOR": "true",
+        "GIT_PAGER": "cat",
+        "GIT_ASKPASS": "",
+        "SSH_ASKPASS": "",
+    }
+    try:
+        r = subprocess.run(  # noqa: S603 - fixed git argv; paths are validated by the callers
+            [git_bin(), *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise GitError(504, f"git {args[0]} took longer than {timeout:g} s") from None
+    except OSError as e:
+        raise GitError(500, f"git could not start ({type(e).__name__})") from None
+    if r.returncode not in ok:
+        msg = (r.stderr or r.stdout or "").strip().splitlines()
+        raise GitError(409, f"git {args[0]} failed: {msg[-1][:200] if msg else 'exit ' + str(r.returncode)}")
+    return r.stdout
+
+
+def git_ok(args: list[str], cwd: Path) -> bool:
+    """True when git exits 0, False on exit 1 (yes/no questions such as merge-base --is-ancestor)."""
+    try:
+        git(args, cwd, ok=(0,))
+        return True
+    except GitError:
+        return False
+
+
+def _abs_dir(value: object) -> Path:
+    if not isinstance(value, str) or not value.startswith("/") or "\0" in value or len(value) > 4096:
+        raise GitError(400, "path must be an absolute folder path")
+    try:
+        p = Path(value).resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise GitError(404, "that folder doesn't exist") from None
+    if not p.is_dir():
+        raise GitError(400, "that path is not a folder")
+    return p
+
+
+def _is_self(p: Path) -> bool:
+    return p == SELF_REPO or SELF_REPO in p.parents
+
+
+def inspect_repo(value: object) -> dict:
+    """Read-only facts about a folder someone wants to add as a project."""
+    p = _abs_dir(value)
+    try:
+        top = Path(git(["rev-parse", "--show-toplevel"], p).strip()).resolve()
+    except GitError:
+        return {"path": str(p), "is_repo": False, "is_top": False, "is_self": _is_self(p)}
+    branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], p, ok=(0, 1)).strip() or None
+    head = git(["rev-parse", "--verify", "--quiet", "HEAD"], p, ok=(0, 1)).strip() or None
+    dirty = len(git(["status", "--porcelain"], p).splitlines())
+    return {
+        "path": str(p),
+        "is_repo": True,
+        "is_top": top == p,
+        "top": str(top),
+        "is_self": _is_self(top),
+        "head_branch": branch,
+        "head_sha": head,
+        "has_commits": head is not None,
+        "dirty_files": dirty,
+    }
+
+
+def _project(value: object) -> Path:
+    p = _abs_dir(value)
+    info = inspect_repo(str(p))
+    if not info["is_repo"] or not info["is_top"]:
+        raise GitError(400, "the project must be the top folder of a git repository")
+    if info["is_self"] and os.environ.get("SWITCHBOARD_ALLOW_SELF") != "1":
+        raise GitError(403, "jobs never run in the Switchboard repository itself")
+    if not info["has_commits"]:
+        raise GitError(400, "the repository has no commits yet: commit once, then retry")
+    return p
+
+
+def _job(slug: object, job_id: object) -> tuple[str, int, str, Path]:
+    if not isinstance(slug, str) or not SLUG_RE.fullmatch(slug):
+        raise GitError(400, "invalid project slug")
+    if isinstance(job_id, bool) or not isinstance(job_id, int) or not 0 < job_id < 10**12:
+        raise GitError(400, "invalid job id")
+    root = worktree_root()
+    wt = root / slug / f"job-{job_id}"
+    if root not in wt.parents:
+        raise GitError(400, "worktree path escapes the worktree root")
+    return slug, job_id, f"switchboard/job-{job_id}", wt
+
+
+def _worktrees(project: Path) -> list[dict]:
+    out, cur = [], {}
+    for line in git(["worktree", "list", "--porcelain"], project).splitlines():
+        if not line:
+            if cur:
+                out.append(cur)
+            cur = {}
+            continue
+        k, _, v = line.partition(" ")
+        cur[k] = v
+    if cur:
+        out.append(cur)
+    return out
+
+
+def create_worktree(body: dict) -> dict:
+    project = _project(body.get("project"))
+    _, _, branch, wt = _job(body.get("slug"), body.get("job_id"))
+    for w in _worktrees(project):
+        if Path(w.get("worktree", "")) == wt:  # already there (a retried request): same answer
+            return {
+                "path": str(wt),
+                "branch": branch,
+                "base_sha": git(["rev-parse", "HEAD"], wt).strip(),
+                "created": False,
+            }
+    if wt.exists():
+        raise GitError(409, "a folder is already where the job's worktree goes; remove it first")
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    exists = git(["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], project, ok=(0, 1)).strip()
+    if exists:
+        git(["worktree", "add", "--", str(wt), branch], project)
+    else:
+        git(["worktree", "add", "-b", branch, "--", str(wt), "HEAD"], project)
+    return {
+        "path": str(wt),
+        "branch": branch,
+        "base_sha": git(["rev-parse", "HEAD"], wt).strip(),
+        "created": True,
+    }
+
+
+def _existing_worktree(body: dict) -> tuple[Path, Path, str]:
+    project = _project(body.get("project"))
+    _, _, branch, wt = _job(body.get("slug"), body.get("job_id"))
+    if not any(Path(w.get("worktree", "")) == wt for w in _worktrees(project)):
+        raise GitError(404, "that job has no worktree")
+    return project, wt, branch
+
+
+def diff_worktree(body: dict) -> dict:
+    """The job's changes against its base commit: tracked changes and new files, capped in size."""
+    _, wt, branch = _existing_worktree(body)
+    base = body.get("base")
+    if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{7,64}", base):
+        raise GitError(400, "invalid base commit")
+    stat = git(["diff", "--numstat", base, "--"], wt)
+    text = git(["diff", "--no-color", "--no-ext-diff", base, "--"], wt)
+    new = [f for f in git(["ls-files", "--others", "--exclude-standard", "-z"], wt).split("\0") if f]
+    for f in new[:MAX_NEW_FILES]:
+        if len(text) > MAX_DIFF_BYTES:
+            break
+        text += git(["diff", "--no-color", "--no-index", "--", "/dev/null", f], wt, ok=(0, 1))
+    files = [
+        {
+            "path": parts[2],
+            "added": None if parts[0] == "-" else int(parts[0]),
+            "removed": None if parts[1] == "-" else int(parts[1]),
+        }
+        for parts in (line.split("\t", 2) for line in stat.splitlines())
+        if len(parts) == 3
+    ] + [{"path": f, "added": None, "removed": None, "new": True} for f in new]
+    truncated = len(text) > MAX_DIFF_BYTES or len(new) > MAX_NEW_FILES
+    return {
+        "branch": branch,
+        "base": base,
+        "files": files,
+        "diff": text[:MAX_DIFF_BYTES],
+        "truncated": truncated,
+    }
+
+
+def commit_worktree(body: dict) -> dict:
+    """Commit the job's changes on its own branch (after the owner approved the diff)."""
+    _, wt, branch = _existing_worktree(body)
+    message = body.get("message")
+    if not isinstance(message, str) or not message.strip() or len(message) > 500 or "\0" in message:
+        raise GitError(400, "invalid commit message")
+    git(["add", "-A"], wt)
+    if not git(["status", "--porcelain"], wt).strip():
+        return {"committed": False, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
+    ident = []
+    if not git(["config", "user.email"], wt, ok=(0, 1)).strip():
+        ident = ["-c", "user.name=Switchboard", "-c", "user.email=switchboard@localhost"]
+    git([*ident, "commit", "-q", "-m", message], wt, timeout=120)
+    return {"committed": True, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
+
+
+def remove_worktree(body: dict) -> dict:
+    """Remove the job's worktree; the branch is kept. Already gone = success."""
+    project = _project(body.get("project"))
+    _, _, branch, wt = _job(body.get("slug"), body.get("job_id"))
+    if any(Path(w.get("worktree", "")) == wt for w in _worktrees(project)):
+        git(["worktree", "remove", "--force", "--", str(wt)], project)
+    git(["worktree", "prune"], project)
+    return {"removed": True, "branch": branch}
+
+
+def _du(path: Path) -> int:
+    total, n = 0, 0
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for f in files:
+            n += 1
+            if n > MAX_DU_FILES:
+                return total
+            try:
+                total += os.lstat(os.path.join(root, f)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def list_worktrees(project_value: object, slug: object) -> dict:
+    """The project's job worktrees: branch, tip, whether the tip is in the project's HEAD, disk used."""
+    project = _project(project_value)
+    if not isinstance(slug, str) or not SLUG_RE.fullmatch(slug):
+        raise GitError(400, "invalid project slug")
+    base = worktree_root() / slug
+    out = []
+    for w in _worktrees(project):
+        path = Path(w.get("worktree", ""))
+        m = re.fullmatch(r"job-(\d+)", path.name)
+        if path.parent != base or not m:
+            continue
+        tip = w.get("HEAD", "")
+        merged = bool(re.fullmatch(r"[0-9a-f]{40,64}", tip)) and git_ok(
+            ["merge-base", "--is-ancestor", tip, "HEAD"], project
+        )
+        out.append(
+            {
+                "job_id": int(m.group(1)),
+                "path": str(path),
+                "branch": w.get("branch", "").removeprefix("refs/heads/"),
+                "tip": tip,
+                "merged": merged,
+                "bytes": _du(path),
+            }
+        )
+    return {"worktrees": out, "bytes": sum(x["bytes"] for x in out)}
+
+
+def read_proc(name: str) -> str:
+    return Path(name).read_text()
+
+
+def listening(port: object) -> dict:
+    """Addresses a local TCP port listens on, from /proc/net/tcp{,6} (no command runs)."""
+    if not isinstance(port, str) or not port.isdigit() or not 0 < int(port) < 65536:
+        raise GitError(400, "invalid port")
+    want = int(port)
+    addrs = set()
+    for name, v6 in (("/proc/net/tcp", False), ("/proc/net/tcp6", True)):
+        try:
+            lines = read_proc(name).splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 4 or parts[3] != "0A":  # LISTEN
+                continue
+            hexaddr, hexport = parts[1].split(":")
+            if int(hexport, 16) != want:
+                continue
+            raw = bytes.fromhex(hexaddr)
+            if v6:
+                words = [raw[i : i + 4][::-1] for i in range(0, 16, 4)]
+                addrs.add(str(ipaddress.IPv6Address(b"".join(words))))
+            else:
+                addrs.add(".".join(str(x) for x in raw[::-1]))
+    loopback = all(a.startswith("127.") or a in ("::1", "::ffff:127.0.0.1") for a in addrs)
+    return {"port": want, "addresses": sorted(addrs), "loopback_only": bool(addrs) and loopback}
+
+
 def make_handler(probe: Probe):
     class Handler(BaseHTTPRequestHandler):
         server_version = "hostprobe"
@@ -769,7 +1099,7 @@ def make_handler(probe: Probe):
 
         def _body(self) -> dict:
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 1024:
+            if n > 16384:
                 raise InstallError(413, "body too large")
             try:
                 data = json.loads(self.rfile.read(n) or b"{}")
@@ -824,6 +1154,14 @@ def make_handler(probe: Probe):
                 return self._send(*probe.cli(fresh=query.get("fresh") == ["1"]))
             if url.path == "/hw":
                 return self._send(*probe.hw())
+            try:
+                q1 = {k: v[0] for k, v in query.items() if v}
+                if url.path == "/git/worktrees":
+                    return self._send(200, list_worktrees(q1.get("project"), q1.get("slug")))
+                if url.path == "/net/listen":
+                    return self._send(200, listening(q1.get("port")))
+            except InstallError as e:
+                return self._send(e.status, {"error": e.message})
             m = re.fullmatch(r"/install/jobs/([\w-]+)(/events)?", url.path)
             if m:
                 try:
@@ -852,6 +1190,16 @@ def make_handler(probe: Probe):
                 m = re.fullmatch(r"/install/jobs/([\w-]+)/cancel", path)
                 if m:
                     return self._send(200, probe.installer.cancel(m.group(1)))
+                git_actions = {
+                    "/git/inspect": lambda b: inspect_repo(b.get("path")),
+                    "/git/worktrees": create_worktree,
+                    "/git/worktrees/diff": diff_worktree,
+                    "/git/worktrees/commit": commit_worktree,
+                    "/git/worktrees/remove": remove_worktree,
+                }
+                if path in git_actions:
+                    with GIT_LOCK:  # one git action at a time: worktree add/remove share the repo's lock
+                        return self._send(200, git_actions[path](self._body()))
             except InstallError as e:
                 return self._send(e.status, {"error": e.message})
             return self._send(404, {"error": "not found"})
