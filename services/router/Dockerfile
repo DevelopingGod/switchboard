@@ -4,6 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PYTHONPATH=/
 WORKDIR /srv/router
 
 COPY pyproject.toml ./
+# The one project version: the repo-root VERSION file, passed as the `root` build context (docker-compose.yml).
+COPY --from=root VERSION ./VERSION
 COPY app ./app
 # Dev extras are included so tests run in the same image: docker compose run --rm router pytest
 RUN pip install ".[dev]" && useradd --system --uid 10001 router

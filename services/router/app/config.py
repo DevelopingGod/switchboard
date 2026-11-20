@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     catalog_interval_s: int = 24 * 3600
     # Skip the startup catalog/reconcile/import tasks (tests drive them directly).
     background_jobs: bool = True
+    # False = this router never writes to LiteLLM and runs no catalog refresh: used by the throwaway demo
+    # router (scripts/demo-reset.sh), so only the main router reconciles (docs/recording-the-demo.md).
+    router_sync_enabled: bool = True
+    # Non-empty = every LiteLLM call and `requests` row carries this tag (the demo router sets
+    # "switchboard-demo") so Metrics (M6) can exclude it.
+    router_request_tag: str = ""
     # Dev only (never in compose): lets a chat request carry `fault` to fail a target with a 429 or a
     # timeout, to check fallbacks live (docs/m2.md).
     router_fault_injection: bool = False

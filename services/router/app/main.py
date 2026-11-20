@@ -17,6 +17,7 @@ from app.registry import load_registry
 from app.routing import classifier
 from app.routing.health import cooldowns
 from app.startup import ensure_connections, import_env_keys, record_fingerprints
+from app.version import VERSION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)  # per-request lines (health polls) are noise
@@ -44,8 +45,11 @@ async def lifespan(app: FastAPI):
                 log.info("restored %d cooldown(s) from before the restart", restored)
         classifier.warm_up_in_background()  # load Arch-Router now, not on the first message
         # Self-healing LiteLLM sync: startup, every 5 min, and at once on drift or a LiteLLM restart.
-        tasks.append(asyncio.create_task(sync.run_forever(db.sessionmaker(), app.state.litellm)))
-        tasks.append(asyncio.create_task(run_forever(db.sessionmaker(), s.catalog_interval_s)))
+        if s.router_sync_enabled:
+            tasks.append(asyncio.create_task(sync.run_forever(db.sessionmaker(), app.state.litellm)))
+            tasks.append(asyncio.create_task(run_forever(db.sessionmaker(), s.catalog_interval_s)))
+        else:
+            log.info("ROUTER_SYNC_ENABLED=false: no LiteLLM sync and no catalog refresh from this router")
     yield
     for t in tasks:
         t.cancel()
@@ -55,7 +59,7 @@ async def lifespan(app: FastAPI):
     await db.dispose()
 
 
-app = FastAPI(title="Switchboard Router", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="Switchboard Router", version=VERSION, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,

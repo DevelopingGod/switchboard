@@ -3,14 +3,13 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { LazyMotion, MotionConfig } from "motion/react";
 import { SkyBackground } from "@/components/kit/SkyBackground";
 import { ToastProvider } from "@/components/kit/Toast";
 import { Sidebar } from "./Sidebar";
 import { PageHeader } from "./PageHeader";
 import { AppFooter } from "./AppFooter";
 import { ShellContext } from "./shell-context";
-import { getPrefs, setPrefs, usePrefs } from "@/lib/prefs";
+import { getPrefs, setPrefs } from "@/lib/prefs";
 import { SummaryProvider } from "@/lib/use-summary";
 import { matchShortcut } from "@/lib/shortcuts";
 import { t } from "@/i18n/strings";
@@ -18,7 +17,6 @@ import { t } from "@/i18n/strings";
 // Overlays load the first time they are opened, keeping them out of the initial JS.
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const ShortcutsSheet = dynamic(() => import("./ShortcutsSheet").then((m) => m.ShortcutsSheet), { ssr: false });
-const loadMotionFeatures = () => import("@/lib/motion-features").then((m) => m.default);
 
 /** Scrollbars, tooltips and the ambient cursor: plain DOM, installed once the page is idle. */
 function useEnhancements() {
@@ -62,7 +60,6 @@ function useOverlay() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { motion } = usePrefs();
   const router = useRouter();
   useEnhancements();
   useSplashOut();
@@ -121,8 +118,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <LazyMotion features={loadMotionFeatures} strict>
-      <MotionConfig reducedMotion={motion === "reduce" ? "always" : "user"}>
         <ShellContext.Provider value={actions}>
           <ToastProvider>
             <SummaryProvider>
@@ -151,7 +146,5 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </SummaryProvider>
           </ToastProvider>
         </ShellContext.Provider>
-      </MotionConfig>
-    </LazyMotion>
   );
 }

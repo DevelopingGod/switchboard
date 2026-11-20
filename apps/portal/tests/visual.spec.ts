@@ -61,6 +61,10 @@ for (const scheme of ["light", "dark"] as const) {
       await ready(page);
       await expect(page.locator("pre code.hljs").first()).toBeVisible(); // highlighting chunk loaded
       await unstickComposer(page);
+      await settled(page);
+      // The thread scrolls itself to the newest message, and the sticky sidebar is painted wherever that
+      // scroll lands (it moved by 8 px with bundle timing): capture from the top, like the other pages.
+      await atTop(page);
       await expect(page).toHaveScreenshot(`chat-${scheme}.png`, { fullPage: true });
     });
 

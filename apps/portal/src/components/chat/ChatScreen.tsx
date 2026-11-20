@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ArrowDown, MessageSquare } from "lucide-react";
 import { Composer, type ComposerSend } from "@/components/kit/Composer";
@@ -78,6 +79,21 @@ export function ChatScreen({
   React.useEffect(() => {
     threadRef.current = thread;
   }, [thread]);
+  // A thread started in place (the URL is rewritten with replaceState) keeps this component mounted when
+  // "New chat" goes back to /chat: the server tree is the same "new" one, so nothing remounts. Reset by hand.
+  const openedId = useSearchParams().get("t");
+  React.useEffect(() => {
+    if (openedId || !threadRef.current) return;
+    abort.current?.abort();
+    threadRef.current = null;
+    requestId.current = null;
+    setThread(null);
+    setMessages([]);
+    setText("");
+    setSendError(null);
+    setStreaming(false);
+    setPrivateOn(privateDefault);
+  }, [openedId, privateDefault]);
   React.useEffect(() => () => abort.current?.abort(), []);
   // The sidebar renamed or pinned the open chat: keep the header in step.
   React.useEffect(() => {
@@ -105,7 +121,29 @@ export function ChatScreen({
   const lastLen = messages.at(-1)?.content.length ?? 0;
   const nearBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
   React.useEffect(() => {
-    window.scrollTo({ top: document.documentElement.scrollHeight });
+    const toEnd = () => window.scrollTo({ top: document.documentElement.scrollHeight });
+    toEnd();
+    // Lazy chunks (Markdown, code highlighting) change message heights above the newest one a moment later.
+    // Stay at the end until the reader scrolls, so nothing visibly jumps (a layout shift) as they arrive.
+    const main = document.getElementById("main");
+    if (!main || typeof ResizeObserver === "undefined") return;
+    let pinned = true;
+    const ro = new ResizeObserver(() => pinned && toEnd());
+    ro.observe(main);
+    const unpin = () => {
+      pinned = false;
+    };
+    const inputs = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    inputs.forEach((e) => window.addEventListener(e, unpin, { passive: true, once: true }));
+    const stop = window.setTimeout(() => {
+      pinned = false;
+      ro.disconnect();
+    }, 2500);
+    return () => {
+      ro.disconnect();
+      window.clearTimeout(stop);
+      inputs.forEach((e) => window.removeEventListener(e, unpin));
+    };
   }, [lastIdForScroll]);
   React.useEffect(() => {
     if (streaming && nearBottom()) window.scrollTo({ top: document.documentElement.scrollHeight });

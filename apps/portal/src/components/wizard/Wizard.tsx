@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ColumnsArt } from "@/components/kit/ColumnsArt";
 import { GlassPanel } from "@/components/kit/GlassPanel";
@@ -11,7 +12,12 @@ import type { CatalogModel, ConnectionRow, OnboardingResponse, OnboardingState, 
 import { t } from "@/i18n/strings";
 import { type WizardKey, tWizard } from "@/i18n/wizard";
 import { STEPS, neededProviders } from "@/lib/wizard";
-import { ConnectStep, FinishStep, GoalsStep, PresetStep, StepList, WelcomeStep } from "./steps";
+import { FinishStep, GoalsStep, PresetStep, StepList, WelcomeStep } from "./steps";
+import { LazyFallback, FallbackSlot } from "@/lib/lazy-fallback";
+import { Skeleton } from "@/components/kit/Skeleton";
+
+// The provider-card stack is the heaviest part of the wizard and only step 3 shows it.
+const ConnectStep = dynamic(() => import("./ConnectStep"), { ssr: false, loading: FallbackSlot });
 
 interface Props {
   initial: OnboardingState | null;
@@ -89,7 +95,11 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, ag
 
         {id === "welcome" && <WelcomeStep name={name} onName={setName} nameId={nameId} />}
         {id === "goals" && <GoalsStep available={Object.keys(goalMap)} goals={goals} onToggle={toggle} />}
-        {id === "connect" && <ConnectStep needed={needed} rows={rows} modelsByProvider={modelsByProvider} localProfile={localProfile} />}
+        {id === "connect" && (
+          <LazyFallback value={<ConnectSkeleton count={needed.length} />}>
+            <ConnectStep needed={needed} rows={rows} modelsByProvider={modelsByProvider} localProfile={localProfile} />
+          </LazyFallback>
+        )}
         {id === "preset" && <PresetStep preset={preset} onPick={setPreset} />}
         {id === "finish" && <FinishStep goals={goals} preset={preset} connected={connected} />}
 
@@ -133,6 +143,17 @@ export function Wizard({ initial, goalMap, rows, modelsByProvider, startStep, ag
           )}
         </footer>
       </GlassPanel>
+    </div>
+  );
+}
+
+/** Stand-in while step 3's chunk loads: same grid and about the same card height, so nothing shifts. */
+function ConnectSkeleton({ count }: { count: number }) {
+  return (
+    <div aria-hidden className="grid gap-(--gap) grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
+      {Array.from({ length: Math.max(count, 1) }, (_, i) => (
+        <Skeleton key={i} className="h-72 rounded-card" />
+      ))}
     </div>
   );
 }

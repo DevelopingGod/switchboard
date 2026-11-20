@@ -52,7 +52,10 @@ services:
       start_period: 30s
 
   router:
-    build: ../services/router
+    build:
+      context: ../services/router
+      additional_contexts:
+        root: ..
     image: switchboard-router:local
     restart: unless-stopped
     depends_on:

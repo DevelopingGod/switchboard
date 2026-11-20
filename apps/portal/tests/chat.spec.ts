@@ -27,6 +27,18 @@ const lastReply = (page: Page) => page.getByRole("article", { name: "Assistant" 
 test.beforeEach(async ({ page }) => inPro(page));
 
 test.describe("chat · sending", () => {
+  test("New chat after a thread was started in place really starts a new one", async ({ page }) => {
+    await newChat(page);
+    await send(page, "Why is the sky blue?");
+    await expect(page).toHaveURL(/\/chat\?t=[0-9a-f-]{36}$/);
+    await expect(lastReply(page)).toContainText("Rayleigh scattering");
+    await page.getByRole("complementary", { name: "Sidebar" }).getByRole("link", { name: "New chat" }).click();
+    await expect(page).toHaveURL(/\/chat$/);
+    await expect(page.locator("main").getByText("Why is the sky blue?")).toHaveCount(0); // (the sidebar may list a chat with that title)
+    await expect(page.getByRole("article", { name: "Assistant" })).toHaveCount(0);
+    await expect(page.getByLabel("Message")).toHaveValue("");
+  });
+
   test("streams a reply with a route chip, cost and a local title", async ({ page }) => {
     await newChat(page);
     await send(page, "Why is the sky blue?");

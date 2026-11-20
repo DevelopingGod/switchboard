@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { ready } from "./helpers";
+
+/** The one project version (repo-root VERSION); fixtures.ts must carry the same value. */
+const PROJECT_VERSION = readFileSync(join(process.cwd(), "../../VERSION"), "utf8").trim();
 
 /** The enhancement layer (tooltips, scrollbars, cursor) installs on idle; wait for it. */
 async function enhanced(page: Page) {
@@ -30,7 +35,7 @@ test.describe("footer", () => {
     const footer = page.getByRole("contentinfo", { name: "Status and links" });
     await expect(footer.getByText("Value saved $0.08")).toBeVisible();
     await expect(footer.getByText("Quota OK")).toBeVisible();
-    await expect(footer.getByText("v0.1.5")).toBeVisible();
+    await expect(footer.getByText(`v${PROJECT_VERSION}`)).toBeVisible();
     await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute("rel", /noopener/);
     // not repeated here: the sidebar owns them
     await expect(footer.getByText(/^Today \$/)).toHaveCount(0);
