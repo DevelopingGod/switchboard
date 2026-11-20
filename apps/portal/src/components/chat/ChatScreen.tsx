@@ -289,7 +289,10 @@ export function ChatScreen({
         { id: tempId, role: "user", content: msg.text, status: "done", private: msg.private, feedback: null, route: null, created_at: new Date().toISOString() },
       ]);
       setText("");
-      void run({ mode: "send", thread_id: threadRef.current?.id ?? null, text: msg.text, ...options(msg.private, msg.autonomy, msg.temperature) }, tempId);
+      void run(
+        { mode: "send", thread_id: threadRef.current?.id ?? null, text: msg.text, ...options(msg.private, msg.autonomy, msg.temperature), ...(msg.think ? { think: true } : {}) },
+        tempId,
+      );
     },
     [run, options],
   );
@@ -313,7 +316,7 @@ export function ChatScreen({
       sentPending.current = true;
       setPrivateOn(msg.private);
       setAutonomy(msg.autonomy);
-      send({ text: msg.text, private: msg.private, autonomy: msg.autonomy, temperature: msg.temperature });
+      send({ text: msg.text, private: msg.private, autonomy: msg.autonomy, temperature: msg.temperature, think: msg.think });
     }, 0);
     return () => clearTimeout(timer);
   }, [current, send]);

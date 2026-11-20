@@ -21,13 +21,20 @@ def test_recommend(vram, want):
 def test_local_aliases_follow_the_profile():
     def models():
         reg = load_registry()
-        return {a: reg.alias(a)[0].model for a in ("local", "private", "local-code")}
+        return {a: reg.alias(a)[0].model for a in ("local", "private", "local-code", "local-think")}
 
-    assert models() == {"local": "qwen3:4b", "private": "qwen3:4b", "local-code": "qwen3:4b"}
+    fast = "qwen3:4b-instruct-2507-q4_K_M"  # M4a (ADR 0006): answers without a thinking phase
+    assert models() == {"local": fast, "private": fast, "local-code": fast, "local-think": "qwen3:4b"}
     local_profile.set_active("large")
-    assert models() == {"local": "qwen3:14b", "private": "qwen3:14b", "local-code": "qwen2.5-coder:14b"}
-    local_profile.set_active("none")
-    assert models()["local"] == "llama3.2:3b" and local_profile.active().classifier is None
+    assert models() == {
+        "local": fast,
+        "private": fast,
+        "local-code": "qwen2.5-coder:14b",
+        "local-think": "qwen3:14b",
+    }
+    local_profile.set_active("none")  # no thinking model: "Think harder" uses the general model
+    assert models()["local"] == models()["local-think"] == "llama3.2:3b"
+    assert local_profile.active().classifier is None
 
 
 @pytest.fixture
@@ -56,7 +63,7 @@ async def test_detection_unavailable_uses_the_fallback(session, mock_http):
 
 async def test_profile_api(client, litellm, session, hw):
     ollama_fake = litellm.ollama
-    ollama_fake.installed = ["qwen3:4b"]  # Arch-Router not pulled yet
+    ollama_fake.installed = ["qwen3:4b-instruct-2507-q4_K_M", "qwen3:4b"]  # Arch-Router not pulled yet
     await local_profile.init(session)
     v = (await client.get("/system/local-profile")).json()
     assert v["active"] == "small" and v["detected"]["vram_gb"] == 4.0
@@ -66,7 +73,9 @@ async def test_profile_api(client, litellm, session, hw):
     assert r.status_code == 200 and r.json()["active"] == "large" and r.json()["overridden"]
     # reconcile pointed LiteLLM's local alias at the new profile's model
     local = next(d for d in litellm.deployments("local"))
-    assert local["litellm_params"]["model"] == "ollama_chat/qwen3:14b"
+    assert local["litellm_params"]["model"] == "ollama_chat/qwen3:4b-instruct-2507-q4_K_M"
+    think = next(d for d in litellm.deployments("local-think"))
+    assert think["litellm_params"]["model"] == "ollama_chat/qwen3:14b"
     r = await client.put("/system/local-profile", json={"profile": "huge"}, headers=ADMIN)
     assert r.status_code == 400
     assert (await client.put("/system/local-profile", json={"profile": None})).status_code == 401

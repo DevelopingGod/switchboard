@@ -72,9 +72,23 @@ test.describe("chat · sending", () => {
 
   test("private stays local: badge, local chip, picker limited to local models", async ({ page }) => {
     await newChat(page);
+    const think = page.getByRole("button", { name: "Think harder" });
+    await expect(think).toHaveCount(0); // only offered when the answer stays local
     await page.getByRole("switch", { name: "Private" }).click();
+    // M4a: the local model answers at once, without a thinking phase…
     await send(page, "my health notes");
-    const reply = lastReply(page);
+    let reply = lastReply(page);
+    await expect(reply.getByRole("button", { name: /Routed to Ollama · qwen3:4b-instruct-2507-q4_K_M by rule private/ })).toBeVisible();
+    await expect(reply.getByRole("button", { name: /Thought for/ })).toHaveCount(0);
+    // …and "Think harder" asks the thinking model, for that one message only.
+    await expect(think).toHaveAttribute("aria-pressed", "false");
+    await think.click();
+    await expect(think).toHaveAttribute("aria-pressed", "true");
+    const sent = page.waitForRequest((r) => r.url().endsWith("/api/chat/stream"));
+    await send(page, "my health notes, think it through");
+    expect((await sent).postDataJSON()).toMatchObject({ private: true, think: true });
+    await expect(think).toHaveAttribute("aria-pressed", "false");
+    reply = lastReply(page);
     await expect(reply.getByRole("button", { name: /Routed to Ollama · qwen3:4b by rule private/ })).toBeVisible();
     await expect(page.getByText("Private: stays on this computer")).toBeVisible();
     // Thinking streamed live, collapsed by default, never saved.

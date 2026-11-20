@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowUp, Lock, Paperclip, Sparkles, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, Brain, Lock, Paperclip, Sparkles, Square } from "lucide-react";
 import { GlassPanel } from "./GlassPanel";
 import { Dial } from "./Dial";
 import { ExplainPopover } from "./ExplainPopover";
@@ -18,6 +18,8 @@ export interface ComposerSend {
   autonomy: number;
   private: boolean;
   temperature: number;
+  /** "Think harder" for this one message (local answers use the slower thinking model). */
+  think?: boolean;
 }
 
 export interface ComposerProps {
@@ -84,6 +86,8 @@ export function Composer({
   const [autonomyInner, setAutonomyInner] = React.useState(1);
   const [privInner, setPrivInner] = React.useState(false);
   const [tempInner, setTempInner] = React.useState(0.7);
+  // Per message: off again after every send. Only offered when the answer stays local (private).
+  const [think, setThink] = React.useState(false);
   const autonomy = autonomyProp ?? autonomyInner;
   const priv = privateOn ?? privInner;
   const temp = tempProp ?? tempInner;
@@ -104,7 +108,8 @@ export function Composer({
 
   const send = () => {
     if (!text.trim() || locked || streaming) return;
-    onSend?.({ text: text.trim(), autonomy, private: priv, temperature: temp });
+    onSend?.({ text: text.trim(), autonomy, private: priv, temperature: temp, think: priv && think });
+    setThink(false);
   };
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -256,6 +261,22 @@ export function Composer({
           <Switch checked={priv} onCheckedChange={setPriv} disabled={locked} aria-label={t("composer.private")} />
           {t("composer.private")}
         </label>
+
+        {priv && (
+          <Button
+            type="button"
+            variant="glass"
+            size="sm"
+            aria-pressed={think}
+            disabled={locked}
+            onClick={() => setThink((v) => !v)}
+            data-tip={t("composer.thinkHint")}
+            className={cn(think && "bg-pill-active text-accent-strong")}
+          >
+            <Brain aria-hidden className="size-4" />
+            {t("composer.think")}
+          </Button>
+        )}
 
         {mode === "pro" && (
           <label className="flex items-center gap-2 text-sm font-semibold">

@@ -14,6 +14,15 @@ config/local-models.yaml, so the same script measures any profile before and aft
     docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:/scripts:ro" \\
       router python /scripts/measure-local.py [--rounds 8] [--profile small]
 
+  --chat (M4a, ADR 0006): private chat speed instead. Each candidate answers the same short private
+  questions with the chat system prompt and streaming, after one warm-up call: time to the first answer
+  token, time spent thinking, total time, answer tokens, and whether the answer starts with reasoning
+  ("Okay, the user ..."). A candidate is `model` (thinking on, the model's default), `model@nothink`
+  (Ollama `think: false`) or `litellm:<alias>[@nothink]` (the real chat path through LiteLLM; @nothink
+  sends `reasoning_effort: "none"`, which LiteLLM maps to `think: false`).
+
+    ... router python /scripts/measure-local.py --chat litellm:local qwen3:4b@nothink llama3.2:3b
+
 Markdown goes to stdout. No cloud model is called.
 """
 
@@ -77,11 +86,149 @@ async def classify_all(texts: list[str], cfg) -> list[dict]:
     return out
 
 
+CHAT_QUESTIONS = [
+    "I've had a headache and a mild fever since yesterday. What should I do?",
+    "How do I tell my manager I need a week off for personal reasons?",
+    "What's a reasonable monthly budget split for a salary of 60,000 rupees?",
+    "Explain what a credit score is in two sentences.",
+    "My landlord kept my deposit. What are my options?",
+    "Give me three tips to sleep better.",
+    "What's the difference between a will and a trust?",
+    "Is it normal to feel anxious before a job interview?",
+    "Summarise the pros and cons of paying off a loan early.",
+    "How much water should I drink in a day?",
+]
+REASONING_START = ("okay, the user", "okay, so the user", "alright, the user", "the user is asking",
+                   "the user wants", "let me think", "hmm,")
+
+
+async def stream_ollama(model: str, think: bool | None, q: str) -> dict:
+    import httpx
+
+    from app.chat.service import SYSTEM_PROMPT
+
+    body = {"model": model, "stream": True, "keep_alive": "10m",
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": q}],
+            "options": {"temperature": 0.4, "num_predict": 1024}}
+    if think is not None:
+        body["think"] = think
+    t0 = time.perf_counter()
+    first = None
+    thought = False
+    text = []
+    tokens = 0
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=5)) as c, \
+            c.stream("POST", f"{ollama.base()}/api/chat", json=body) as r:
+        async for line in r.aiter_lines():
+            if not line:
+                continue
+            o = json.loads(line)
+            msg = o.get("message") or {}
+            if msg.get("thinking"):
+                thought = True
+            if msg.get("content"):
+                text.append(msg["content"])
+                if first is None:
+                    first = time.perf_counter()
+            if o.get("done"):
+                tokens = o.get("eval_count") or 0
+    end = time.perf_counter()
+    return finish(t0, first, end, "".join(text), tokens, thought)
+
+
+async def stream_litellm(alias: str, nothink: bool, q: str) -> dict:
+    import httpx
+
+    from app.chat.service import SYSTEM_PROMPT
+    from app.config import get_settings
+
+    st = get_settings()
+    body = {"model": alias, "stream": True, "stream_options": {"include_usage": True},
+            "temperature": 0.4, "max_tokens": 4096,
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": q}]}
+    if nothink:
+        body["reasoning_effort"] = "none"
+    headers = {"Authorization": f"Bearer {st.litellm_master_key.get_secret_value()}"}
+    t0 = time.perf_counter()
+    first = None
+    thought = False
+    text = []
+    tokens = 0
+    async with httpx.AsyncClient(base_url=st.litellm_url, timeout=httpx.Timeout(300, connect=5)) as c, \
+            c.stream("POST", "/v1/chat/completions", json=body, headers=headers) as r:
+        async for line in r.aiter_lines():
+            if not line.startswith("data:") or line[5:].strip() == "[DONE]":
+                continue
+            o = json.loads(line[5:])
+            if o.get("usage"):
+                tokens = o["usage"].get("completion_tokens") or 0
+            for ch in o.get("choices") or []:
+                d = ch.get("delta") or {}
+                if d.get("reasoning_content"):
+                    thought = True
+                if d.get("content"):
+                    text.append(d["content"])
+                    if first is None and "<think>" not in d["content"]:
+                        first = time.perf_counter()
+    end = time.perf_counter()
+    return finish(t0, first, end, "".join(text), tokens, thought)
+
+
+def finish(t0, first, end, text, tokens, thought) -> dict:
+    body = ollama.THINK.sub("", text).strip()
+    return {
+        "first_s": (first or end) - t0,
+        "total_s": end - t0,
+        "tokens": tokens,
+        "thought": thought or "<think>" in text,
+        "leak": body.lower().startswith(REASONING_START),
+        "chars": len(body),
+    }
+
+
+async def chat_bench(candidates: list[str]) -> None:
+    print(f"{len(CHAT_QUESTIONS)} short private questions per candidate, after one warm-up call; "
+          "times are wall-clock from the request to the first answer token and to the end.\n")
+    rows = []
+    for cand in candidates:
+        name, _, flag = cand.partition("@")
+        nothink = flag == "nothink"
+        if name.startswith("litellm:"):
+            alias = name.split(":", 1)[1]
+            run = lambda q, a=alias, n=nothink: stream_litellm(a, n, q)  # noqa: E731
+        else:
+            run = lambda q, m=name, n=nothink: stream_ollama(m, False if n else None, q)  # noqa: E731
+        await run("hi")  # load the model; not measured
+        res = [await run(q) for q in CHAT_QUESTIONS]
+        loaded = await ollama.ps() or []
+        gpu = "; ".join(
+            f"{m.get('name')} {100 * m.get('size_vram', 0) / max(1, m.get('size', 1)):.0f}% of "
+            f"{m.get('size', 0) / 2**30:.1f} GB" for m in loaded
+        ) or "?"
+        first = [r["first_s"] for r in res]
+        total = [r["total_s"] for r in res]
+        rows.append(
+            f"| `{cand}` | {statistics.median(first):.1f} | {max(first):.1f} | {statistics.median(total):.1f} | "
+            f"{max(total):.1f} | {statistics.median([r['tokens'] for r in res]):.0f} | "
+            f"{sum(r['thought'] for r in res)} | {sum(r['leak'] for r in res)} | "
+            f"{statistics.median([r['chars'] for r in res]):.0f} | {gpu} |"
+        )
+        print(rows[-1], file=sys.stderr, flush=True)
+    print("| candidate | first token p50 s | max s | total p50 s | max s | tokens p50 | thought | "
+          "reasoning in answer | answer chars p50 | loaded (share in GPU) |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    print("\n".join(rows))
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", default=None, help="default: the profile in system_meta, else `small`")
     ap.add_argument("--rounds", type=int, default=8)
+    ap.add_argument("--chat", nargs="+", metavar="CANDIDATE", help="measure private chat speed instead")
     args = ap.parse_args()
+    if args.chat:
+        await chat_bench(args.chat)
+        return
     local_profile.set_active(args.profile or "small")
     prof = local_profile.active()
     cfg = load_rules().classifier

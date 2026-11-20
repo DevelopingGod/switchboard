@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   if (!TARGET.test(target)) return bad("invalid target");
   const temperature = typeof b.temperature === "number" && b.temperature >= 0 && b.temperature <= 2 ? b.temperature : null;
   const autonomy = Number.isInteger(b.autonomy) && (b.autonomy as number) >= 0 && (b.autonomy as number) <= 3 ? (b.autonomy as number) : null;
-  const opts = { target, private: b.private === true, temperature, autonomy };
+  const opts = { target, private: b.private === true, temperature, autonomy, think: b.think === true };
 
   if (mode === "send") return routerChatStream("/chat/send", { ...opts, thread_id: threadId, text }, req.signal);
   if (mode === "edit") return routerChatStream(`/chat/threads/${threadId}/edit-last`, { ...opts, text }, req.signal);

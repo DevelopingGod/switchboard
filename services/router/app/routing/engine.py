@@ -81,6 +81,13 @@ class RouteRequest:
     classifier_info: dict[str, Any] | None = None  # source, route, ms, fallback reason (logged)
     secret_kinds: tuple[str, ...] = ()  # the message contained a secret (already masked)
     no_auto_private: bool = False  # "Not sensitive — use cloud" re-run: skip auto-detection
+    # M4a: "Think harder" for this message. Local chat answers with the profile's fast, non-thinking
+    # model; this switches the local aliases to `local-think` (the profile's `thinker`, ADR 0006).
+    think: bool = False
+
+
+# Local aliases that "Think harder" switches to the thinking model (config/local-models.yaml `thinker`).
+THINK_ALIAS = {"local": "local-think", "private": "local-think"}
 
 
 @dataclass
@@ -148,6 +155,7 @@ class Decision:
     # M3a: why a request went local without the toggle: {source: classifier | secret, category,
     # overridable, overridden}
     sensitive: dict[str, Any] | None = None
+    think: bool = False  # M4a: "Think harder" asked for this message
 
     @property
     def blocked_by_budget(self) -> bool:
@@ -176,6 +184,7 @@ class Decision:
             "context_tokens": self.context_tokens,
             "classifier": self.classifier,
             "sensitive": self.sensitive,
+            "think": self.think,
         }
 
 
@@ -203,8 +212,8 @@ def pick_rule(rules: RuleSet, facts: dict[str, Any]) -> Rule:
 
 
 class _Resolver:
-    def __init__(self, ctx: Context, dec: Decision, manual: bool):
-        self.ctx, self.dec, self.manual = ctx, dec, manual
+    def __init__(self, ctx: Context, dec: Decision, manual: bool, think: bool = False):
+        self.ctx, self.dec, self.manual, self.think = ctx, dec, manual, think
         self.reg = ctx.registry
         self.cooled: list[Candidate] = []  # last resort when nothing else is viable
         self.over_quota: set[str] = set()  # targets skipped by the quota guard (for spreading)
@@ -244,6 +253,8 @@ class _Resolver:
         return [c] if c and self._viable(c) else []
 
     def _alias(self, target: str, alias: str, position: int) -> Candidate | None:
+        if self.think and alias in THINK_ALIAS and self.reg.alias(THINK_ALIAS[alias]):
+            alias = THINK_ALIAS[alias]
         deps = self.reg.alias(alias)
         live = [d for d in deps if d.provider in self.ctx.connected]
         first = (live or deps)[0]
@@ -584,7 +595,8 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
     if media_kind and not manual:
         return dec
 
-    r = _Resolver(ctx, dec, manual)
+    dec.think = req.think
+    r = _Resolver(ctx, dec, manual, req.think)
     if manual and private:
         # A local pick is honoured; anything else is skipped (reason: private) and the private
         # rule's local chain answers instead.

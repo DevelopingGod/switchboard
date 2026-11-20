@@ -6,6 +6,7 @@ export interface PendingMessage {
   private: boolean;
   autonomy: number;
   temperature: number;
+  think?: boolean;
 }
 
 /** Stores the message for /chat; false when storage is unavailable (private window etc.). */

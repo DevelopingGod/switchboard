@@ -190,7 +190,7 @@ else red "LiteLLM proxy" "not answering on $LITELLM$(why_failed)"; fi
 
 begin "LiteLLM aliases"
 models=$(http -f -H "Authorization: Bearer $LITELLM_MASTER_KEY" "$LITELLM/v1/models" | json '" ".join(sorted(m["id"] for m in d["data"]))')
-for alias in fast smart-free local private local-code; do
+for alias in fast smart-free local private local-code local-think; do
   [[ " $models " == *" $alias "* ]] || red "LiteLLM alias $alias" "not registered"
 done
 conns=$(http "$T_PROBE" -f "$ROUTER/connections" 2>/dev/null)

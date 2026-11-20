@@ -409,7 +409,7 @@ function scenario(
   text: string,
   priv: boolean,
   target: string,
-  extra: { secret?: boolean; noAuto?: boolean } = {},
+  extra: { secret?: boolean; noAuto?: boolean; think?: boolean } = {},
 ): { route: RouteInfo; events: Ev[]; content: string; status: ChatMessage["status"] } {
   const lower = text.toLowerCase();
   const ev: Ev = ["route", { target: "model:local", label: "Ollama · qwen3:4b", local: true, free_tier: true }];
@@ -435,26 +435,32 @@ function scenario(
   }
   if (priv || lower.startsWith("/private")) {
     const content = "Noted. This stays on your computer: nothing was sent to a cloud model.";
+    // M4a (ADR 0006): local answers come from a model that doesn't think first; "Think harder" picks the
+    // profile's thinking model for that one message.
+    const think = !!extra.think;
+    const label = think ? "Ollama · qwen3:4b" : "Ollama · qwen3:4b-instruct-2507-q4_K_M";
     const route = base({
       rule: "private",
       matched_by: "private",
       private: true,
       target: "model:local",
-      label: "Ollama · qwen3:4b",
+      label,
       local: true,
-      model: "ollama_chat/qwen3:4b",
+      model: think ? "ollama_chat/qwen3:4b" : "ollama_chat/qwen3:4b-instruct-2507-q4_K_M",
       provider: "ollama",
       provider_name: "Ollama (local)",
       reasons: ["Private is on → stays on this machine", "First choice of rule “private”", "Runs on your GPU; nothing leaves the machine"],
       runner_up: null,
       skipped: target !== "auto" && !target.includes("local") ? [{ target, label: target.replace("model:", ""), code: "private", reason: "Private is on: your pick was not used" }] : [],
       list_price_usd: null,
-      thinking_ms: 2400,
-      latency_ms: 4100,
-      ttft_ms: 3900,
+      thinking_ms: think ? 2400 : null,
+      latency_ms: think ? 4100 : 900,
+      ttft_ms: think ? 3900 : 200,
     });
-    const think: Ev[] = ["The user wants a private note. ", "Keep it short and confirm it stays local. "].flatMap((x) => [["thinking", { text: x }], ["wait", 300]] as Ev[]);
-    return { route, content, status: "done", events: [["route", { target: "model:local", label: "Ollama · qwen3:4b", local: true, free_tier: true }], ...think] };
+    const thought: Ev[] = think
+      ? ["The user wants a private note. ", "Keep it short and confirm it stays local. "].flatMap((x) => [["thinking", { text: x }], ["wait", 300]] as Ev[])
+      : [];
+    return { route, content, status: "done", events: [["route", { target: "model:local", label, local: true, free_tier: true }], ...thought] };
   }
   if (lower.includes("budget")) {
     const blocked = { code: "budget_daily", reason: "Daily budget $1.00 reached ($1.02 spent today)", daily_cap_usd: 1, max_cost_usd: 0.5, spent_today: 1.02 } as const;
@@ -503,7 +509,7 @@ function scenario(
 
 export function stream(path: string, body: unknown, signal: AbortSignal): Response {
   const s = store();
-  const b = (body ?? {}) as { thread_id?: string | null; text?: string; target?: string; private?: boolean; cloud_override?: boolean };
+  const b = (body ?? {}) as { thread_id?: string | null; text?: string; target?: string; private?: boolean; cloud_override?: boolean; think?: boolean };
   const enc = new TextEncoder();
   let thread: FxThread | undefined;
   let text = String(b.text ?? "");
@@ -561,7 +567,7 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
   const lastUser = thread.messages.filter((x) => x.role === "user").at(-1);
   const secret = !!lastUser?.secret;
   const priv = !!b.private || thread.private || text.toLowerCase().startsWith("/private");
-  const sc = scenario(text, priv && !secret, b.target ?? "auto", { secret, noAuto: !!b.cloud_override });
+  const sc = scenario(text, priv && !secret, b.target ?? "auto", { secret, noAuto: !!b.cloud_override, think: !!b.think });
   const privNow = priv || secret || sc.route.private;
   if (privNow && !thread.private) Object.assign(thread, { private: true, private_source: sc.route.matched_by === "auto_private" ? "auto" : "user" });
   const requestId = s.nextReq++;

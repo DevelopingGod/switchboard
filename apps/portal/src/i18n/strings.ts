@@ -44,6 +44,8 @@ export const strings = {
     autonomy: "Autonomy",
     private: "Private",
     privateHint: "Private work stays on local models.",
+    think: "Think harder",
+    thinkHint: "For this message only: a slower local model that reasons first. Better for tricky questions.",
     temperature: "Temperature",
     attach: "Attach file",
     errorDefault: "Couldn’t send that. Your text is still here, so try again.",

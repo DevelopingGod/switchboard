@@ -46,6 +46,8 @@ class TurnOptionsIn(BaseModel):
     fault: FaultIn | None = None
     # M3a: "Not sensitive — use cloud" on an auto-private reply (regenerate only)
     cloud_override: bool = False
+    # M4a: "Think harder" for this message: local answers use the profile's thinking model (`thinker`)
+    think: bool = False
 
     def options(self) -> service.TurnOptions:
         fault = None
@@ -54,7 +56,7 @@ class TurnOptionsIn(BaseModel):
                 raise HTTPException(400, "fault injection is off (ROUTER_FAULT_INJECTION=1, dev only)")
             fault = Fault(self.fault.target, self.fault.kind)
         return service.TurnOptions(
-            self.target, self.private, self.temperature, self.autonomy, fault, self.cloud_override
+            self.target, self.private, self.temperature, self.autonomy, fault, self.cloud_override, self.think
         )
 
 
@@ -86,6 +88,7 @@ class DryRunIn(BaseModel):
     text: str = Field(min_length=1, max_length=32_000)
     target: str = Field(default="auto", max_length=220, pattern=TARGET)
     private: bool = False
+    think: bool = False
     # An unsaved Rules UI override document: test a change before saving it (never persisted).
     draft: dict[str, Any] | None = None
 
@@ -475,6 +478,7 @@ async def dry_run(body: DryRunIn, session: AsyncSession = Depends(get_session)) 
                 classified=intent,
                 classifier_info=cinfo,
                 secret_kinds=tuple(kinds),
+                think=body.think,
             ),
             ctx,
         )

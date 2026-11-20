@@ -286,6 +286,21 @@ def test_private_with_a_local_pick_is_honoured():
     assert targets(dec)[0] == "model:local-code" and dec.rule_id == "manual"
 
 
+def test_think_harder_switches_local_answers_to_the_thinking_model():
+    """M4a (ADR 0006): local chat answers with the fast model; "Think harder" uses `local-think`."""
+    fast = decide(RouteRequest("hello", private=True), ctx())
+    deep = decide(RouteRequest("hello", private=True, think=True), ctx())
+    assert fast.candidates[0].litellm_model == "local" and not fast.think
+    assert deep.candidates[0].litellm_model == "local-think" and deep.as_dict()["think"] is True
+    # the target and the rule are unchanged, and nothing leaves the machine
+    assert (
+        deep.candidates[0].target == "model:local" and deep.rule_id == "private" and deep.candidates[0].local
+    )
+    # cloud answers are untouched by the flag
+    cloud = decide(RouteRequest("what's the capital of France?", think=True), ctx())
+    assert targets(cloud)[0] == "model:fast" and cloud.candidates[0].litellm_model == "fast"
+
+
 def test_cooldown_skips_target():
     cd = Cooldowns()
     cd.set("model:fast", "rate_limited", "Rate limited (429)", 60)

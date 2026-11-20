@@ -15,7 +15,7 @@ from app.reconcile import reconcile
 from app.routing.health import cooldowns
 from tests.conftest import ADMIN
 
-LOCAL = {"local", "private", "local-code"}
+LOCAL = {"local", "private", "local-code", "local-think"}
 
 
 def parse(text: str) -> list[tuple[str, dict]]:
@@ -288,7 +288,11 @@ async def test_midstream_error_ends_reply_without_duplicate(client, stack, sessi
 async def test_private_provably_stays_local(client, stack, session):
     """Every LiteLLM call for a private request is an Ollama deployment, even when local fails,
     with a cloud model picked, and for later non-private messages in the same thread (sticky)."""
-    reg_local = {"ollama_chat/qwen3:4b", "ollama_chat/qwen2.5-coder:3b"}
+    reg_local = {
+        "ollama_chat/qwen3:4b",
+        "ollama_chat/qwen3:4b-instruct-2507-q4_K_M",
+        "ollama_chat/qwen2.5-coder:3b",
+    }
 
     def assert_all_local():
         assert stack.stream_calls
