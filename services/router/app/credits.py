@@ -58,7 +58,7 @@ async def status(session: AsyncSession, provider: str) -> dict[str, Any] | None:
         return None
     spent = await session.scalar(
         select(func.coalesce(func.sum(Cost.list_price_usd), 0)).where(
-            Cost.provider == provider, Cost.created_at >= since
+            Cost.provider == provider, Cost.created_at >= since, Cost.source != "paperclip"
         )
     )
     spent = float(spent or 0)

@@ -46,6 +46,16 @@ PROBE_TTL_S = 15
 _probe_cache: dict[str, tuple[float, bool, str | None]] = {}
 
 
+async def _paperclip_loopback_only() -> bool:
+    """ADR 0007: with no login, Paperclip must only listen on loopback. hostprobe reads the listening
+    addresses on the host (/proc/net/tcp); when it can't tell (hostprobe down), this raises no alarm."""
+    port = httpx.URL(get_settings().paperclip_url).port or 3100
+    ok, data, _ = await hostprobe_client.probe(f"/net/listen?port={port}", timeout=5)
+    if not ok or not data or not data.get("addresses"):
+        return True
+    return bool(data.get("loopback_only"))
+
+
 async def _paperclip() -> tuple[str, str | None]:
     """Paperclip through the jobs adapter (M4a): a real `/api/health` (the old reachability check counted
     its 403 "hostname not allowed" as up), the pinned version, and its auth mode (ADR 0007). Cached like the
@@ -63,6 +73,12 @@ async def _paperclip() -> tuple[str, str | None]:
     elif h.get("version") != PAPERCLIP_PINNED:
         status = "degraded"
         detail = f"Paperclip {h.get('version')} is running; Switchboard is verified with {PAPERCLIP_PINNED}"
+    elif not await _paperclip_loopback_only():
+        status = "down"
+        detail = (
+            "Paperclip listens beyond this computer and has no login: anyone on your network could run "
+            "agents. Re-run its onboarding with --bind loopback"
+        )
     elif h.get("deploymentMode") == "local_trusted":
         status, detail = "ok", "No login (local only): any program on this computer can use Paperclip"
     else:

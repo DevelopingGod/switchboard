@@ -282,8 +282,12 @@ class Paperclip:
             body["assigneeUserId"] = assignee_user_id
         return await self._req("POST", f"/companies/{company_id}/issues", json=body, retry=True)
 
+    async def update_issue(self, issue_id: str, **fields: Any) -> None:
+        """e.g. status="in_progress", assigneeUserId=<the board user> (in_progress needs an owner)."""
+        await self._req("PATCH", f"/issues/{issue_id}", json=fields, retry=True)
+
     async def set_issue_status(self, issue_id: str, status: str) -> None:
-        await self._req("PATCH", f"/issues/{issue_id}", json={"status": status}, retry=True)
+        await self.update_issue(issue_id, status=status)
 
     async def comment(self, issue_id: str, body: str) -> None:
         await self._req("POST", f"/issues/{issue_id}/comments", json={"body": body[:60_000]})

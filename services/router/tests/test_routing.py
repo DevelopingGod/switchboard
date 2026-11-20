@@ -221,7 +221,12 @@ def test_media_slash_commands_go_to_studio(text, kind):
 def test_research_is_job_like_and_skips_agents_with_reason():
     dec = decide(RouteRequest("/research competitors of Notion"), ctx())
     assert dec.job_suggested
-    assert skipped(dec)["agent:hermes"] == "agent" and "M4" in dec.skipped[0].reason
+    assert skipped(dec)["agent:hermes"] == "agent" and "Run as job" in dec.skipped[0].reason
+    # M4a: the decision carries the job proposal: the rule's agents in order, with the registry's labels.
+    job = dec.as_dict()["job"]
+    assert [a["id"] for a in job["agents"]] == ["hermes", "gemini-cli"] and job["suggested"]
+    assert job["agents"][0]["label"] == "Hermes Agent" and job["autonomy"] == dec.autonomy
+    assert decide(RouteRequest("what's the capital of France?"), ctx()).as_dict()["job"] is None
 
 
 @pytest.mark.parametrize(

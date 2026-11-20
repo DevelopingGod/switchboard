@@ -199,6 +199,10 @@ class Cost(Base):
     cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
     list_price_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    # M4a: the source's own id for this event (e.g. "paperclip-run:<uuid>"), so ingesting twice is a no-op,
+    # and the request tag ("switchboard-demo") so Metrics (M6) can exclude demo traffic.
+    external_id: Mapped[str | None] = mapped_column(String(128), unique=True)
+    tag: Mapped[str | None] = mapped_column(String(64))
 
 
 class QuotaUsage(Base):
@@ -255,3 +259,75 @@ class RulesVersion(Base):
     rolled_back_to: Mapped[int | None] = mapped_column(Integer)
     base_sha: Mapped[str] = mapped_column(String(64), default="")  # sha256 of rules.yaml when saved
     overrides: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
+class Project(Base):
+    """A folder agents may work in (M4a allowlist, SPEC §13.4). Jobs refuse any folder not listed here."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    path: Mapped[str] = mapped_column(Text, unique=True)  # the git work tree's top (realpath, on the host)
+    slug: Mapped[str] = mapped_column(String(80), unique=True)  # worktree folder name
+    head_branch: Mapped[str | None] = mapped_column(String(255))  # at the last inspection
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    removed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )  # off the allowlist; jobs kept
+
+
+class Job(Base):
+    """An agent job (M4a, ADR 0007). Switchboard owns the state machine; Paperclip runs each phase.
+
+    status: queued | running | needs_approval | done | failed | stopped. `gate` says what needs approval
+    (plan | diff | result). Every change is also appended to `job_events` (traceability, SPEC §13.5)."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    request_id: Mapped[int | None] = mapped_column(ForeignKey("requests.id", ondelete="SET NULL"))
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
+    title: Mapped[str] = mapped_column(String(240))
+    prompt: Mapped[str] = mapped_column(Text)  # secrets masked
+    agent: Mapped[str] = mapped_column(String(64))
+    agent_chain: Mapped[list[Any]] = mapped_column(default=list)
+    autonomy: Mapped[int] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    phase: Mapped[str | None] = mapped_column(String(16))  # read_only | edit | full (the current or last run)
+    run_index: Mapped[int] = mapped_column(SmallInteger, default=0)  # position in the level's runs
+    gate: Mapped[str | None] = mapped_column(String(16))  # plan | diff | result
+    paperclip_issue_id: Mapped[str | None] = mapped_column(String(64))
+    paperclip_agent_id: Mapped[str | None] = mapped_column(String(64))
+    paperclip_approval_id: Mapped[str | None] = mapped_column(String(64))
+    current_run_id: Mapped[str | None] = mapped_column(String(64))
+    log_offset: Mapped[int] = mapped_column(BigInteger, default=0)  # how far the current run's log was read
+    worktree_path: Mapped[str | None] = mapped_column(Text)
+    branch: Mapped[str | None] = mapped_column(String(255))
+    base_sha: Mapped[str | None] = mapped_column(String(64))
+    worktree_removed: Mapped[bool] = mapped_column(Boolean, default=False)
+    budget_list_usd: Mapped[float] = mapped_column(Numeric(10, 4))
+    list_price_usd: Mapped[float] = mapped_column(Numeric(12, 6), default=0)
+    cost_usd: Mapped[float] = mapped_column(Numeric(12, 6), default=0)
+    cost_reported: Mapped[bool] = mapped_column(Boolean, default=True)
+    turns: Mapped[int] = mapped_column(Integer, default=0)
+    plan_text: Mapped[str | None] = mapped_column(Text)
+    result_text: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    tag: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class JobEvent(Base):
+    """Append-only job timeline: state changes, runs, approvals (who, decision, note), fallbacks, costs."""
+
+    __tablename__ = "job_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(32))
+    data: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

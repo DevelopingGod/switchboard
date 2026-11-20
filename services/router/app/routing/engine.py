@@ -25,14 +25,17 @@ SLASH = re.compile(r"^/([a-z][\w-]{0,20})(?:\s+|$)", re.I)
 MODEL_TARGET = re.compile(r"^model:[\w.:/@-]{1,200}$")
 NON_CHAT_TAGS = {"embedding", "moderation", "audio", "image", "video"}
 MIN_OUTPUT_TOKENS = 256
-AGENT_NAMES = {
-    "claude-code": "Claude Code",
-    "grok-build": "Grok Build",
-    "codex": "Codex",
-    "opencode": "OpenCode",
-    "hermes": "Hermes",
-    "gemini-cli": "Gemini CLI",
-}
+
+
+def agent_label(agent_id: str) -> str:
+    """The registry's label (config/agents.yaml); the id when the registry can't be read."""
+    try:
+        from app.agents import load_agents
+
+        a = load_agents().agents.get(agent_id)
+        return a.label if a else agent_id
+    except (OSError, ValueError):
+        return agent_id
 
 
 @dataclass(frozen=True)
@@ -156,6 +159,8 @@ class Decision:
     # overridable, overridden}
     sensitive: dict[str, Any] | None = None
     think: bool = False  # M4a: "Think harder" asked for this message
+    # M4a: the rule's agents in order, for a job (POST /jobs). Chat still answers; nothing starts on its own.
+    job_agents: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def blocked_by_budget(self) -> bool:
@@ -185,6 +190,11 @@ class Decision:
             "classifier": self.classifier,
             "sensitive": self.sensitive,
             "think": self.think,
+            "job": (
+                {"agents": self.job_agents, "autonomy": self.autonomy, "suggested": self.job_suggested}
+                if self.job_agents
+                else None
+            ),
         }
 
 
@@ -225,8 +235,12 @@ class _Resolver:
     def resolve(self, target: str, position: int) -> list[Candidate]:
         kind, _, name = target.partition(":")
         if kind == "agent":
-            label = AGENT_NAMES.get(name, name)
-            self.skip(target, label, "agent", f"{label} runs jobs, which arrive in M4; answering in chat")
+            # M4a: an agent target is a job. Chat answers with the chat models in the chain; the job is a
+            # proposal the owner starts explicitly (POST /jobs, "Run as job" in M4b), never automatically.
+            label = agent_label(name)
+            if not any(a["id"] == name for a in self.dec.job_agents):
+                self.dec.job_agents.append({"id": name, "label": label})
+            self.skip(target, label, "agent", f"{label} works as a job: start it with Run as job")
             return []
         if kind == "media":
             return []
@@ -292,7 +306,7 @@ class _Resolver:
         p = self.reg.providers[provider]
         label = f"{p.name.split(' (')[0]} · {model_id.split('/')[-1]}"
         if p.kind == "cli":
-            self.skip(target, label, "agent", f"{p.name} is a CLI agent; jobs arrive in M4")
+            self.skip(target, label, "agent", f"{p.name} is a CLI agent: it runs jobs, not chat replies")
             return None
         if provider in self.ctx.exhausted:
             self.skip(target, label, "credits", self.ctx.exhausted[provider])

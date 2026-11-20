@@ -1,5 +1,5 @@
 """Switchboard Router API (SPEC §5). Connections, model catalog, CLI detection and install, onboarding,
-rules-based routing and chat (M2)."""
+rules-based routing and chat (M2), agent jobs through Paperclip (M4a)."""
 
 import asyncio
 import logging
@@ -8,8 +8,9 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import db, local_profile, secrets, sync
-from app.api import catalog, chat, connections, health, onboarding, rules, settings, system
+from app import db, jobs, local_profile, secrets, sync
+from app.api import agents, catalog, chat, connections, health, onboarding, projects, rules, settings, system
+from app.api import jobs as jobs_api
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
@@ -48,6 +49,8 @@ async def lifespan(app: FastAPI):
         if s.router_sync_enabled:
             tasks.append(asyncio.create_task(sync.run_forever(db.sessionmaker(), app.state.litellm)))
             tasks.append(asyncio.create_task(run_forever(db.sessionmaker(), s.catalog_interval_s)))
+            # M4a: agent jobs (ADR 0007). Only the main router runs them (never the demo router).
+            tasks.append(asyncio.create_task(jobs.loop()))
         else:
             log.info("ROUTER_SYNC_ENABLED=false: no LiteLLM sync and no catalog refresh from this router")
     yield
@@ -74,3 +77,6 @@ app.include_router(chat.router)
 app.include_router(system.router)
 app.include_router(settings.router)
 app.include_router(rules.router)
+app.include_router(projects.router)
+app.include_router(agents.router)
+app.include_router(jobs_api.router)
