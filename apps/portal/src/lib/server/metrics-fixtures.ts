@@ -1,4 +1,5 @@
 import "server-only";
+import { SUBSCRIPTIONS } from "./jobs-fixtures";
 import type { Result } from "./router";
 import type {
   BreakdownBy,
@@ -275,12 +276,22 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     return ok({ items: subs });
   }
   if (method !== "GET") return { ok: false, status: 405, error: "Method not allowed" };
-  if (p === "/metrics/summary") return ok(summary(range, q.get("tz") ?? "UTC", q.get("empty") === "1", q.get("include_demo") === "true"));
+  if (p === "/metrics/summary") {
+    if (range === "custom") {
+      // M6.5: a custom range: the 30-day fixture cut to first..last (the fixture "today" is 2026-11-21).
+      const first = q.get("first") ?? "", last = q.get("last") ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(first) || !/^\d{4}-\d{2}-\d{2}$/.test(last) || first > last) return { ok: false, status: 400, error: "custom range needs first ≤ last (YYYY-MM-DD)" };
+      const base = summary("30d", q.get("tz") ?? "UTC", q.get("empty") === "1", q.get("include_demo") === "true");
+      const keep = base.series.filter((pt) => pt.slot.slice(0, 10) >= first && pt.slot.slice(0, 10) <= last);
+      return ok({ ...base, range: { ...base.range, key: "custom", first, last, start: `${first}T00:00:00Z` }, series: keep.length ? keep : base.series.slice(-1) });
+    }
+    return ok(summary(range, q.get("tz") ?? "UTC", q.get("empty") === "1", q.get("include_demo") === "true"));
+  }
   if (p === "/metrics/breakdown") {
     const off = q.get("cursor") ? JSON.parse(Buffer.from(q.get("cursor")!, "base64url").toString()).o : 0;
     return ok(breakdown((q.get("by") ?? "provider") as BreakdownBy, range, Number(q.get("limit") ?? 25), off));
   }
-  if (p === "/metrics/quotas") return ok({ providers: QUOTAS });
+  if (p === "/metrics/quotas") return ok({ providers: QUOTAS, subscriptions: SUBSCRIPTIONS() });
   if (p === "/metrics/budgets") return ok(BUDGETS);
   if (p === "/metrics/top-requests") {
     const off = q.get("cursor") ? JSON.parse(Buffer.from(q.get("cursor")!, "base64url").toString()).id : 0;

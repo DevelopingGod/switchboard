@@ -11,11 +11,12 @@ export const jobsStrings = {
     queued: "Queued",
     running: "Running",
     needs_approval: "Needs you",
+    waiting_reset: "Waiting",
     done: "Done",
     failed: "Failed",
     stopped: "Stopped",
   },
-  gate: { plan: "Approve the plan", diff: "Review the changes", result: "Review the report" },
+  gate: { plan: "Approve the plan", diff: "Review the changes", result: "Review the report", limit: "Wait for the reset?" },
   filters: {
     label: "Filter jobs",
     status: "Status",

@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/kit/EmptyState";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { MetricsScreen } from "@/components/metrics/MetricsScreen";
 import { fixtureMode, routerGetAdmin } from "@/lib/server/router";
-import { RANGE_KEYS, type MetricsSummary, type RangeKey } from "@/lib/metrics-types";
+import { RANGE_KEYS, customRangeProblem, type MetricsSummary, type RangeKey } from "@/lib/metrics-types";
 import { t } from "@/i18n/strings";
 import { tMet } from "@/i18n/metrics";
 
@@ -19,11 +19,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   await connection();
   const sp = await searchParams;
   const one = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
-  const range: RangeKey = RANGE_KEYS.includes(one("range") as RangeKey) ? (one("range") as RangeKey) : "7d";
+  let range: RangeKey = RANGE_KEYS.includes(one("range") as RangeKey) ? (one("range") as RangeKey) : "7d";
+  const first = one("first") ?? "";
+  const last = one("last") ?? "";
+  // A custom range from the URL must be valid by the router's rules; else the default (no error page).
+  if (range === "custom" && customRangeProblem(first, last, new Date().toISOString().slice(0, 10))) range = "7d";
   // The browser's time zone, remembered in a cookie by the page itself (first visit: UTC, then corrected).
   const saved = (await cookies()).get("sb_tz")?.value;
   const tz = saved && TZ.test(saved) ? saved : "UTC";
-  const q = new URLSearchParams({ range, tz });
+  const q = new URLSearchParams({ range, tz, ...(range === "custom" ? { first, last } : {}) });
   if (fixtureMode() && one("fixture") === "empty") q.set("empty", "1");
   const summary = await routerGetAdmin<MetricsSummary>(`/metrics/summary?${q}`);
   return (

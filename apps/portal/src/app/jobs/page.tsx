@@ -14,7 +14,7 @@ import { tJobs } from "@/i18n/jobs";
 
 export const metadata: Metadata = { title: tJobs("title") };
 
-const STATUSES = new Set(["queued", "running", "needs_approval", "done", "failed", "stopped"]);
+const STATUSES = new Set(["queued", "running", "needs_approval", "waiting_reset", "done", "failed", "stopped"]);
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await connection();

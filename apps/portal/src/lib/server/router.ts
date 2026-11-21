@@ -39,7 +39,7 @@ function failureOf(body: unknown, fallback: string): { error: string; code?: str
 async function call<T>(method: string, path: string, body: unknown, admin: boolean, timeoutMs: number): Promise<Result<T>> {
   if (fixtureMode()) {
     if (path.startsWith("/rules") || path === "/route/dry-run") return rulesFixtures.handle<T>(method, path, body);
-    if (/^\/(jobs|agents|projects)(\/|\?|$)/.test(path)) return jobsFixtures.handleJobs<T>(method, path, body);
+    if (/^\/(jobs|agents|projects|accounts|subscriptions)(\/|\?|$)/.test(path) || path === "/settings/overflow") return jobsFixtures.handleJobs<T>(method, path, body);
     if (path.startsWith("/metrics/") || path.startsWith("/settings/subscriptions")) return metricsFixtures.handle<T>(method, path, body);
     return path.startsWith("/chat/") || path.startsWith("/route/")
       ? chatFixtures.handle<T>(method, path, body)

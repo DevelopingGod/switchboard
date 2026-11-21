@@ -240,6 +240,18 @@ function components(s: Store): ComponentsResponse {
     // M3a
     { id: "local_profile", status: "ok", fix: null, detail: null, profile: "small", label: "4–6 GB GPU", vram_gb: 4, missing: [], overridden: false },
     { id: "classifier", status: "ok", fix: null, detail: null, code: null },
+    // M6.5: the Metrics rollup worker and one subscription account near its window
+    { id: "rollups", status: "ok", fix: null, detail: null, state: "ok", pending_buckets: 0, last_run_at: "2026-11-18T12:00:00Z" },
+    {
+      id: "subscription:claude:default",
+      name: "Claude Pro",
+      account: "default",
+      status: "ok",
+      fix: null,
+      detail: null,
+      until: "2026-11-18T14:20:00Z",
+      window: { window: "five_hour", label: "5-hour", hours: 5, used: 0.7, resets_at: "2026-11-18T14:20:00Z", limited: false, source: "reported", runs: 0, seen_at: "2026-11-18T11:30:00Z" },
+    },
     {
       id: "provider:openrouter",
       name: "OpenRouter",
@@ -410,6 +422,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     return ok({ ok: true });
   }
   if (method === "GET" && p === "/system/components") return ok(components(s));
+  if (method === "POST" && p === "/system/rollups/run") return ok({ recomputed: 0, state: "ok", pending_buckets: 0 });
   if (p === "/system/local-profile" && (method === "GET" || method === "PUT")) {
     if (method === "PUT") {
       const name = (b as { profile?: string | null }).profile ?? null;

@@ -87,6 +87,7 @@ export const statusStrings = {
     recheck_cli: "Re-check CLIs",
     retest: "Re-test provider",
     pull_models: "Pull models",
+    rebuild_rollups: "Catch up now",
   },
   howTo: "How to fix",
   instruction: {
@@ -100,6 +101,7 @@ export const statusStrings = {
     recheck_cli: "CLIs checked.",
     retest: "Provider re-tested.",
     pull_models: "Pulling models in the background. Check again in a few minutes.",
+    rebuild_rollups: "Metrics rollups caught up.",
   },
   lastOk: "Last synced {time}",
 };

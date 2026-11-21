@@ -13,6 +13,9 @@ import { useToast } from "@/components/kit/Toast";
 import { createJob, loadJobChoices, loadProposal, previewJob } from "@/app/jobs/actions";
 import type { AgentRow, AgentsResponse, JobPreview, ProjectRow } from "@/lib/router-types";
 import { jobsStrings, tJobs } from "@/i18n/jobs";
+import { tSubs } from "@/i18n/subscriptions";
+import { usd } from "@/lib/job-format";
+import { resetTime, sourceText, windowText } from "@/lib/subscription-format";
 
 export interface NewJobDialogProps {
   open: boolean;
@@ -52,6 +55,8 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
   const [level, setLevel] = React.useState<number>(initialAutonomy ?? 1);
   const [budget, setBudget] = React.useState("");
   const [preview, setPreview] = React.useState<JobPreview | null>(null);
+  // M6.5: a paid-overflow job (only after "Paid — up to $X"); null = a normal job.
+  const [paidBudget, setPaidBudget] = React.useState<number | null>(null);
   const [busy, setBusy] = React.useState<null | "preview" | "create">(null);
   const [error, setError] = React.useState<Err | null>(null);
 
@@ -104,7 +109,18 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
       autonomy: level,
       budget_list_usd: budget.trim() && Number.isFinite(b) ? b : undefined,
       ...(requestId ? { from_request_id: requestId } : {}),
+      ...(paidBudget != null ? { paid_budget_usd: paidBudget } : {}),
     };
+  };
+
+  const previewPaid = async (amount: number) => {
+    setBusy("preview");
+    setError(null);
+    setPaidBudget(amount);
+    const r = await previewJob({ ...input(), paid_budget_usd: amount });
+    setBusy(null);
+    if (!r.ok) return setError({ code: r.code, detail: r.detail, text: r.error });
+    setPreview(r.data);
   };
 
   const review = async (e: React.FormEvent) => {
@@ -180,14 +196,43 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
                     ))}
                 </ul>
               )}
+              {preview.agents.some((a) => a.window) && (
+                <ul aria-label={tSubs("window.meter")} className="grid gap-1 text-[0.8125rem] text-ink-muted">
+                  {preview.agents
+                    .filter((a) => a.window)
+                    .map((a) => (
+                      <li key={a.id} suppressHydrationWarning>{`${a.label} (${a.account ?? tSubs("account.default")}): ${windowText(a.window)} · ${sourceText(a.window)}`}</li>
+                    ))}
+                </ul>
+              )}
+              {preview.waits_until && !preview.paid && (
+                <p className="rounded-control border border-warn/40 p-3 text-sm" suppressHydrationWarning>
+                  {tSubs("job.previewWaits", { at: resetTime(preview.waits_until) })}
+                </p>
+              )}
+              {preview.waits_until && !preview.paid && preview.overflow?.ready && (
+                <div>
+                  <Button type="button" size="sm" variant="glass" loading={busy === "preview"} onClick={() => previewPaid(Math.min(1, preview.overflow?.left_usd ?? 1))}>
+                    {tSubs("job.paid")}
+                  </Button>
+                </div>
+              )}
             </section>
             {error && <p role="alert" className="text-sm text-err">{error.text}</p>}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setPreview(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setPreview(null);
+                  setPaidBudget(null);
+                }}
+              >
                 {tJobs("run.back")}
               </Button>
-              <Button type="button" size="sm" disabled={!preview.ok} loading={busy === "create"} onClick={confirm}>
-                {tJobs("run.confirm")}
+              <Button type="button" size="sm" variant={preview.paid ? "danger" : undefined} disabled={!preview.ok} loading={busy === "create"} onClick={confirm}>
+                {preview.paid ? tSubs("job.paidConfirm", { budget: usd(preview.paid_budget_usd ?? 0) }) : tJobs("run.confirm")}
               </Button>
             </div>
           </div>

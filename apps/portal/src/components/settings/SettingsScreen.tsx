@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { RotateCcw } from "lucide-react";
 import { ErrorNote } from "@/components/kit/ErrorNote";
-import type { LocalProfileView, Preset, SettingsView } from "@/lib/router-types";
+import type { LocalProfileView, Preset, SettingsView, AccountsResponse, OverflowSettings } from "@/lib/router-types";
 import type { SubscriptionItem } from "@/lib/metrics-types";
 import { tSet } from "@/i18n/settings";
 import { Section } from "./Section";
@@ -21,8 +21,10 @@ const RoutingSection = dynamic(() => import("./RoutingSection"));
 const LocalModelsSection = dynamic(() => import("./LocalModelsSection"));
 const DataSection = dynamic(() => import("./DataSection"));
 const SubscriptionsSection = dynamic(() => import("./SubscriptionsSection"));
+const AccountsSection = dynamic(() => import("./AccountsSection"));
+const OverflowSection = dynamic(() => import("./OverflowSection"));
 
-const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "subscriptions", "jobs", "data", "setup"] as const;
+const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "subscriptions", "accounts", "overflow", "jobs", "data", "setup"] as const;
 
 export interface SettingsData {
   name: string;
@@ -35,6 +37,9 @@ export interface SettingsData {
   localProfile: LocalProfileView | null;
   /** M6: plans you pay for (null when the router can't be asked). */
   subscriptions: SubscriptionItem[] | null;
+  /** M6.5: subscription accounts and paid overflow (null when the router can't be asked). */
+  accounts: AccountsResponse | null;
+  overflow: OverflowSettings | null;
   /** Router unreachable: router-backed sections show a plain error instead. */
   routerCode: string | null;
 }
@@ -98,6 +103,12 @@ export function SettingsScreen({ data }: { data: SettingsData }) {
           ) : (
             <Section id="subscriptions" title={tSet("section.subscriptions")}>{down}</Section>
           )}
+        </div>
+        <div>
+          {data.accounts ? <AccountsSection data={data.accounts} /> : <Section id="accounts" title={tSet("section.accounts")}>{down}</Section>}
+        </div>
+        <div>
+          {data.overflow ? <OverflowSection data={data.overflow} /> : <Section id="overflow" title={tSet("section.overflow")}>{down}</Section>}
         </div>
         <div>
           {data.settings ? <JobsSection settings={data.settings} /> : <Section id="jobs" title={tSet("section.jobs")}>{down}</Section>}

@@ -7,13 +7,14 @@ import { GlassPanel } from "@/components/kit/GlassPanel";
 import { EmptyState } from "@/components/kit/EmptyState";
 import { useToast } from "@/components/kit/Toast";
 import { Button } from "@/components/ui/button";
-import { addProject, cleanupProject, loadWorktrees, removeProject } from "@/app/jobs/actions";
+import { addProject, cleanupProject, loadWorktrees, removeProject, setProjectAccounts } from "@/app/jobs/actions";
 import { saveSettings } from "@/app/settings/actions";
 import { bytes } from "@/lib/job-format";
-import type { ProjectRow, ProjectWorktrees } from "@/lib/router-types";
+import type { AccountsResponse, ProjectRow, ProjectWorktrees } from "@/lib/router-types";
 import { tJobs } from "@/i18n/jobs";
+import { tSubs } from "@/i18n/subscriptions";
 
-function ProjectItem({ p, onRemoved, initial }: { p: ProjectRow; onRemoved: () => void; initial: ProjectWorktrees | null | undefined }) {
+function ProjectItem({ p, onRemoved, initial, accounts }: { p: ProjectRow; onRemoved: () => void; initial: ProjectWorktrees | null | undefined; accounts: AccountsResponse["clis"] }) {
   const { push } = useToast();
   const [wt, setWt] = React.useState<ProjectWorktrees | null>(initial ?? null);
   const [wtError, setWtError] = React.useState(initial === null);
@@ -118,6 +119,7 @@ function ProjectItem({ p, onRemoved, initial }: { p: ProjectRow; onRemoved: () =
             </Button>
           )}
         </div>
+        <ProjectAccounts p={p} clis={accounts} onError={setError} />
         {error && (
           <p role="alert" className="text-sm text-err">
             {error}
@@ -128,17 +130,64 @@ function ProjectItem({ p, onRemoved, initial }: { p: ProjectRow; onRemoved: () =
   );
 }
 
+/** M6.5 (ADR 0013): the account each subscription CLI uses in this project ("the agent's choice" = none). */
+function ProjectAccounts({ p, clis, onError }: { p: ProjectRow; clis: AccountsResponse["clis"]; onError: (e: string | null) => void }) {
+  const { push } = useToast();
+  const ids = React.useId();
+  const [chosen, setChosen] = React.useState<Record<string, string>>(p.accounts ?? {});
+  const many = clis.filter((c) => c.accounts.length > 1);
+  if (!many.length) return null;
+  const save = async (cli: string, name: string) => {
+    const next = { ...chosen };
+    if (name) next[cli] = name;
+    else delete next[cli];
+    onError(null);
+    const r = await setProjectAccounts(p.id, next);
+    if (!r.ok) return onError(r.error);
+    setChosen(r.data.accounts ?? {});
+    push({ tone: "success", title: tJobs("fleet.saved_toast") });
+  };
+  return (
+    <div className="grid gap-2 text-sm">
+      {many.map((c) => (
+        <div key={c.cli} className="grid gap-1">
+          <label htmlFor={`${ids}-${c.cli}`} className="font-semibold">
+            {`${tSubs("accounts.choose")} · ${c.label}`}
+          </label>
+          <select
+            id={`${ids}-${c.cli}`}
+            value={chosen[c.cli] ?? ""}
+            onChange={(e) => save(c.cli, e.target.value)}
+            className="min-h-(--ctl) w-60 rounded-control border border-hairline bg-glass-strong px-3"
+          >
+            <option value="">{tSubs("accounts.agentDefault")}</option>
+            {c.accounts.map((a) => (
+              <option key={a.name} value={a.name}>
+                {a.name === "default" ? tSubs("accounts.defaultName") : a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
+      <p className="text-[0.8125rem] text-ink-muted">{tSubs("accounts.never")}</p>
+    </div>
+  );
+}
+
 export function ProjectsScreen({
   initial,
   worktrees,
   keep,
   keepDefault,
+  accounts = [],
 }: {
   initial: ProjectRow[];
   /** Per project id: its copies (null = hostprobe couldn't say). */
   worktrees: Record<number, ProjectWorktrees | null>;
   keep: number | null;
   keepDefault: number | null;
+  /** M6.5: subscription CLIs and their accounts (a choice appears only where there is more than one). */
+  accounts?: AccountsResponse["clis"];
 }) {
   const router = useRouter();
   const { push } = useToast();
@@ -226,7 +275,7 @@ export function ProjectsScreen({
       ) : (
         <ul className="grid gap-4">
           {projects.map((p) => (
-            <ProjectItem key={p.id} p={p} initial={worktrees[p.id]} onRemoved={() => setProjects((cur) => cur.filter((x) => x.id !== p.id))} />
+            <ProjectItem key={p.id} p={p} accounts={accounts} initial={worktrees[p.id]} onRemoved={() => setProjects((cur) => cur.filter((x) => x.id !== p.id))} />
           ))}
         </ul>
       )}

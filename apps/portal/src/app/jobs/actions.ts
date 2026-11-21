@@ -17,6 +17,7 @@ import type {
   JobView,
   ProjectRow,
   ProjectWorktrees,
+  OverflowSettings,
 } from "@/lib/router-types";
 
 /**
@@ -29,7 +30,7 @@ const res = <T>(r: Result<T>): ActionResult<T> =>
   r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
 
 const AGENT_ID = /^[a-z][a-z0-9-]{1,63}$/;
-const STATUSES = new Set(["queued", "running", "needs_approval", "done", "failed", "stopped"]);
+const STATUSES = new Set(["queued", "running", "needs_approval", "waiting_reset", "done", "failed", "stopped"]);
 const RUN_ID = /^[\w-]{1,64}$/;
 
 function jobBody(input: JobInput): Record<string, unknown> | string {
@@ -44,6 +45,10 @@ function jobBody(input: JobInput): Record<string, unknown> | string {
   if (input.budget_list_usd !== undefined) {
     if (!(typeof input.budget_list_usd === "number" && input.budget_list_usd > 0 && input.budget_list_usd <= 1000)) return "Enter a budget between $0.01 and $1,000.";
     out.budget_list_usd = input.budget_list_usd;
+  }
+  if (input.paid_budget_usd !== undefined) {
+    if (!(typeof input.paid_budget_usd === "number" && input.paid_budget_usd > 0 && input.paid_budget_usd <= 1000)) return "Enter a paid budget between $0.01 and $1,000.";
+    out.paid_budget_usd = input.paid_budget_usd;
   }
   if (input.title) out.title = String(input.title).slice(0, 200);
   if (input.from_request_id !== undefined && Number.isInteger(input.from_request_id)) out.from_request_id = input.from_request_id;
@@ -99,6 +104,31 @@ export const approveJob = async (id: number, note?: string) => decide(id, "appro
 export const rejectJob = async (id: number, note?: string) => decide(id, "reject", note);
 export const stopJob = async (id: number) => decide(id, "stop");
 
+// --- M6.5: a job waiting on a subscription usage limit (ADR 0014) ----------------------------------------
+async function limitAction(id: number, path: string, body?: unknown): Promise<ActionResult<JobView>> {
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: "Invalid job." };
+  const r = await routerSend<JobView>("POST", `/jobs/${id}/${path}`, body, 60_000);
+  revalidatePath("/jobs");
+  revalidatePath(`/jobs/${id}`);
+  return res(r);
+}
+
+export const waitForReset = async (id: number) => limitAction(id, "wait");
+
+export async function rerouteJob(id: number, agent: string): Promise<ActionResult<JobView>> {
+  if (!AGENT_ID.test(agent)) return { ok: false, error: "Pick an agent." };
+  return limitAction(id, "reroute", { agent });
+}
+
+export async function choosePaidOverflow(id: number, budgetUsd: number): Promise<ActionResult<JobView>> {
+  if (!(Number.isFinite(budgetUsd) && budgetUsd > 0 && budgetUsd <= 1000)) return { ok: false, error: "Enter a budget between $0.01 and $1,000." };
+  return limitAction(id, "paid", { budget_usd: Math.round(budgetUsd * 100) / 100 });
+}
+
+export async function loadOverflow(): Promise<ActionResult<OverflowSettings>> {
+  return res(await routerGetAdmin<OverflowSettings>("/settings/overflow"));
+}
+
 export async function loadDiff(id: number): Promise<ActionResult<JobDiff>> {
   if (!Number.isInteger(id) || id < 1) return { ok: false, error: "Invalid job." };
   return res(await routerGetAdmin<JobDiff>(`/jobs/${id}/diff`));
@@ -136,6 +166,10 @@ function agentBody(input: AgentInput): Record<string, unknown> | string {
     const v = input.monthly_list_usd;
     if (v !== null && !(typeof v === "number" && v > 0 && v <= 10_000)) return "Enter a monthly budget above $0, or leave it empty.";
     out.monthly_list_usd = v;
+  }
+  if (input.account !== undefined) {
+    if (input.account !== null && !/^[a-z0-9][a-z0-9-]{0,30}$/.test(input.account)) return "Invalid account.";
+    out.account = input.account;
   }
   if (input.allowed_project_ids !== undefined) {
     const v = input.allowed_project_ids;
@@ -183,6 +217,19 @@ export async function addProject(path: string): Promise<ActionResult<ProjectRow>
 export async function removeProject(id: number): Promise<ActionResult<{ removed: boolean }>> {
   if (!Number.isInteger(id) || id < 1) return { ok: false, error: "Invalid project." };
   const r = await routerSend<{ removed: boolean }>("DELETE", `/projects/${id}`);
+  revalidatePath("/settings/projects");
+  return res(r);
+}
+
+/** M6.5 (ADR 0013): which account each subscription CLI uses for this project's new jobs. */
+export async function setProjectAccounts(id: number, accounts: Record<string, string>): Promise<ActionResult<ProjectRow>> {
+  if (!Number.isInteger(id) || id < 1) return { ok: false, error: "Invalid project." };
+  const clean: Record<string, string> = {};
+  for (const [cli, name] of Object.entries(accounts)) {
+    if (!/^[a-z][a-z0-9-]{0,15}$/.test(cli) || !/^[a-z0-9][a-z0-9-]{0,30}$/.test(name)) return { ok: false, error: "Invalid account." };
+    clean[cli] = name;
+  }
+  const r = await routerSend<ProjectRow>("PUT", `/projects/${id}/accounts`, { accounts: clean });
   revalidatePath("/settings/projects");
   return res(r);
 }

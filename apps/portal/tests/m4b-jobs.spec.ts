@@ -16,14 +16,14 @@ test.describe("read-only", () => {
     await ready(page);
     await expect(page.getByRole("heading", { level: 1, name: "Jobs" })).toBeVisible();
     const tabs = page.getByRole("navigation", { name: "Status" });
-    await expect(tabs.getByRole("link", { name: /All\s*30/ })).toHaveAttribute("aria-current", "page");
+    await expect(tabs.getByRole("link", { name: /All\s*31/ })).toHaveAttribute("aria-current", "page");
     await expect(tabs.getByRole("link", { name: /Needs you\s*2/ })).toBeVisible();
     const region = page.getByRole("region", { name: "Jobs" });
     const list = region.getByRole("list", { name: "Jobs" });
     await expect(list.getByRole("listitem")).toHaveCount(25);
-    await expect(region.getByText("25 of 30")).toBeVisible();
+    await expect(region.getByText("25 of 31")).toBeVisible();
     await region.getByRole("button", { name: "Load more" }).click();
-    await expect(list.getByRole("listitem")).toHaveCount(30);
+    await expect(list.getByRole("listitem")).toHaveCount(31);
     await expect(region.getByRole("button", { name: "Load more" })).toHaveCount(0);
 
     await tabs.getByRole("link", { name: /Needs you/ }).click();
@@ -265,7 +265,7 @@ test.describe("changes state", () => {
     await dlg.getByRole("textbox", { name: "Task" }).fill("Add a function power(a, b) with tests");
     await dlg.getByRole("button", { name: "Review" }).click();
     await dlg.getByRole("button", { name: "Start job" }).click();
-    await expect(page).toHaveURL(/\/jobs\/31$/);
+    await expect(page).toHaveURL(/\/jobs\/\d+$/); // the mutating server is shared by specs: any new id
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add a function power(a, b) with tests");
     await expect(page.getByText("Queued").first()).toBeVisible();
   });

@@ -1,7 +1,22 @@
 /** Router /metrics/* shapes (M6, services/router/app/api/metrics.py). */
 
-export type RangeKey = "today" | "7d" | "30d";
-export const RANGE_KEYS: readonly RangeKey[] = ["today", "7d", "30d"];
+export type RangeKey = "today" | "7d" | "30d" | "custom";
+/** The quick ranges; "custom" (M6.5) takes a first and last day too. */
+export const RANGE_KEYS: readonly RangeKey[] = ["today", "7d", "30d", "custom"];
+export const MAX_CUSTOM_DAYS = 366;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Why a custom range can't be used (an i18n key under `range.`), or null. Same rules as the router. */
+export function customRangeProblem(first: string, last: string, today: string): "missing" | "order" | "future" | "long" | null {
+  if (!DAY.test(first) || !DAY.test(last) || Number.isNaN(Date.parse(first)) || Number.isNaN(Date.parse(last))) return "missing";
+  if (first > last) return "order";
+  if (first > today) return "future";
+  const days = Math.round((Date.parse(last) - Date.parse(first)) / 86_400_000) + 1;
+  return days > MAX_CUSTOM_DAYS ? "long" : null;
+}
+
+/** "2026-11-01_2026-11-20" for custom ranges (CSV file names), else the key. */
+export const rangeTag = (key: RangeKey, first?: string, last?: string) => (key === "custom" && first && last ? `${first}_${last}` : key);
 export type BreakdownBy = "provider" | "model" | "agent" | "rule" | "intent" | "project" | "kind";
 
 export interface MetricsRange {

@@ -4,6 +4,7 @@ import {
   CircleSlash,
   Clock,
   Hand,
+  Hourglass,
   Loader,
   XCircle,
   type LucideIcon,
@@ -21,7 +22,8 @@ export type Status =
   | "needsApproval"
   | "done"
   | "failed"
-  | "stopped";
+  | "stopped"
+  | "waiting";
 
 interface Spec {
   icon: LucideIcon;
@@ -40,6 +42,7 @@ const specs: Record<Status, Spec> = {
   done: { icon: CheckCircle2, color: "text-ok" },
   failed: { icon: XCircle, color: "text-err" },
   stopped: { icon: CircleSlash, color: "text-ink-muted" },
+  waiting: { icon: Hourglass, color: "text-warn" },
 };
 
 /** Status is always icon + text + color, never color alone. Live states get a breathing dot. */

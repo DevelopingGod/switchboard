@@ -3,6 +3,9 @@ import { atTop, inPro, ready, renderAllSections, settled, unstick, unstickCompos
 
 // Metrics fixtures are dated 21 Nov 2026; relative times ("today 11:15") need that "now" (M6).
 const METRICS_NOW = new Date("2026-11-21T12:00:00Z");
+// M6.5: usage-window reset times are shown relative to "now" (a weekday when not today); the jobs fixtures
+// are dated 20 Nov 2026, so screens that show them use this fixed "now".
+const JOBS_NOW = new Date("2026-11-20T10:00:00Z");
 
 /** Visual-regression baselines: every gallery section in both themes (default system-follow). */
 const sections = [
@@ -129,6 +132,7 @@ for (const scheme of ["light", "dark"] as const) {
     });
 
     test("status", async ({ page }) => {
+      await page.clock.setFixedTime(JOBS_NOW);
       await page.goto("/status");
       await ready(page);
       await expect(page).toHaveScreenshot(`status-${scheme}.png`, { fullPage: true });
@@ -141,6 +145,7 @@ for (const scheme of ["light", "dark"] as const) {
       ["job-diff", "/jobs/28"],
       ["job-done", "/jobs/25"],
       ["agents", "/jobs/agents"],
+      ["job-waiting", "/jobs/31"], // M6.5
       ["projects", "/settings/projects"],
       // M6
       ["metrics", "/metrics"],
@@ -148,7 +153,7 @@ for (const scheme of ["light", "dark"] as const) {
       ["metrics-empty", "/metrics?fixture=empty"],
     ] as const) {
       test(name, async ({ page }) => {
-        if (path.startsWith("/metrics")) await page.clock.setFixedTime(METRICS_NOW);
+        await page.clock.setFixedTime(path.startsWith("/metrics") ? METRICS_NOW : JOBS_NOW);
         await page.goto(path);
         await ready(page);
         await settled(page);
@@ -169,6 +174,7 @@ for (const scheme of ["light", "dark"] as const) {
     });
 
     test("job · run as job preview", async ({ page }) => {
+      await page.clock.setFixedTime(JOBS_NOW);
       await page.goto("/jobs");
       await ready(page);
       await page.getByRole("button", { name: "New job" }).click();

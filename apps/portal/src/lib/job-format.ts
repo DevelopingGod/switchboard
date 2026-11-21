@@ -3,7 +3,7 @@ import type { JobStatus, JobView } from "./router-types";
 
 /** Job state → the kit's StatusBadge state (icon + text + colour). */
 export function badgeOf(s: JobStatus): Status {
-  return s === "needs_approval" ? "needsApproval" : s;
+  return s === "needs_approval" ? "needsApproval" : s === "waiting_reset" ? "waiting" : s;
 }
 
 export const usd = (v: number) => (v > 0 && v < 0.01 ? "<$0.01" : `$${v.toFixed(2)}`);
@@ -19,7 +19,7 @@ export function budgetPct(j: Pick<JobView, "list_price_usd" | "budget_list_usd">
   return j.budget_list_usd > 0 ? Math.min(100, Math.round((j.list_price_usd / j.budget_list_usd) * 100)) : 0;
 }
 
-export const ACTIVE: readonly JobStatus[] = ["queued", "running", "needs_approval"];
+export const ACTIVE: readonly JobStatus[] = ["queued", "running", "needs_approval", "waiting_reset"];
 export const isActive = (s: JobStatus) => ACTIVE.includes(s);
 
 /** Plain git commands to review and merge a job's branch (Switchboard never runs them). */

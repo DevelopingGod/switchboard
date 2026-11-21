@@ -303,6 +303,7 @@ export type ComponentFix =
   | "start_paperclip"
   | "start_hostprobe"
   | "pull_models"
+  | "rebuild_rollups"
   | `retest:${string}`;
 
 export interface SystemComponent {
@@ -325,6 +326,12 @@ export interface SystemComponent {
   overridden?: boolean;
   /** M4b, the paperclip row: its auth mode and the loopback check (ADR 0007). */
   notes?: PaperclipNotes;
+  /** M6.5: `subscription:<cli>:<account>` rows and the `rollups` row. */
+  account?: string;
+  window?: UsageWindowView;
+  state?: "ok" | "behind" | "stopped";
+  pending_buckets?: number;
+  last_run_at?: string | null;
 }
 
 export interface PaperclipNotes {
@@ -551,8 +558,9 @@ export interface DryRunResult {
 }
 
 // --- M4b: jobs, the agent fleet, projects -------------------------------------------------------------
-export type JobStatus = "queued" | "running" | "needs_approval" | "done" | "failed" | "stopped";
-export type JobGate = "plan" | "diff" | "result";
+export type JobStatus = "queued" | "running" | "needs_approval" | "waiting_reset" | "done" | "failed" | "stopped";
+/** M6.5: `limit` = the usage-limit reset is far away, so the job asks before waiting (ADR 0014). */
+export type JobGate = "plan" | "diff" | "result" | "limit";
 
 export interface JobEventRow {
   id: number;
@@ -594,6 +602,13 @@ export interface JobView {
   updated_at: string | null;
   events?: JobEventRow[];
   approval_expires_at?: string | null;
+  /** M6.5: the CLI account (null = default), waiting for a usage-window reset, paid overflow. */
+  account?: string | null;
+  resume_at?: string | null;
+  attempt?: number;
+  waits?: number;
+  paid?: boolean;
+  paid_budget_usd?: number | null;
 }
 
 export interface JobsPage {
@@ -605,6 +620,7 @@ export interface JobCounts {
   counts: Record<JobStatus, number>;
   all: number;
   needs_you: number;
+  waiting?: number;
 }
 
 export interface JobPreview {
@@ -613,13 +629,70 @@ export interface JobPreview {
   project: { id: number; name: string; path: string };
   autonomy: number;
   level: { runs: string[]; review: "diff" | "result"; approve_plan: boolean };
-  agents: { id: string; label: string; reason: string | null; chosen: boolean }[];
+  agents: { id: string; label: string; reason: string | null; chosen: boolean; account?: string | null; window?: UsageWindowView | null; paid?: boolean }[];
   agent: string | null;
   budget_list_usd: number;
   cost_reported: boolean | null;
   caps: { max_turns: number; run_timeout_s: number; job_timeout_s: number };
   branch: string;
   steps: string[];
+  /** M6.5: every agent's window is used up: the job waits until then (or asks, when it is far away). */
+  waits_until?: string | null;
+  paid?: boolean;
+  paid_budget_usd?: number | null;
+  overflow?: { ready: boolean; left_usd: number | null; model: string | null };
+}
+
+// --- M6.5: subscription usage windows, accounts, paid overflow (ADRs 0013-0015) ---------------------------
+export interface UsageWindowView {
+  window: string;
+  label: string;
+  hours: number;
+  /** 0..1, null = unknown (an estimate with no calibration yet). */
+  used: number | null;
+  resets_at: string | null;
+  limited: boolean;
+  source: "reported" | "estimate";
+  runs: number;
+  seen_at: string | null;
+}
+
+export interface SubscriptionView {
+  cli: string;
+  account: string;
+  plan_label: string;
+  windows: UsageWindowView[];
+  tightest: UsageWindowView | null;
+  logged_in?: boolean | null;
+  limit_hits_30d?: number;
+  label?: string;
+}
+
+export interface AccountRow {
+  name: string;
+  label: string | null;
+  logged_in: boolean | null;
+  installed: boolean | null;
+  plan: string | null;
+  plan_label: string | null;
+  home: string | null;
+  login_command: string | null;
+  error?: string | null;
+}
+
+export interface AccountsResponse {
+  clis: { cli: string; label: string; home_env: string; accounts: AccountRow[] }[];
+}
+
+export interface OverflowSettings {
+  enabled: boolean;
+  monthly_usd: number | null;
+  model: string | null;
+  spent_usd: number;
+  left_usd: number | null;
+  ready: boolean;
+  models: { model: string; paid: boolean; providers: string[] }[];
+  test_free_model: boolean;
 }
 
 export interface JobProposal {
@@ -639,6 +712,8 @@ export interface JobInput {
   budget_list_usd?: number;
   title?: string;
   from_request_id?: number;
+  /** M6.5: set only after the "Paid — up to $X" confirmation (ADR 0015). */
+  paid_budget_usd?: number;
 }
 
 export interface JobRun {
@@ -702,11 +777,16 @@ export interface AgentRow {
   month_cost_usd: number;
   monthly_budget_list_usd: number | null;
   paperclip_agent_id?: string | null;
+  /** M6.5: the agent's account (null = default), the paid-overflow agent, its usage windows. */
+  account?: string | null;
+  paid?: boolean;
+  subscription?: SubscriptionView | null;
 }
 
 export interface AgentTemplate {
   id: string;
   label: string;
+  cli?: string;
   runnable: boolean;
   note: string | null;
   installed: boolean;
@@ -719,6 +799,8 @@ export interface AgentsResponse {
   agents: AgentRow[];
   templates: AgentTemplate[];
   bwrap: boolean | null;
+  /** M6.5: subscription CLI → its account names ("default" first). */
+  accounts?: Record<string, string[]>;
   defaults: {
     max_active_per_agent: number;
     per_job_list_usd: number;
@@ -737,6 +819,7 @@ export interface AgentInput {
   default_autonomy?: number | null;
   monthly_list_usd?: number | null;
   allowed_project_ids?: number[] | null;
+  account?: string | null;
 }
 
 export interface ProjectRow {
@@ -748,6 +831,8 @@ export interface ProjectRow {
   created_at: string;
   active_jobs: number;
   jobs: number;
+  /** M6.5: {cli: account} this project's new jobs use. */
+  accounts?: Record<string, string>;
 }
 
 export interface ProjectWorktrees {
