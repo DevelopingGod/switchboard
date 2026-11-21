@@ -21,11 +21,11 @@
 | README v1 | ✅ Merged | readme-v1 / #11 | Sonnet 5.5 | Honest, animated README + demo; one project VERSION; Motion and the wizard's Connect step lazy-loaded (every route −12 to −18 KB); chat stays pinned while lazy chunks load; demo stack; see README v1 outcome |
 | M4 Jobs via Paperclip | Split into M4a + M4b | — | Opus 5.5, high | Backend first, then the page |
 | M4a Agents & Jobs backend | ✅ Merged | m4a / #12 | Opus 5.5 | Paperclip adapter (verified 2026.1106.0), agent registry, job engine, worktrees via hostprobe, live proof with Claude Code, Codex and OpenCode; fast private chat + Think harder; three load flakes fixed at the cause; see M4a outcome |
-| M4b Jobs page + agent fleet | ✅ Done (PR in review) | m4b / #13 | Opus 5.5 | Job board and detail (live log, plan, per-file diff, decisions), Run as job, fleet (ADR 0009), Projects and Jobs settings, badge and toasts, level-3 decision (ADR 0010, M7), `/chat` Lighthouse 95–99; see M4b outcome |
+| M4b Jobs page + agent fleet | ✅ Merged | m4b / #13 | Opus 5.5 | Job board and detail (live log, plan, per-file diff, decisions), Run as job, fleet (ADR 0009), Projects and Jobs settings, badge and toasts, level-3 decision (ADR 0010, M7), `/chat` Lighthouse 95–99; see M4b outcome |
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
-| M6 Metrics | ⏳ | — | Opus 5.5, medium | |
+| M6 Metrics | ✅ Done (PR in review) | m6 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
 | M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
 
 **MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
@@ -566,6 +566,54 @@ media; PROGRESS.
   - removing GROQ/GEMINI keys from `deploy/.env`;
   - `ollama rm qwen3:1.7b`;
   - medium/large profile defaults not measured on those GPUs.
+
+## M6 outcome
+
+Branch `m6`. Guide: [docs/m6.md](m6.md) (what you can do, how it works, verification, checks, live check, decisions
+taken without asking). ADRs: [0011](adr/0011-metrics-charts-hand-rolled-svg.md) hand-rolled SVG charts,
+[0012](adr/0012-metrics-rollups-and-litellm-dedupe.md) one costs table, call-id dedupe, 15-minute rollups. Commits:
+backend; portal; docs, media and version 0.7.0.
+
+- **One source of truth:**
+  - every router call to LiteLLM sends `x-litellm-call-id: sb-<chat|aux|test>-<hex>` (verified on v1.108.8: it
+    becomes the spend log's `litellm_call_id`); a chat turn's costs row uses it as `external_id`;
+  - the spend-log ingester (`/spend/logs/v2`, every 5 min, cursor + overlap) adds titles/summaries, model tests and
+    other LiteLLM clients with `ON CONFLICT DO NOTHING`; chat logs wait 15 min so the router writes first; pre-M6
+    un-tagged calls are skipped (history before M6 is not imported from LiteLLM);
+  - `costs.kind` and `costs.job_id` (backfilled); demo traffic tagged on all four paths and left out by default.
+- **Rollups:** `metrics_15m` (15-minute buckets, your choice, so +5:30/+5:45 days are exact), filled from an
+  append-only `metrics_dirty` log written by triggers (insert, update, delete; old and new bucket; feedback), recomputed
+  idempotently under an advisory lock; latency histograms for p50/p95; `--rebuild --since` repair command;
+  `ix_requests_created_id`, `ix_costs_request_id`, `ix_costs_job_id`, `ix_jobs_finished_at`, feedback partial index.
+- **`/metrics`:** Simple (spent, value at API prices, net saved, requests, jobs done, insights, spend/value chart) and
+  Pro (breakdowns ×7 dimensions with paging, errors and latency charts, quota burn-down with reset times, budgets with
+  forecast, feedback per model, jobs per agent, most valuable requests, include-demo toggle). Browser time zone via
+  a cookie. CSV export on every table (formula-injection guard).
+- **Your additions:** Settings → Subscriptions and "Net saved = value − fees − spent" (fees pro-rated per calendar
+  month; insights never overclaim); per-request rows show titles and job names only, "Private chat" for private
+  threads, masked text, enforced in the router (tested on the API, the CSV and the page).
+- **Item 6:** the Agents Dial is month vs monthly cap and says "No cap" without one.
+- **Also:** footer "Value saved" → "Free value" (it never subtracted fees); README feature tour, roadmap ✅, two new
+  screenshots and the Agents one updated, demo re-recorded with a Metrics segment (sample data, labelled);
+  `VERSION` 0.7.0; SPEC §5 (charts), §8 (Metrics built), §9 (costs, `metrics_15m`), §11 updated.
+- **Checks:** router 422 pytest + live contract test (ruff clean); portal tsc, eslint, vitest 104, Playwright (M6 spec,
+  axe both themes, 8 new baselines), JS budget (`/metrics` 171.7 KB, `/chat` 179.9 KB unchanged), Lighthouse
+  `/metrics` 99/100/100 both themes (all routes ≥ 96), `test:bundle`, `docs:check`.
+- **Changes on your machine (outside the repo):** router image rebuilt; migration 0009 applied, rolled back and
+  re-applied on your router database (a `pg_dump` from before is in the session scratchpad); 94 rows the first
+  ingest run inserted by mistake were deleted; one test call through LiteLLM (`sbtest-…`, Ollama, $0) to verify call
+  ids; demo stack created and removed again.
+- **Deviations:** net saved uses the total list price as "value" (the literal addition would count paid calls twice;
+  explained in docs/m6.md); `costs.kind` is a column, not derived; the Metrics API needs the admin token.
+
+## Carry-over to M7 and later (from M6)
+
+- **Media spend** on Metrics comes with M5 Studio (`kind = media` already exists).
+- **Custom date ranges** in the UI (the API supports `range=custom`, ≤ 366 days).
+- **Rollup worker health** on Status: `pending_buckets` is reported by `/metrics/summary` but not shown on Status or
+  checked by `doctor.sh`.
+- **LiteLLM upgrade:** re-run `pytest -m live` (`LITELLM_LIVE_URL`, `LITELLM_LIVE_KEY`) before trusting the ingester.
+- Still open from earlier: see "Carry-over to M4.5 and later".
 
 ## Future providers
 

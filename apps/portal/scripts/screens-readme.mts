@@ -16,7 +16,10 @@ mkdirSync(out, { recursive: true });
 const SEED = "/chat?t=6f1c2a10-0000-4000-8000-000000000001";
 const themes = { day: "light", dusk: "dark" } as const;
 
-const shots: Record<string, { path: string; act?: (p: Page) => Promise<void> }> = {
+// Metrics fixtures are dated 21 Nov 2026 (noon UTC): relative times ("today 18:00") need that "now".
+const METRICS_NOW = new Date("2026-11-21T12:00:00Z");
+
+const shots: Record<string, { path: string; clock?: Date; act?: (p: Page) => Promise<void> }> = {
   home: { path: "/" },
   "chat-why": {
     path: SEED,
@@ -59,6 +62,18 @@ const shots: Record<string, { path: string; act?: (p: Page) => Promise<void> }> 
     },
   },
   agents: { path: "/jobs/agents" },
+  // M6: Metrics (fixture data)
+  metrics: { path: "/metrics", clock: METRICS_NOW },
+  "metrics-pro": {
+    path: "/metrics",
+    clock: METRICS_NOW,
+    act: async (p) => {
+      await p.getByRole("complementary", { name: "Sidebar" }).getByRole("radio", { name: "Pro" }).click();
+      await p.getByRole("region", { name: "Budgets" }).getByRole("meter").first().waitFor();
+      await p.getByRole("region", { name: "Free quotas" }).getByRole("meter").first().waitFor();
+      await p.getByRole("region", { name: "Free quotas" }).evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 90));
+    },
+  },
   "wizard-goals": { path: "/welcome?step=2" },
   "wizard-connect": { path: "/welcome?step=3" },
 };
@@ -66,11 +81,12 @@ const shots: Record<string, { path: string; act?: (p: Page) => Promise<void> }> 
 const browser = await chromium.launch();
 const only = process.argv.slice(2);
 let total = 0;
-for (const [name, { path, act }] of Object.entries(shots)) {
+for (const [name, { path, act, clock }] of Object.entries(shots)) {
   if (only.length && !only.includes(name)) continue;
   for (const [tname, theme] of Object.entries(themes)) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", colorScheme: theme });
     const page = await ctx.newPage();
+    if (clock) await page.clock.setFixedTime(clock);
     await page.goto(`${BASE}${path}${path.includes("?") ? "&" : "?"}theme=${theme}&nosplash`);
     await page.evaluate(() => document.fonts.ready);
     await page.waitForLoadState("networkidle");

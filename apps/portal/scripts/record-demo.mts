@@ -1,6 +1,6 @@
 /**
  * Records the README demo against the throwaway Demo stack (docs/recording-the-demo.md):
- *   Home → chat with "Why this?" → private chat → Connections → Rules tester → Jobs → Agents.
+ *   Home → chat with "Why this?" → private chat → Connections → Rules tester → Jobs → Agents → Metrics.
  * The jobs segment (M4b) runs on a second portal with fixture data, labelled "Sample data" on screen: a real job
  * through the Demo stack would reuse job numbers (branches `switchboard/job-<n>`, Paperclip issue keys) that your
  * real jobs already use in the shared Paperclip company and project.
@@ -63,15 +63,15 @@ async function startPortal(port = PORT, env: Record<string, string> = { ROUTER_U
 }
 
 /** The on-screen label for the jobs segment (fixture data). */
-async function sampleLabel(page: Page) {
-  await page.evaluate(() => {
+async function sampleLabel(page: Page, text = "Sample data · jobs run on your own repos") {
+  await page.evaluate((text) => {
     if (document.getElementById("demo-sample")) return;
     const d = document.createElement("div");
     d.id = "demo-sample";
-    d.textContent = "Sample data · jobs run on your own repos";
+    d.textContent = text;
     d.style.cssText = "position:fixed;z-index:2147483646;right:16px;bottom:64px;padding:6px 12px;border-radius:999px;background:#171a3d;color:#fff;font:600 13px system-ui;opacity:.92";
     document.body.appendChild(d);
-  });
+  }, text);
 }
 
 /** A visible pointer for the recording (Playwright's video has none): a soft dot with a click ripple. */
@@ -224,6 +224,24 @@ async function story(page: Page): Promise<Wait[]> {
   await sleep(3200);
   await page.keyboard.press("Escape");
   await sleep(1200);
+
+  // 6. Metrics (M6, sample data dated 21 Nov 2026): Simple numbers and insights, then Pro quotas and budgets
+  const METRICS_LABEL = "Sample data · your own usage appears here";
+  await page.clock.setFixedTime(new Date("2026-11-21T12:00:00Z"));
+  await page.goto(`${SAMPLE}/metrics?nosplash`);
+  await page.getByRole("region", { name: "In short" }).waitFor();
+  await sampleLabel(page, METRICS_LABEL);
+  mark("metrics");
+  await sleep(3600);
+  await page.mouse.wheel(0, 420);
+  await sleep(2400);
+  await click(page, page.getByRole("complementary", { name: "Sidebar" }).getByRole("radio", { name: "Pro" }));
+  await page.getByRole("region", { name: "Budgets" }).getByRole("meter").first().waitFor();
+  await sampleLabel(page, METRICS_LABEL);
+  await page.getByRole("region", { name: "Free quotas" }).scrollIntoViewIfNeeded();
+  await sleep(3800);
+  await click(page, page.getByRole("complementary", { name: "Sidebar" }).getByRole("radio", { name: "Simple" }));
+  await sleep(600);
   return waits;
 }
 

@@ -38,7 +38,7 @@ function useView<T>(view: string, params: Record<string, string | undefined>) {
 
 function Panel({ id, title, lead, children }: { id: string; title: string; lead?: string; children: React.ReactNode }) {
   return (
-    <GlassPanel as="section" tone="strong" aria-labelledby={id} className="grid gap-3">
+    <GlassPanel as="section" tone="strong" aria-labelledby={id} className="grid content-start gap-3">
       <h2 id={id} className="font-display text-xl font-bold tracking-tight">
         {title}
       </h2>

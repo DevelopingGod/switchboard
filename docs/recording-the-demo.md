@@ -28,11 +28,12 @@ dummy value, never a key, with the suffix shown as `••••`), the model ca
 `docs/media/demo.mp4` (H.264) and `docs/media/demo.gif` (< 5 MB; it shrinks width, frame rate and colours until it fits).
 `down` removes the demo router and drops the demo database. **Your real stack is never stopped or written to.**
 
-## Storyboard (about 80 s)
+## Storyboard (about 95 s)
 
 Home → a real reply → **Why this?** → New chat → **Private** → a real local reply → Connections (suffixes shown as
 dots) → Rules tester → **Jobs** (sample data): the board, a plan to approve, the changes per file, Approve and commit →
-**Agents** and the Hire agent dialog.
+**Agents** and the Hire agent dialog → **Metrics** (sample data): Simple numbers and insights, then Pro quotas and
+budgets.
 
 The jobs segment runs on a second portal on `127.0.0.1:3221` with fixture data (`PORTAL_DATA=fixture`), labelled
 "Sample data · jobs run on your own repos" on screen. A real job through the Demo stack is not recorded: the demo
@@ -47,8 +48,10 @@ nothing personal, health or financial.
   (`ollama run qwen3:4b hi`) for steadier timing.
 - **No real key suffix can be recorded:** the demo database only holds `••••`, and the script stops if a suffix other than
   `••••` is on the Connections screen.
-- **Demo traffic is tagged** `switchboard-demo` (LiteLLM `user` and tags, and `decision_json.tag` in `requests`). When
-  Metrics (M6) lands it should exclude that tag.
+- **Demo traffic is tagged** `switchboard-demo` (LiteLLM `user` and tags, and `decision_json.tag` in `requests`).
+  Metrics (M6) leaves it out by default ("6 demo requests are left out"); Pro mode has **Include demo traffic**.
+- **The Metrics segment uses fixture data** (`PORTAL_DATA=fixture`, dated 21 Nov 2026): the Demo stack has no history
+  worth charting.
 - The demo router sets `ROUTER_SYNC_ENABLED=false`, so it never writes to LiteLLM or refreshes the catalog; your main
   router stays the only writer.
 - GitHub does not play a repo-relative `<video>` in a README, so the README shows the GIF and links to the MP4 (which
