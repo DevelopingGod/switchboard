@@ -24,6 +24,10 @@ const pages = [
   "/jobs/27",
   "/jobs/agents",
   "/settings/projects",
+  // M6
+  "/metrics",
+  "/metrics?range=today",
+  "/metrics?fixture=empty",
 ];
 
 /** `scope`: audit only this part of the page (a modal: the page behind it is inert and dimmed on purpose). */
@@ -50,6 +54,16 @@ for (const scheme of schemes) {
         await audit(page, `${path} ${scheme}`);
       });
     }
+
+    test("metrics · Pro sections, table views", async ({ page }) => {
+      await page.goto("/metrics");
+      await ready(page);
+      await page.getByRole("complementary", { name: "Sidebar" }).getByRole("radio", { name: "Pro" }).click();
+      await page.getByRole("region", { name: "Most valuable requests" }).getByRole("table").waitFor();
+      await page.getByRole("region", { name: "Budgets" }).getByRole("meter").first().waitFor();
+      for (const fig of await page.getByRole("figure").all()) await fig.getByRole("button", { name: "Show as table" }).click();
+      await audit(page, `metrics pro ${scheme}`);
+    });
 
     test("home · Pro mode, compact density, solid surfaces", async ({ page }) => {
       await page.goto("/?mode=pro&density=compact&solid=1");

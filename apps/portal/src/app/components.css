@@ -349,3 +349,29 @@
 @media (hover: hover) and (pointer: fine) {
   .lift:hover { transform: translateY(-1px); box-shadow: var(--shadow-pop); }
 }
+
+/* Metrics charts (M6, ADR 0011): categorical slots validated with the dataviz checks on the solid chart
+   surface in each theme (light needs the table view as relief: two slots are under 3:1; both exist). */
+.viz {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --viz-tex: rgba(255, 255, 255, 0.55);
+  --viz-grid: rgba(40, 40, 90, 0.1);
+  --viz-axis: rgba(40, 40, 90, 0.35);
+}
+:root[data-theme="dark"] .viz {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --viz-tex: rgba(10, 8, 40, 0.5);
+  --viz-grid: rgba(220, 220, 255, 0.12);
+  --viz-axis: rgba(220, 220, 255, 0.4);
+}
+@media (forced-colors: active) {
+  .viz { --series-1: CanvasText; --series-2: CanvasText; --series-3: Highlight; --series-4: Highlight; --viz-tex: Canvas; }
+}
+/* The opaque surface the palette was validated on (not glass: contrast must not depend on the sky). */
+.viz-surface { background: var(--surface-solid); border: 1px solid var(--hairline); }

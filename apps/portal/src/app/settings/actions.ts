@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { routerSend } from "@/lib/server/router";
 import type { ActionResult, LocalProfileView, SettingsView } from "@/lib/router-types";
+import type { SubscriptionItem } from "@/lib/metrics-types";
 
 export interface SettingsPatch {
   max_cost_usd?: number | null;
@@ -63,5 +64,23 @@ export async function setLocalProfile(name: string | null): Promise<ActionResult
   const r = await routerSend<LocalProfileView>("PUT", "/system/local-profile", { profile: name });
   revalidatePath("/settings");
   revalidatePath("/status");
+  return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
+}
+
+/** Settings → Subscriptions (M6): plans you pay for, used only for net savings on Metrics. */
+export async function saveSubscriptions(items: SubscriptionItem[]): Promise<ActionResult<{ items: SubscriptionItem[] }>> {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  if (!Array.isArray(items) || items.length > 20) return { ok: false, error: "Up to 20 subscriptions." };
+  for (const s of items) {
+    const okFee = typeof s.monthly_usd === "number" && Number.isFinite(s.monthly_usd) && s.monthly_usd >= 0 && s.monthly_usd <= 10_000;
+    if (!s.name?.trim() || s.name.length > 60 || !okFee || !day.test(s.start) || (s.end && !day.test(s.end)) || (s.end && s.end < s.start)) {
+      return { ok: false, error: "Each plan needs a name, a fee from 0 to 10,000 and a start date (the end date, if any, after it)." };
+    }
+  }
+  const r = await routerSend<{ items: SubscriptionItem[] }>("PUT", "/settings/subscriptions", {
+    items: items.map((s) => ({ name: s.name.trim(), monthly_usd: s.monthly_usd, start: s.start, end: s.end || null })),
+  });
+  revalidatePath("/settings");
+  revalidatePath("/metrics");
   return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
 }

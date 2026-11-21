@@ -33,7 +33,7 @@ test.describe("footer", () => {
     await page.goto("/");
     await ready(page);
     const footer = page.getByRole("contentinfo", { name: "Status and links" });
-    await expect(footer.getByText("Value saved $0.08")).toBeVisible();
+    await expect(footer.getByText("Free value $0.08")).toBeVisible();
     await expect(footer.getByText("Quota OK")).toBeVisible();
     await expect(footer.getByText(`v${PROJECT_VERSION}`)).toBeVisible();
     await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute("rel", /noopener/);

@@ -35,7 +35,9 @@ function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; p
   const [error, setError] = React.useState<{ code?: string; detail?: string | null; text: string } | null>(null);
   const st = stateOf(a);
   const ids = React.useId();
-  const todayPct = a.daily_budget_list_usd > 0 ? Math.min(100, (a.spent_today_list_usd / a.daily_budget_list_usd) * 100) : 0;
+  // M6: the Dial is this month against the agent's monthly budget; no budget = "No cap", never a percentage.
+  const monthly = a.monthly_budget_list_usd;
+  const monthPct = monthly != null && monthly > 0 ? Math.min(100, (a.month_list_usd / monthly) * 100) : 0;
   const allowed = a.allowed_project_ids ? projects.filter((p) => a.allowed_project_ids!.includes(p.id)).map((p) => p.name) : null;
 
   const run = async (action: "pause" | "resume" | "reset" | "delete") => {
@@ -81,8 +83,13 @@ function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; p
               )}
             </p>
             <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-              <Dial value={todayPct} label={tJobs("fleet.today")} valueText={tJobs("fleet.todayText", { used: usd(a.spent_today_list_usd), cap: usd(a.daily_budget_list_usd) })} size={64}>
-                <span className="text-[0.75rem] font-semibold tabular-nums">{Math.round(todayPct)}%</span>
+              <Dial
+                value={monthPct}
+                label={tJobs("fleet.budgetMonth")}
+                valueText={monthly != null ? tJobs("fleet.monthOf", { used: usd(a.month_list_usd), cap: usd(monthly) }) : tJobs("fleet.noMonthly")}
+                size={64}
+              >
+                <span className="text-center text-[0.6875rem] leading-tight font-semibold tabular-nums">{monthly != null ? `${Math.round(monthPct)}%` : tJobs("fleet.noCap")}</span>
               </Dial>
               <dl className="grid gap-1 text-[0.8125rem]">
                 <div className="flex flex-wrap gap-x-1.5">
@@ -99,7 +106,11 @@ function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; p
                 </div>
                 <div className="flex flex-wrap gap-x-1.5">
                   <dt className="font-semibold">{tJobs("fleet.budgetMonth")}:</dt>
-                  <dd className="text-ink-muted tabular-nums">{a.monthly_budget_list_usd != null ? usd(a.monthly_budget_list_usd) : tJobs("fleet.noMonthly")}</dd>
+                  <dd className="text-ink-muted tabular-nums">{monthly != null ? usd(monthly) : tJobs("fleet.noMonthly")}</dd>
+                </div>
+                <div className="flex flex-wrap gap-x-1.5">
+                  <dt className="font-semibold">{tJobs("fleet.today")}:</dt>
+                  <dd className="text-ink-muted tabular-nums">{tJobs("fleet.todayText", { used: usd(a.spent_today_list_usd), cap: usd(a.daily_budget_list_usd) })}</dd>
                 </div>
                 <div className="flex flex-wrap gap-x-1.5">
                   <dt className="font-semibold">{tJobs("hire.projects")}:</dt>

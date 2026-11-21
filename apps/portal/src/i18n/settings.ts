@@ -18,6 +18,7 @@ export const settingsStrings = {
     routing: "Routing",
     local: "Local models",
     budgets: "Budgets",
+    subscriptions: "Subscriptions",
     jobs: "Jobs",
     data: "Data",
     setup: "Run setup again",

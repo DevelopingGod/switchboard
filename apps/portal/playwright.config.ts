@@ -33,6 +33,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     viewport: { width: 1280, height: 900 },
     reducedMotion: "reduce",
+    timezoneId: "UTC", // M6: dates and "Times in …" never depend on the machine running the tests
   },
   webServer: [
     server(PORT),

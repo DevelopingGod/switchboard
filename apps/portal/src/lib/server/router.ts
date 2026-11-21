@@ -3,6 +3,7 @@ import * as fixtures from "./fixtures";
 import * as chatFixtures from "./chat-fixtures";
 import * as rulesFixtures from "./rules-fixtures";
 import * as jobsFixtures from "./jobs-fixtures";
+import * as metricsFixtures from "./metrics-fixtures";
 
 /**
  * The only module that knows the Router URL and ROUTER_ADMIN_TOKEN. Server components read with
@@ -39,6 +40,7 @@ async function call<T>(method: string, path: string, body: unknown, admin: boole
   if (fixtureMode()) {
     if (path.startsWith("/rules") || path === "/route/dry-run") return rulesFixtures.handle<T>(method, path, body);
     if (/^\/(jobs|agents|projects)(\/|\?|$)/.test(path)) return jobsFixtures.handleJobs<T>(method, path, body);
+    if (path.startsWith("/metrics/") || path.startsWith("/settings/subscriptions")) return metricsFixtures.handle<T>(method, path, body);
     return path.startsWith("/chat/") || path.startsWith("/route/")
       ? chatFixtures.handle<T>(method, path, body)
       : fixtures.handle<T>(method, path, body);
