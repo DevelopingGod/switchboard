@@ -14,9 +14,11 @@ import { badgeOf, costSummary } from "@/lib/job-format";
 import type { JobCounts, JobStatus, JobView, JobsPage } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { tJobs } from "@/i18n/jobs";
+import { tSubs } from "@/i18n/subscriptions";
+import { resetTime } from "@/lib/subscription-format";
 import { NewJobButton } from "./NewJobButton";
 
-const TABS: readonly (JobStatus | "all")[] = ["all", "needs_approval", "running", "queued", "done", "failed", "stopped"];
+const TABS: readonly (JobStatus | "all")[] = ["all", "needs_approval", "running", "waiting_reset", "queued", "done", "failed", "stopped"];
 
 export interface BoardFilters {
   status?: string;
@@ -67,7 +69,17 @@ export function JobRow({ j }: { j: JobView }) {
           </p>
         </div>
         <div className="flex items-center gap-3 sm:justify-end">
-          <StatusBadge status={badgeOf(j.status)} label={j.status === "needs_approval" && j.gate ? tJobs(`gate.${j.gate}`) : tJobs(`status.${j.status}`)} />
+          {j.paid && <span className="rounded-chip bg-warn/15 px-2 text-[0.75rem] font-semibold text-warn">{tSubs("job.paidBadge")}</span>}
+          <StatusBadge
+            status={badgeOf(j.status)}
+            label={
+              j.status === "waiting_reset" && j.resume_at
+                ? tSubs("job.resumesAt", { at: resetTime(j.resume_at) })
+                : j.status === "needs_approval" && j.gate
+                  ? tJobs(`gate.${j.gate}`)
+                  : tJobs(`status.${j.status}`)
+            }
+          />
         </div>
       </Link>
     </li>
@@ -135,7 +147,7 @@ export function JobBoard({
         <ul className="flex flex-wrap gap-0.5">
           {TABS.map((s) => {
             const active = (filters.status ?? "all") === s;
-            const n = s === "all" ? counts.all : counts.counts[s];
+            const n = s === "all" ? counts.all : (counts.counts[s] ?? 0);
             return (
               <li key={s}>
                 <Link

@@ -88,7 +88,7 @@ Subscription CLIs talk directly to their vendors, so LiteLLM never sees that tra
 
 | Provider | CLI | Login | Use for | Caveat |
 |---|---|---|---|---|
-| Claude Pro | Claude Code (`claude`) | `claude` → browser login | Heavy coding, refactors, tests | Scarce (rolling usage windows). Use only via the official CLI |
+| Claude Pro | Claude Code (`claude`) | `claude` → browser login | Heavy coding, refactors, tests | Scarce (rolling usage windows; M6.5 shows them and jobs wait for resets). Use only via the official CLI |
 | ChatGPT (Free now, Plus optional) | Codex CLI (`codex`) | `codex login` | Second coder / fallback | Free access is limited and has been promotional |
 | Google account | Gemini CLI (`gemini`) | Google login | Long-context reading, research helper | Free limits apply |
 | SuperGrok ($30) | Grok Build (`grok`) | `grok auth login` | Parallel coding subagents, plan mode, Imagine (image/video) inside CLI | Beta. **Headless use may bill an xAI API key, not the subscription — verify before routing autonomous jobs to it** |
@@ -244,6 +244,11 @@ dial shows level 3 but can't land on it, with the reason next to it.
 2. **Studio** — image and video generation, gallery, prompt history, per-item cost, re-run with another provider. Cost confirmation for video.
 3. **Agents & Jobs** — list Paperclip agents with status; job board (queued / running / needs approval / done); live log stream; diff or report view; approve / reject / stop. Deep-link to Paperclip for advanced config.
    **Built in M4b** (docs/m4b.md): `/jobs` board (status tabs with counts, agent/project filters, paging), `/jobs/<id>` (timeline, live log, plan, per-file diff, approve/reject with a note, stop, cost or "cost not reported", branch and plain merge instructions; Switchboard never pushes), "Run as job" from a chat reply, `/jobs/agents` (fleet: hire from templates, edit, pause, reset, delete; ADR 0009), Settings → Projects (allowlist, copies, retention) and Settings → Jobs (approval expiry, desktop notifications).
+   **M6.5** (docs/m65.md, ADRs 0013–0015): each subscription agent's usage window on Agents, Status and Metrics
+   (reported by the CLI, or a labelled estimate); a job that hits a limit waits (`waiting_reset`) and re-runs the
+   phase after the reset, or asks first when the reset is more than 12 h away; named accounts per CLI (Settings →
+   Accounts; per project or agent; a job never switches accounts of one provider); opt-in paid overflow (Settings →
+   Paid overflow; "Paid — up to $X" per job; per-run LiteLLM key in a key file, never in Paperclip).
 4. **Connections** — one card per provider:
    - *CLI providers*: detect installed (`<cli> --version`), detect logged-in, **Install** and **Log in** buttons (opens a terminal/browser OAuth via the CLI itself), **Test** button.
    - *API-key providers*: paste key → stored server-side → registered in LiteLLM → **Test** → shows models + current limits.
@@ -474,7 +479,8 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `threads(id uuid, title, title_source[none|words|local|user], private, created_at, updated_at, private_source, summary_json)`: `private` is sticky (M2). `private_source` is user | slash | auto | secret, and only `auto` can be overridden. `summary_json` holds the running summary of older turns (M3a)
 - `quota_usage(provider, scope_key, window[m|d], window_start, requests, tokens)`, `quota_headers(provider, scope_key, data, seen_at)`, `cooldowns(target, provider, code, reason, until)`: the quota guard and persisted cooldowns (M3a)
 - `messages(id, thread_id, role, content, status[streaming|done|stopped|error|notice|blocked], request_id, private, feedback, meta_json, created_at)`: reasoning text is never stored; `meta_json` holds the "Why this?" data (M2)
-- `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`
+- `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`: M6.5 adds `account`, `rule_id`, `resume_at`, `attempt`, `waits`, `paid`, `paid_budget_usd` and the status `waiting_reset`
+- `cli_accounts(id, cli, name, label, created_at, deleted_at)` and `usage_windows(cli, account, window, used, resets_at, limited, source[reported|estimate], capacity, hours, seen_at)`; `agent_profiles.account`, `projects.accounts` (M6.5, ADRs 0013/0014)
 - `media(request_id, type, provider, file_path, cost_usd)`
 - `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)` (see §6.4)
 - `model_stats(model_id, task_type, samples, p50_ms, p95_ms, error_rate, thumbs_up, thumbs_down, score, updated_at)` (see §6.4)
@@ -529,6 +535,8 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |
 | M5.5 | Content Studio (§8d): templates, voice profiles, drafts library, media pairing, export | A LinkedIn post + matching image created, versioned, exported; cost shown under "content" in Metrics |
 | M6 | Metrics dashboard | All three cost sources merged (deduped, demo excluded); breakdowns by provider/model/agent/rule/intent/project; quota burn-down; budgets with forecast; honest net savings; CSV export |
+| M6.5 | Subscription windows: usage-window awareness per subscription CLI, jobs that wait for a reset and resume, named accounts per provider (never rotated), opt-in paid overflow | Windows shown (reported or labelled estimate) on Agents, Status and Metrics; a limit-hit job resumes after the reset and survives restarts; no automatic switch between accounts (test); overflow off by default, confirmed "Paid" before running |
+| M2.5 | Attachments: files and images in chat (before M7) | Defined when planned |
 | M7 | OSS packaging | One-command setup on a fresh Windows+WSL machine; README with screenshots; MIT; CI lint/tests |
 
 ## 12. Verify before implementing (do not assume)

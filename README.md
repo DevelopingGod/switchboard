@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.7.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.8.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>
@@ -262,9 +262,9 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-agents-dusk.webp">
-        <img src="docs/media/shot-agents-day.webp" alt="The Agents page: one card per agent with its status, current job, success rate, a monthly budget dial (No cap when none is set), today's spend and Pause, Edit and Hire agent buttons.">
+        <img src="docs/media/shot-agents-day.webp" alt="The Agents page: one card per agent with its status, current job, success rate, a monthly budget dial (No cap when none is set), today's spend, the subscription's usage window such as 70% of this 5-hour window, reported by the CLI, and Pause, Edit and Hire agent buttons.">
       </picture>
-      <br><sub><b>Your agent fleet.</b> Hire agents from Claude Code, Codex or OpenCode with a role, model, budget and allowed projects; pause or edit them.</sub>
+      <br><sub><b>Your agent fleet.</b> Hire agents from Claude Code, Codex or OpenCode with a role, model, budget, account and allowed projects; see each subscription's usage window.</sub>
     </td>
   </tr>
   <tr>
@@ -281,6 +281,22 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
         <img src="docs/media/shot-job-diff-day.webp" alt="The changes of a job, per file, with added lines highlighted and an Approve and commit button.">
       </picture>
       <br><sub><b>Review every change.</b> Per-file diffs, the live log, cost (or "cost not reported"), and the branch with plain merge instructions.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-waiting-dusk.webp">
+        <img src="docs/media/shot-job-waiting-day.webp" alt="A job that hit its Claude usage limit, waiting for the reset: Resumes at 02:20 PM, with Run on another agent, Use paid overflow and Cancel job buttons.">
+      </picture>
+      <br><sub><b>Limits don't lose work.</b> A job that hits a subscription limit waits for the reset and carries on in the same copy. Or run it on another provider, or opt in to paid overflow.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-accounts-dusk.webp">
+        <img src="docs/media/shot-accounts-day.webp" alt="Settings, Accounts: the default Claude login and a second account named work for a company Team seat, each with its folder and login state, and a form to add another.">
+      </picture>
+      <br><sub><b>Separate accounts, never rotated.</b> Keep a personal plan and a company seat apart, per project or agent. Each usage window is shown, reported by the CLI or labelled as an estimate.</sub>
     </td>
   </tr>
 </table>
@@ -363,14 +379,16 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M3b** Rules UI and sidebar | Rules editor with history, dry-run tester, left sidebar, small-GPU profile |
 | ✅ | **M4a** Agents and jobs backend | Agent registry, jobs through Paperclip with approvals, worktrees and budgets; fast private chat |
 | ✅ | **M4b** Jobs page and agent fleet | Job board, live log, plan and diff review, Run as job from chat, hire and manage agents, Projects |
-| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand |
+| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand. First auto pack: graphify, used only for agent jobs on projects above a size threshold, installed in the job's copy only, local AST pass by default (AI pass opt-in), pinned and hashed, graph files never committed, turned off per project if Metrics shows no token savings |
 | 🔜 | **M5** Studio | Image and video generation with cost confirmation |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
 | ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
+| ✅ | **M6.5** Subscription windows | See each subscription's usage window, jobs that wait for a reset and continue, separate accounts for separate purposes, opt-in paid overflow |
+| 🔜 | **M2.5** Attachments | Files and images in chat (next, before M7) |
 | 🔜 | **M7** Packaging | One-command install, macOS and Linux, portal login, CI, a GitHub Pages site |
 <!-- roadmap:end -->
 
-💡 Ideas, unscheduled: file and image attachments in chat; more free providers as YAML (for example Cloudflare Workers AI);
+💡 Ideas, unscheduled: more free providers as YAML (for example Cloudflare Workers AI);
 a local-compute optimizer for multi-GPU machines. Details in [PROGRESS.md](docs/PROGRESS.md#future).
 
 ## FAQ
@@ -389,6 +407,13 @@ Switchboard tries to spend those first and keeps paid models behind your approva
 Only through each vendor's official CLI, and only for agent jobs, which you start and approve on the Jobs page.
 Switchboard and Paperclip never copy, read, move or write a CLI's login files, and never pass a subscription login to
 another tool.
+
+</details>
+
+<details>
+<summary>Does Switchboard rotate multiple accounts to get around limits?</summary>
+
+No — it falls back to other providers, resumes after resets, and can use paid overflow if you opt in.
 
 </details>
 

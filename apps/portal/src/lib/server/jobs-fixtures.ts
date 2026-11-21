@@ -12,6 +12,10 @@ import type {
   JobView,
   ProjectRow,
   ProjectWorktrees,
+  AccountsResponse,
+  OverflowSettings,
+  SubscriptionView,
+  UsageWindowView,
 } from "../router-types";
 import type { Result } from "./router";
 
@@ -128,6 +132,29 @@ function agent(id: string, label: string, over: Partial<AgentRow> = {}): AgentRo
   };
 }
 
+// M6.5: usage windows as the router reports them. Claude's is "reported" (its stream-json rate_limit_event);
+// Codex has run through Switchboard but has no reading yet (an estimate without a calibration: no %).
+function win(window: string, label: string, hours: number, over: Partial<UsageWindowView> = {}): UsageWindowView {
+  return { window, label, hours, used: null, resets_at: null, limited: false, source: "estimate", runs: 0, seen_at: null, ...over };
+}
+const CLAUDE_WINDOWS = (): UsageWindowView[] => [
+  win("five_hour", "5-hour", 5, { used: 0.7, resets_at: at(320), source: "reported", seen_at: at(30) }),
+  win("seven_day", "7-day", 168, { used: 0.12, resets_at: at(320 + 4 * 1440), source: "reported", seen_at: at(30) }),
+];
+const sub = (cli: string, account: string, plan: string, windows: UsageWindowView[], hits = 0): SubscriptionView => ({
+  cli,
+  account,
+  plan_label: plan,
+  windows,
+  tightest: windows.filter((w) => w.used != null).sort((a, b) => (b.used ?? 0) - (a.used ?? 0))[0] ?? windows[0],
+  logged_in: true,
+  limit_hits_30d: hits,
+});
+export const SUBSCRIPTIONS = (): SubscriptionView[] => [
+  sub("claude", "default", "Claude Pro", CLAUDE_WINDOWS(), 1),
+  sub("codex", "default", "Codex", [win("primary", "5-hour", 5, { runs: 3 }), win("secondary", "weekly", 168, { runs: 3 })]),
+];
+
 const NOT_VERIFIED = (label: string) => ({ "0": `${label} isn't set up to run jobs yet`, "1": `${label} isn't set up to run jobs yet`, "2": `${label} isn't set up to run jobs yet`, "3": `${label} isn't set up to run jobs yet` });
 
 function job(id: number, status: JobStatus, over: Partial<JobView> = {}): JobView {
@@ -214,8 +241,9 @@ function seed(): JobsStore {
     success: { done: 7, failed: 1, rate: 7 / 8 },
     spent_today_list_usd: 0.41,
     month_list_usd: 3.18,
+    subscription: SUBSCRIPTIONS()[0],
   });
-  const codex = agent("codex", "Codex", { cost: "none", success: { done: 3, failed: 0, rate: 1 }, active_jobs: 1, current_job: { id: 29, title: "Explain how the cache layer expires entries", status: "queued" } });
+  const codex = agent("codex", "Codex", { subscription: SUBSCRIPTIONS()[1], cost: "none", success: { done: 3, failed: 0, rate: 1 }, active_jobs: 1, current_job: { id: 29, title: "Explain how the cache layer expires entries", status: "queued" } });
   const opencode = agent("opencode", "OpenCode", {
     model: "opencode/big-pickle",
     models: ["opencode/big-pickle"],
@@ -235,12 +263,26 @@ function seed(): JobsStore {
     paused: true,
     levels: { "0": null, "1": null, "2": null, "3": CLAUDE_L3 },
     success: { done: 2, failed: 0, rate: 1 },
+    account: "work",
+    subscription: sub("claude", "work", "Claude Team", [win("five_hour", "5-hour", 5, { used: 0.18, resets_at: at(200), source: "reported", seen_at: at(20) }), win("seven_day", "7-day", 168)]),
   });
   const optional = [
     agent("gemini-cli", "Gemini CLI", { cli: "gemini", runnable: false, installed: false, windows_only: true, logged_in: null, version: null, note: "Not verified for jobs yet (only a Windows install was found).", levels: NOT_VERIFIED("Gemini CLI"), capabilities: ["research", "code"] }),
     agent("grok-build", "Grok Build", { cli: "grok", runnable: false, installed: false, logged_in: null, version: null, note: "Not verified for jobs yet.", levels: NOT_VERIFIED("Grok Build") }),
   ];
   const jobs: JobView[] = [
+    job(31, "waiting_reset", {
+      title: "Refactor the CSV importer into small functions",
+      autonomy: 2,
+      phase: "edit",
+      attempt: 1,
+      waits: 1,
+      resume_at: at(320),
+      list_price_usd: 0.071,
+      turns: 7,
+      project_id: 2,
+      project: { id: 2, name: "notes-app", path: "/home/you/code/notes-app" },
+    }),
     job(30, "needs_approval", { title: "Add a function multiply(a, b) with tests", phase: "read_only", gate: "plan", plan: PLAN, list_price_usd: 0.052, turns: 4, approval_expires_at: at(30 + 24 * 60) }),
     job(29, "queued", { title: "Explain how the cache layer expires entries", agent: "codex", agent_label: "Codex", agent_chain: ["codex"], autonomy: 0, cost_reported: false, started_at: null, worktree: null, branch: null, project_id: 2, project: { id: 2, name: "notes-app", path: "/home/you/code/notes-app" } }),
     job(28, "needs_approval", { title: "Rename the settings module to config", agent: "opencode", agent_label: "OpenCode", agent_chain: ["opencode"], autonomy: 2, phase: "edit", gate: "diff", list_price_usd: 0, turns: 11, approval_expires_at: at(28 + 24 * 60) }),
@@ -253,9 +295,17 @@ function seed(): JobsStore {
   for (let n = 22; n >= 1; n--) jobs.push(job(n, "done", { title: `Small fix ${n}: tidy imports`, agent: "opencode", agent_label: "OpenCode", agent_chain: ["opencode"], finished_at: at(n + 2), list_price_usd: 0, worktree: null }));
   return {
     projects: [project(1, "mathutils", "/home/you/code/mathutils", 2, 27), project(2, "notes-app", "/home/you/code/notes-app", 2, 3)],
-    agents: [claude, codex, opencode, reviewer, ...optional],
+    agents: [
+      claude,
+      codex,
+      opencode,
+      reviewer,
+      // M6.5: the paid-overflow agent (runs only after "Paid — up to $X")
+      agent("opencode-paid", "Paid overflow (OpenCode)", { cli: "opencode", paid: true, success: { done: 1, failed: 0, rate: 1 } }),
+      ...optional,
+    ],
     jobs,
-    nextJob: 31,
+    nextJob: 32,
     nextProject: 3,
   };
 }
@@ -270,8 +320,8 @@ const TEMPLATES = (): AgentTemplate[] => {
   const s = jobsStore();
   const by = (id: string) => s.agents.find((a) => a.id === id)!;
   return [
-    { id: "claude-code", label: "Claude Code", runnable: true, note: null, installed: true, models: by("claude-code").models, model: "claude-sonnet-5-5", levels: { "0": null, "1": null, "2": null, "3": CLAUDE_L3 } },
-    { id: "codex", label: "Codex", runnable: true, note: null, installed: true, models: [], model: null, levels: { "0": null, "1": null, "2": null, "3": OTHER_L3 } },
+    { id: "claude-code", label: "Claude Code", cli: "claude", runnable: true, note: null, installed: true, models: by("claude-code").models, model: "claude-sonnet-5-5", levels: { "0": null, "1": null, "2": null, "3": CLAUDE_L3 } },
+    { id: "codex", label: "Codex", cli: "codex", runnable: true, note: null, installed: true, models: [], model: null, levels: { "0": null, "1": null, "2": null, "3": OTHER_L3 } },
     { id: "opencode", label: "OpenCode", runnable: true, note: null, installed: true, models: ["opencode/big-pickle"], model: "opencode/big-pickle", levels: { "0": null, "1": null, "2": null, "3": OTHER_L3 } },
     { id: "gemini-cli", label: "Gemini CLI", runnable: false, note: "Not verified for jobs yet (only a Windows install was found).", installed: false, models: [], model: null, levels: NOT_VERIFIED("Gemini CLI") },
     { id: "grok-build", label: "Grok Build", runnable: false, note: "Not verified for jobs yet.", installed: false, models: [], model: null, levels: NOT_VERIFIED("Grok Build") },
@@ -285,9 +335,9 @@ function withoutEvents(j: JobView): JobView {
 }
 
 function counts(list: JobView[]): JobCounts {
-  const c = { queued: 0, running: 0, needs_approval: 0, done: 0, failed: 0, stopped: 0 } as Record<JobStatus, number>;
+  const c = { queued: 0, running: 0, needs_approval: 0, waiting_reset: 0, done: 0, failed: 0, stopped: 0 } as Record<JobStatus, number>;
   for (const j of list) c[j.status]++;
-  return { counts: c, all: list.length, needs_you: c.needs_approval };
+  return { counts: c, all: list.length, needs_you: c.needs_approval, waiting: c.waiting_reset };
 }
 
 function previewOf(b: Record<string, unknown>): JobPreview | string {
@@ -306,7 +356,7 @@ function previewOf(b: Record<string, unknown>): JobPreview | string {
         : a.allowed_project_ids && !a.allowed_project_ids.includes(p.id)
           ? `${a.label} isn't allowed to work in this project (Agents page: Edit)`
           : a.levels[String(level)];
-    return { id, label: a?.label ?? id, reason: reason ?? null, chosen: false };
+    return { id, label: a?.label ?? id, reason: reason ?? null, chosen: false, account: a?.subscription ? a.subscription.account : null, window: a?.subscription?.tightest ?? null };
   });
   const first = rows.find((r) => !r.reason);
   if (first) first.chosen = true;
@@ -338,7 +388,118 @@ function previewOf(b: Record<string, unknown>): JobPreview | string {
     caps: { max_turns: 40, run_timeout_s: 1800, job_timeout_s: 7200 },
     branch: "switchboard/job-<number>",
     steps,
+    waits_until: null,
+    paid: false,
+    paid_budget_usd: null,
+    overflow: { ready: overflow.enabled && !!overflow.model, left_usd: overflow.left_usd, model: overflow.model },
   };
+}
+
+// --- M6.5: accounts and paid overflow (fixture state) --------------------------------------------------
+const accounts: AccountsResponse = {
+  clis: [
+    {
+      cli: "claude",
+      label: "Claude",
+      home_env: "CLAUDE_CONFIG_DIR",
+      accounts: [
+        { name: "default", label: null, logged_in: true, installed: true, plan: "pro", plan_label: "Claude Pro", home: "~/.claude", login_command: "claude auth login" },
+        { name: "work", label: "Company Team seat", logged_in: true, installed: true, plan: "team", plan_label: "Claude Team", home: "~/.switchboard/accounts/claude/work", login_command: "CLAUDE_CONFIG_DIR=~/.switchboard/accounts/claude/work claude auth login" },
+      ],
+    },
+    {
+      cli: "codex",
+      label: "Codex",
+      home_env: "CODEX_HOME",
+      accounts: [{ name: "default", label: null, logged_in: true, installed: true, plan: null, plan_label: null, home: "~/.codex", login_command: "codex login" }],
+    },
+  ],
+};
+const overflow: OverflowSettings = {
+  enabled: false,
+  monthly_usd: null,
+  model: null,
+  spent_usd: 0,
+  left_usd: null,
+  ready: false,
+  models: [{ model: "grok", paid: true, providers: ["xai"] }],
+  test_free_model: false,
+};
+
+function accountsRoute<T>(method: string, p: string, b: Record<string, unknown>): Result<T> | null {
+  if (method === "GET" && p === "/accounts") return ok(accounts);
+  if (method === "POST" && p === "/accounts") {
+    const cli = accounts.clis.find((c) => c.cli === b.cli);
+    const name = String(b.name ?? "");
+    if (!cli) return fail(400, "Accounts are for subscription CLIs: claude, codex");
+    if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(name) || name === "default") return fail(400, 'Use a short name: lowercase letters, digits and dashes (for example "work" or "personal").');
+    const home = `~/.switchboard/accounts/${cli.cli}/${name}`;
+    const login_command = `${cli.home_env}=${home} ${cli.cli === "claude" ? "claude auth login" : "codex login"}`;
+    if (!cli.accounts.some((a) => a.name === name)) cli.accounts.push({ name, label: (b.label as string) || null, logged_in: false, installed: true, plan: null, plan_label: null, home, login_command });
+    return ok({ cli: cli.cli, name, home, login_command });
+  }
+  let m = p.match(/^\/accounts\/([\w-]+)\/([\w-]+)(\/check)?$/);
+  if (m) {
+    const cli = accounts.clis.find((c) => c.cli === m![1]);
+    const a = cli?.accounts.find((x) => x.name === m![2]);
+    if (!cli || !a) return method === "DELETE" ? ok({ removed: true }) : fail(404, "no such account");
+    if (method === "POST" && m[3]) return ok({ cli: cli.cli, name: a.name, logged_in: a.logged_in, plan: a.plan });
+    if (method === "DELETE") {
+      const s = jobsStore();
+      const used = [...s.agents.filter((x) => x.account === a.name).map((x) => `agent ${x.label}`), ...s.projects.filter((x) => x.accounts?.[cli.cli] === a.name).map((x) => `project ${x.name}`)];
+      if (used.length) return fail(409, `“${a.name}” is still used by ${used.join(", ")}. Change those first.`);
+      cli.accounts = cli.accounts.filter((x) => x !== a);
+      return ok({ removed: true });
+    }
+  }
+  if (method === "GET" && p === "/subscriptions/windows") return ok({ accounts: SUBSCRIPTIONS(), guard: { save_at: 0.8, block_at: 1 } });
+  if (p === "/settings/overflow") {
+    if (method === "PUT") {
+      if (b.enabled && b.monthly_usd == null) return fail(400, "Set a monthly budget to turn paid overflow on");
+      if (b.enabled && !overflow.models.some((x) => x.model === b.model)) return fail(400, "Choose one of the paid models (connect a paid provider first)");
+      Object.assign(overflow, { enabled: !!b.enabled, monthly_usd: (b.monthly_usd as number) ?? null, model: (b.model as string) ?? null });
+      overflow.left_usd = overflow.monthly_usd != null ? Math.max(0, overflow.monthly_usd - overflow.spent_usd) : null;
+      overflow.ready = overflow.enabled && !!overflow.model && (overflow.left_usd ?? 0) >= 0.05;
+    }
+    return ok(overflow);
+  }
+  m = p.match(/^\/projects\/(\d+)\/accounts$/);
+  if (m && method === "PUT") {
+    const pr = jobsStore().projects.find((x) => x.id === Number(m![1]));
+    if (!pr) return fail(404, "no such project");
+    const chosen = (b.accounts ?? {}) as Record<string, string>;
+    for (const [cli, name] of Object.entries(chosen)) {
+      if (!accounts.clis.find((c) => c.cli === cli)?.accounts.some((a) => a.name === name)) return fail(400, `There is no account called “${name}” (Settings → Accounts)`);
+    }
+    pr.accounts = Object.fromEntries(Object.entries(chosen).filter(([, n]) => n !== "default"));
+    return ok(pr);
+  }
+  return null;
+}
+
+/** M6.5: what a job waiting on a usage limit can do instead (wait anyway, another provider, paid). */
+function limitRoute<T>(j: JobView, action: string, b: Record<string, unknown>): Result<T> {
+  const s = jobsStore();
+  const waiting = j.status === "waiting_reset" || (j.status === "needs_approval" && j.gate === "limit");
+  if (!waiting) return fail(409, `Job ${j.id} isn't waiting for a usage limit (it is ${j.status})`);
+  if (action === "wait") {
+    if (j.gate !== "limit") return fail(409, `Job ${j.id} isn't asking about a long wait (it is ${j.status})`);
+    Object.assign(j, { status: "waiting_reset", gate: null, updated_at: new Date().toISOString() });
+    return ok(withoutEvents(j));
+  }
+  if (action === "reroute") {
+    const a = s.agents.find((x) => x.id === b.agent);
+    const cur = s.agents.find((x) => x.id === j.agent);
+    if (!a) return fail(400, "Pick an agent from the fleet (paid overflow has its own button)");
+    if (cur && a.cli === cur.cli) return fail(400, `${a.label} uses the same provider: Switchboard never switches accounts of one provider to get around a limit. Pick another provider.`);
+    Object.assign(j, { agent: a.id, agent_label: a.label, agent_chain: [...j.agent_chain, a.id], status: "queued", gate: null, resume_at: null, attempt: (j.attempt ?? 0) + 1 });
+    return ok(withoutEvents(j));
+  }
+  if (!overflow.ready) return fail(409, "Paid overflow is off (Settings → Subscriptions → Paid overflow)");
+  const budget = Number(b.budget_usd);
+  if (overflow.left_usd != null && budget > overflow.left_usd) return fail(409, `That is more than this month's paid-overflow budget left ($${overflow.left_usd.toFixed(2)})`);
+  Object.assign(j, { agent: "opencode-paid", agent_label: "Paid overflow (OpenCode)", paid: true, paid_budget_usd: budget, status: "queued", gate: null, resume_at: null, attempt: (j.attempt ?? 0) + 1 });
+  return ok(withoutEvents(j));
 }
 
 export function handleJobs<T>(method: string, path: string, body: unknown): Result<T> {
@@ -352,6 +513,14 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
     const pid = Number(url.searchParams.get("project_id") ?? 0);
     return list.filter((j) => (!agent || j.agent === agent) && (!pid || j.project_id === pid));
   };
+
+  const acct = accountsRoute<T>(method, p, b);
+  if (acct) return acct;
+  const lim = p.match(/^\/jobs\/(\d+)\/(wait|reroute|paid)$/);
+  if (lim && method === "POST") {
+    const j = find(lim[1]);
+    return j ? limitRoute<T>(j, lim[2], b) : fail(404, "no such job");
+  }
 
   // --- jobs
   if (method === "GET" && p === "/jobs") {
@@ -394,6 +563,10 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
       branch: null,
       updated_at: new Date().toISOString(),
     });
+    if (j.prompt.includes("[fixture:limit]")) {
+      // Test trigger (fixture data only): the far-reset question, as when a reset is more than 12 h away.
+      Object.assign(j, { status: "needs_approval", gate: "limit", phase: "edit", attempt: 1, waits: 1, resume_at: at(3 * 1440), started_at: j.created_at, approval_expires_at: at(1440) });
+    }
     s.jobs.unshift(j);
     return ok(j);
   }
@@ -458,6 +631,7 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
       agents: s.agents,
       templates: TEMPLATES(),
       bwrap: true,
+      accounts: Object.fromEntries(accounts.clis.map((c) => [c.cli, c.accounts.map((a) => a.name)])),
       defaults: { max_active_per_agent: 1, per_job_list_usd: 2, per_agent_daily_list_usd: 10, per_agent_monthly_list_usd: null, max_turns: 40, run_timeout_s: 1800 },
     };
     return ok(res);
@@ -513,6 +687,7 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
       if ("default_autonomy" in b) patch.default_autonomy = b.default_autonomy as number | null;
       if ("monthly_list_usd" in b) patch.monthly_budget_list_usd = b.monthly_list_usd as number | null;
       if ("allowed_project_ids" in b) patch.allowed_project_ids = b.allowed_project_ids as number[] | null;
+      if ("account" in b) patch.account = (b.account as string) || null;
       return ok(Object.assign(a, patch, { edited: !a.hired || a.edited }));
     }
   }

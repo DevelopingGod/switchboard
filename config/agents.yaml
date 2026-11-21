@@ -30,6 +30,24 @@ defaults:
     per_agent_monthly_list_usd: null   # no monthly cap unless you set one per agent (Agents page) or here
   worktrees:
     keep_per_project: 10       # finished jobs' worktrees kept for review; older ones are removed (branches stay)
+  # Subscription windows (M6.5, ADR 0014). A job that hits a CLI's usage limit waits for the reset and continues by
+  # itself, unless the reset is further away than this: then it asks you (wait anyway, another agent, paid
+  # overflow, or cancel). After `max_waits` waits it fails with a plain reason.
+  max_auto_wait_h: 12
+  max_waits: 3
+  # Steer work before the limit (same 80% as the API quota guard): at `save_at` of a window, light jobs go to
+  # the next agent in the chain; at `block_at` every job does. Light = these autonomy levels, or a job whose
+  # routing rule isn't in `heavy_rules` (a job started from New job has no rule: only its level counts).
+  subscription_guard:
+    save_at: 0.8
+    block_at: 1.0
+    light_levels: [0]
+    heavy_rules: [code-heavy]
+  # Paid overflow (M6.5, ADR 0015; off until you turn it on in Settings → Subscriptions). The overflow agent
+  # talks to LiteLLM with a per-job key that is budget-capped, model-limited and short-lived.
+  overflow:
+    litellm_base_url: http://127.0.0.1:4000/v1   # LiteLLM as Paperclip (on the host) reaches it
+    key_margin_minutes: 30                       # key lifetime = job timeout + this
   # Shell commands an agent may run at levels 1 and 2 (prefixes). Tests only: no installs, no network, no git push.
   allowed_commands:
     - python3 -m unittest
@@ -42,6 +60,37 @@ defaults:
     - npx vitest run
     - go test
     - cargo test
+
+# Subscription CLIs (M6.5, ADRs 0013/0014). Each can have named accounts: a folder under
+# ~/.switchboard/accounts/<cli>/<name> that the vendor CLI logs into itself (`home_env`=<folder> <login>).
+# Switchboard never copies, reads or moves anything inside it, and never switches a job to another account of
+# the same CLI. `usage` says where the usage window is reported: `stream_event` (Claude Code's stream-json
+# `rate_limit_event`, verified 2.1.326) or `session_file` (the numbers in Codex's own session file, verified
+# 0.170.0, read by hostprobe). `windows` are the fallbacks used for estimates and unknown reset times.
+# `limit_patterns` mark a run that ended on a usage limit (lower-case substrings of its error or result).
+clis:
+  claude:
+    label: Claude
+    home_env: CLAUDE_CONFIG_DIR
+    login: claude auth login
+    usage: stream_event
+    plans: { free: Claude Free, pro: Claude Pro, max: Claude Max, team: Claude Team, enterprise: Claude Enterprise }
+    windows:
+      five_hour: { label: 5-hour, hours: 5 }
+      seven_day: { label: 7-day, hours: 168 }
+    estimate_by: list_price      # what our own runs are measured in for an estimate
+    limit_patterns: ["usage limit", "hit your limit", "limit reached", "rate_limit_error"]
+  codex:
+    label: Codex
+    home_env: CODEX_HOME
+    login: codex login
+    usage: session_file
+    plans: {}
+    windows:
+      primary: { label: 5-hour, hours: 5 }      # named by the length Codex reports once it has run
+      secondary: { label: weekly, hours: 168 }
+    estimate_by: tokens
+    limit_patterns: ["usage limit", "usage_limit_reached", "hit your usage limit", "rate limit reached"]
 
 levels:
   0: { runs: [read_only], review: result }               # "Ask first": a plan or report, nothing changed
@@ -95,6 +144,23 @@ agents:
     command: opencode
     model: opencode/big-pickle  # a free OpenCode Zen model (the free lineup rotates: change it here)
     models: [opencode/big-pickle]
+    capabilities: [code]
+    cost: reported
+    permissions: opencode
+    profiles:
+      read_only: [run, --format, json, -m, "{model}", --dir, "{worktree}", "{prompt}"]
+      edit: [run, --format, json, -m, "{model}", --dir, "{worktree}", "{prompt}"]
+    full_unavailable: Level 3 is off until the per-job container sandbox lands (ADR 0010, M7).
+
+  # Paid overflow (M6.5, ADR 0015): OpenCode on a paid model through LiteLLM. Never in an automatic chain:
+  # it runs only for a job you confirmed as "Paid — up to $X" while every subscription window was used up.
+  # The model comes from Settings → Subscriptions → Paid overflow; {model} becomes switchboard/<that model>.
+  opencode-paid:
+    label: Paid overflow (OpenCode)
+    cli: opencode
+    runner: process
+    command: opencode
+    paid: true
     capabilities: [code]
     cost: reported
     permissions: opencode

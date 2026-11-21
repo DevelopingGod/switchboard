@@ -6,7 +6,9 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const VIEWS = new Set(["summary", "breakdown", "quotas", "budgets", "top-requests"]);
 // Only these parameters reach the router, each checked for shape.
 const PARAMS: Record<string, RegExp> = {
-  range: /^(today|7d|30d)$/,
+  range: /^(today|7d|30d|custom)$/,
+  first: /^\d{4}-\d{2}-\d{2}$/,
+  last: /^\d{4}-\d{2}-\d{2}$/,
   tz: /^[A-Za-z0-9_+\-/]{1,64}$/,
   include_demo: /^(true|false)$/,
   by: /^(provider|model|agent|rule|intent|project|kind)$/,

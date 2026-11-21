@@ -19,6 +19,8 @@ export const settingsStrings = {
     local: "Local models",
     budgets: "Budgets",
     subscriptions: "Subscriptions",
+    accounts: "Accounts",
+    overflow: "Paid overflow",
     jobs: "Jobs",
     data: "Data",
     setup: "Run setup again",

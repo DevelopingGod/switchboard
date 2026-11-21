@@ -28,6 +28,10 @@ const pages = [
   "/metrics",
   "/metrics?range=today",
   "/metrics?fixture=empty",
+  // M6.5
+  "/jobs/31",
+  "/jobs?status=waiting_reset",
+  "/metrics?range=custom&first=2026-11-10&last=2026-11-20",
 ];
 
 /** `scope`: audit only this part of the page (a modal: the page behind it is inert and dimmed on purpose). */

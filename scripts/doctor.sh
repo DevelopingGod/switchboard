@@ -249,6 +249,21 @@ if h=$(http -f "$ROUTER/health" 2>/dev/null); then
   [[ -n "$qtl" ]] \
     && yellow "Quota test limits" "ON (dev only: $qtl): unset ROUTER_QUOTA_TEST_LIMITS and restart the router" \
     || green "Quota test limits" "off"
+  ltt=$(echo "$h" | json 'd.get("limit_test") or ""')
+  [[ -n "$ltt" ]] \
+    && yellow "Limit test (M6.5)" "ON (dev only: $ltt): jobs end as if they hit a usage limit; unset ROUTER_LIMIT_TEST and restart the router" \
+    || green "Limit test (M6.5)" "off"
+  [[ $(echo "$h" | json 'd.get("overflow_allow_free")') == True ]] \
+    && yellow "Overflow test mode (M6.5)" "ON (dev only): paid overflow may use free models; unset ROUTER_OVERFLOW_ALLOW_FREE" \
+    || green "Overflow test mode (M6.5)" "off"
+  rst=$(echo "$h" | json '(d.get("rollups") or {}).get("state","unknown")')
+  rpend=$(echo "$h" | json '(d.get("rollups") or {}).get("pending_buckets","?")')
+  case "$rst" in
+    ok) green "Metrics rollups (M6)" "worker running, $rpend bucket(s) waiting" ;;
+    behind) yellow "Metrics rollups (M6)" "behind: $rpend bucket(s) waiting for over 10 min — Status → Metrics rollups → Catch up now" ;;
+    stopped) red "Metrics rollups (M6)" "the worker hasn't run for 5 min ($rpend waiting): restart the router (docker compose -f deploy/docker-compose.yml restart router)" ;;
+    *) yellow "Metrics rollups (M6)" "unknown (router older than M6.5?)" ;;
+  esac
 else red "Router API" "no answer on $ROUTER$(why_failed) — docker compose -f deploy/docker-compose.yml up -d router"; fi
 
 begin "Router DB migrations"

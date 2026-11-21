@@ -14,11 +14,16 @@ import { Button } from "@/components/ui/button";
 import { agentAction } from "@/app/jobs/actions";
 import { usd } from "@/lib/job-format";
 import type { AgentRow, AgentsResponse, ProjectRow } from "@/lib/router-types";
+import { WindowMeter } from "./WindowMeter";
+import { tSubs } from "@/i18n/subscriptions";
 import { tJobs } from "@/i18n/jobs";
+import { usePrefs } from "@/lib/prefs";
 
 const AgentFormDialog = dynamic(() => import("./AgentFormDialog"), { ssr: false });
 
 function stateOf(a: AgentRow): { status: Status; label: string } {
+  // M6.5: the paid-overflow agent never takes jobs by itself; it runs only after "Paid — up to $X".
+  if (a.paid && !a.current_job) return { status: "offline", label: tSubs("job.paidAgentState") };
   if (!a.runnable) return { status: "offline", label: tJobs("fleet.notVerified") };
   if (!a.installed) return { status: "offline", label: tJobs("fleet.notInstalled") };
   if (a.logged_in === false) return { status: "warning", label: tJobs("fleet.loggedOut") };
@@ -27,7 +32,7 @@ function stateOf(a: AgentRow): { status: Status; label: string } {
   return { status: "healthy", label: tJobs("fleet.available") };
 }
 
-function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; projects: ProjectRow[] }) {
+function AgentCard({ a, onEdit, projects, pro }: { a: AgentRow; onEdit: () => void; projects: ProjectRow[]; pro: boolean }) {
   const router = useRouter();
   const { push } = useToast();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -69,6 +74,7 @@ function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; p
         </header>
 
         {a.role && <p className="line-clamp-2 text-sm text-ink-muted">{a.role}</p>}
+        {a.paid && <p className="text-sm text-ink-muted">{tSubs("job.paidAgentNote")}</p>}
         {a.note && !a.runnable && <p className="text-sm text-ink-muted">{a.note}</p>}
 
         {a.runnable && (
@@ -118,6 +124,11 @@ function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; p
                 </div>
               </dl>
             </div>
+            {a.subscription && (
+              <div data-testid="window-meter" className="border-t border-hairline pt-3">
+                <WindowMeter sub={a.subscription} pro={pro} />
+              </div>
+            )}
             <details className="text-[0.8125rem]">
               <summary className="cursor-pointer font-semibold text-ink-muted select-none">{tJobs("fleet.levels")}</summary>
               <ul className="mt-1 grid gap-0.5 text-ink-muted">
@@ -176,6 +187,7 @@ function AgentCard({ a, onEdit, projects }: { a: AgentRow; onEdit: () => void; p
 }
 
 export function FleetScreen({ data, projects }: { data: AgentsResponse; projects: ProjectRow[] }) {
+  const pro = usePrefs().mode === "pro";
   const [form, setForm] = React.useState<null | { mode: "hire" } | { mode: "edit"; agent: AgentRow }>(null);
   return (
     <section aria-label={tJobs("fleet.label")} className="grid gap-4">
@@ -187,10 +199,10 @@ export function FleetScreen({ data, projects }: { data: AgentsResponse; projects
       </div>
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-4">
         {data.agents.map((a) => (
-          <AgentCard key={a.id} a={a} projects={projects} onEdit={() => setForm({ mode: "edit", agent: a })} />
+          <AgentCard key={a.id} a={a} projects={projects} pro={pro} onEdit={() => setForm({ mode: "edit", agent: a })} />
         ))}
       </ul>
-      {form && <AgentFormDialog open onOpenChange={(o) => !o && setForm(null)} templates={data.templates} projects={projects} agent={form.mode === "edit" ? form.agent : undefined} />}
+      {form && <AgentFormDialog open onOpenChange={(o) => !o && setForm(null)} templates={data.templates} projects={projects} accounts={data.accounts} agent={form.mode === "edit" ? form.agent : undefined} />}
     </section>
   );
 }

@@ -1,0 +1,4 @@
+{
+  "_source": "hostprobe POST /codex/usage answer: only the numbers of the last `rate_limits` record of a real Codex 0.170.0 session file (2026-11-20; that account's free plan has one 30-day window).",
+  "free_plan": {"found": true, "primary": {"used_percent": 0.0, "window_minutes": 43200.0, "resets_at": 1797747531.0}, "secondary": null, "limit_reached": false}
+}

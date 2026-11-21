@@ -21,11 +21,14 @@ import { jobsStrings, tJobs } from "@/i18n/jobs";
 import { JobTimeline } from "./JobTimeline";
 import { JobLog } from "./JobLog";
 import { MergeHelp } from "./MergeHelp";
+import { tSubs } from "@/i18n/subscriptions";
 
 // The diff viewer is its own chunk. When a job waits on its changes they come with the page (server
 // render, no shift); otherwise they load when the Changes tab opens.
 const DiffView = dynamic(() => import("./DiffView"), { loading: () => <p className="text-sm text-ink-muted">{tJobs("diff.loading")}</p> });
 const NewJobDialog = dynamic(() => import("./NewJobDialog"), { ssr: false });
+// M6.5: only jobs waiting on a usage limit need it; rendered on the server too (no shift).
+const LimitPanel = dynamic(() => import("./LimitPanel").then((m) => m.LimitPanel));
 
 type Tab = "timeline" | "log" | "plan" | "diff" | "result";
 
@@ -64,7 +67,20 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
   const router = useRouter();
   const { push } = useToast();
   const [job, setJob] = React.useState(initial);
-  const [tab, setTab] = React.useState<Tab>(() => (initial.status === "needs_approval" ? (initial.gate === "diff" ? "diff" : initial.gate === "plan" ? "plan" : "result") : isActive(initial.status) ? "log" : "timeline"));
+  // A job waiting on a usage limit (M6.5) runs nothing: its timeline says what happened.
+  const firstTab = (j: JobView): Tab =>
+    j.status === "waiting_reset" || j.gate === "limit"
+      ? "timeline"
+      : j.status === "needs_approval"
+        ? j.gate === "diff"
+          ? "diff"
+          : j.gate === "plan"
+            ? "plan"
+            : "result"
+        : isActive(j.status)
+          ? "log"
+          : "timeline";
+  const [tab, setTab] = React.useState<Tab>(() => firstTab(initial));
   const [confirmStop, setConfirmStop] = React.useState(false);
   const [busy, setBusy] = React.useState<null | "approve" | "reject" | "stop">(null);
   const [error, setError] = React.useState<{ code?: string; detail?: string | null; text?: string } | null>(null);
@@ -87,7 +103,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
     if (snap.status && s !== stamp.current) {
       stamp.current = s;
       // The job now waits for you: show what to decide on (unless you picked a tab yourself).
-      if (snap.status === "needs_approval" && snap.gate && !picked.current) setTab(snap.gate === "diff" ? "diff" : snap.gate === "plan" ? "plan" : "result");
+      if (snap.status === "needs_approval" && snap.gate && snap.gate !== "limit" && !picked.current) setTab(snap.gate === "diff" ? "diff" : snap.gate === "plan" ? "plan" : "result");
       router.refresh(); // fresh timeline and approval deadline from the server
     }
   });
@@ -131,7 +147,8 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
     requestAnimationFrame(() => document.getElementById(`${ids}-tab-${nxt.id}`)?.focus());
   };
 
-  const waiting = job.status === "needs_approval" && job.gate;
+  const limited = job.status === "waiting_reset" || (job.status === "needs_approval" && job.gate === "limit");
+  const waiting = job.status === "needs_approval" && job.gate && job.gate !== "limit";
 
   return (
     <article className="grid gap-6" aria-labelledby={`${ids}-h`}>
@@ -144,8 +161,12 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={badgeOf(job.status)} label={waiting ? tJobs(`gate.${job.gate!}`) : tJobs(`status.${job.status}`)} />
-            {isActive(job.status) &&
+            {job.paid && <span className="rounded-chip bg-warn/15 px-2 text-[0.75rem] font-semibold text-warn">{tSubs("job.paidBadge")}</span>}
+            <StatusBadge
+              status={badgeOf(job.status)}
+              label={job.status === "needs_approval" && job.gate ? tJobs(`gate.${job.gate}`) : tJobs(`status.${job.status}`)}
+            />
+            {isActive(job.status) && !limited &&
               (confirmStop ? null : (
                 <Button type="button" size="sm" variant="glass" onClick={() => setConfirmStop(true)}>
                   <Square aria-hidden className="size-3.5" /> {tJobs("detail.stop")}
@@ -181,6 +202,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="grid min-w-0 gap-6">
+          {limited && <LimitPanel job={job} onJob={(j) => setJob((cur) => ({ ...j, project: j.project ?? cur.project, events: cur.events }))} />}
           {waiting && (
             <GlassPanel as="section" tone="strong" aria-labelledby={`${ids}-gate`} className="grid gap-3 border border-warn/40">
               <h2 id={`${ids}-gate`} className="font-display text-xl font-bold tracking-tight">

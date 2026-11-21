@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -294,11 +295,75 @@ async def mark_range(session: AsyncSession, since: datetime, until: datetime | N
     return res.rowcount or 0
 
 
+# --- worker health (M6.5, M6 carry-over): shown on Status and checked by doctor.sh ---------------------
+HEALTH_KEY = "metrics.rollup"
+STALE_RUN = timedelta(seconds=INTERVAL_S * 5)  # no run for 5 intervals = the worker stopped
+BEHIND_AFTER = timedelta(minutes=10)  # a mark older than this still waiting = the worker is behind
+
+
+async def _save_health(session: AsyncSession, **data: Any) -> None:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models import SystemMeta
+
+    cur = await _load_health(session)
+    cur.update({k: v for k, v in data.items()})
+    stmt = pg_insert(SystemMeta).values(key=HEALTH_KEY, value=json.dumps(cur))
+    await session.execute(
+        stmt.on_conflict_do_update(index_elements=["key"], set_={"value": stmt.excluded.value})
+    )
+    await session.commit()
+
+
+async def _load_health(session: AsyncSession) -> dict[str, Any]:
+    from app.models import SystemMeta
+
+    v = await session.scalar(select(SystemMeta.value).where(SystemMeta.key == HEALTH_KEY))
+    try:
+        return json.loads(v) if v else {}
+    except ValueError:
+        return {}
+
+
+async def health(session: AsyncSession, now: datetime | None = None) -> dict[str, Any]:
+    """ok | behind | stopped, with the pending count and when the worker last ran (persisted, so a restart
+    keeps the history)."""
+    now = now or datetime.now(UTC)
+    h = await _load_health(session)
+    pending, oldest = (
+        await session.execute(select(func.count(MetricsDirty.id), func.min(MetricsDirty.marked_at)))
+    ).one()
+    last_run = datetime.fromisoformat(h["last_run_at"]) if h.get("last_run_at") else None
+    if last_run is None or now - last_run > STALE_RUN:
+        state = "stopped" if pending or last_run is not None else "ok"
+    elif pending and oldest is not None and now - oldest > BEHIND_AFTER:
+        state = "behind"
+    elif h.get("last_error") and h.get("last_error_at") == h.get("last_run_at"):
+        state = "behind"
+    else:
+        state = "ok"
+    return {
+        "state": state,
+        "pending_buckets": int(pending or 0),
+        "oldest_pending_at": oldest.isoformat() if oldest else None,
+        "last_run_at": h.get("last_run_at"),
+        "last_ok_at": h.get("last_ok_at"),
+        "last_error": h.get("last_error"),
+    }
+
+
 async def run_forever(stop: asyncio.Event | None = None) -> None:
     while not (stop and stop.is_set()):
         try:
             async with db.sessionmaker()() as session:
-                await drain(session)
+                t = datetime.now(UTC).isoformat()
+                try:
+                    n = await drain(session)
+                except Exception as e:
+                    await session.rollback()
+                    await _save_health(session, last_run_at=t, last_error=type(e).__name__, last_error_at=t)
+                    raise
+                await _save_health(session, last_run_at=t, last_ok_at=t, last_count=n, last_error=None)
         except Exception:  # noqa: BLE001 - keep the loop alive; the marks stay for the next run
             log.exception("metrics rollup failed")
         await asyncio.sleep(INTERVAL_S)

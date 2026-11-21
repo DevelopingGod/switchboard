@@ -10,7 +10,7 @@ import { Segmented } from "@/components/kit/Segmented";
 import { StatCard } from "@/components/kit/StatCard";
 import { usePrefs } from "@/lib/prefs";
 import { count, usd, slotLabel } from "@/lib/metrics-format";
-import { RANGE_KEYS, type MetricsSummary, type RangeKey } from "@/lib/metrics-types";
+import { RANGE_KEYS, customRangeProblem, rangeTag, type MetricsSummary, type RangeKey } from "@/lib/metrics-types";
 import { tMet } from "@/i18n/metrics";
 import { BarChart } from "./charts";
 import { fetchView } from "@/lib/metrics-client";
@@ -30,15 +30,25 @@ export function MetricsScreen({ initial, empty }: { initial: MetricsSummary; emp
   const { mode } = usePrefs();
   const [data, setData] = React.useState(initial);
   const [range, setRange] = React.useState<RangeKey>((initial.range.key as RangeKey) ?? "7d");
+  // M6.5 (M6 carry-over): a custom range, first..last in the viewer's time zone, at most 366 days.
+  const [first, setFirst] = React.useState(initial.range.key === "custom" ? initial.range.first : "");
+  const [last, setLast] = React.useState(initial.range.key === "custom" ? initial.range.last : "");
+  const [rangeError, setRangeError] = React.useState<string | null>(null);
   const [demo, setDemo] = React.useState(initial.include_demo);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const tz = data.range.tz;
 
   const load = React.useCallback(
-    async (r: RangeKey, zone: string, withDemo: boolean) => {
+    async (r: RangeKey, zone: string, withDemo: boolean, days?: { first: string; last: string }) => {
       setBusy(true);
-      const res = await fetchView<MetricsSummary>("summary", { range: r, tz: zone, include_demo: String(withDemo), empty: empty ? "1" : undefined });
+      const res = await fetchView<MetricsSummary>("summary", {
+        range: r,
+        tz: zone,
+        include_demo: String(withDemo),
+        empty: empty ? "1" : undefined,
+        ...(r === "custom" && days ? days : {}),
+      });
       setBusy(false);
       if (res.ok) {
         setData(res.data);
@@ -54,7 +64,8 @@ export function MetricsScreen({ initial, empty }: { initial: MetricsSummary; emp
     if (!z || z === initial.range.tz) return;
     document.cookie = `sb_tz=${encodeURIComponent(z)}; path=/; max-age=31536000; samesite=lax`;
     let live = true;
-    void fetchView<MetricsSummary>("summary", { range: initial.range.key, tz: z, include_demo: String(initial.include_demo), empty: empty ? "1" : undefined }).then(
+    const days = initial.range.key === "custom" ? { first: initial.range.first, last: initial.range.last } : {};
+    void fetchView<MetricsSummary>("summary", { range: initial.range.key, tz: z, include_demo: String(initial.include_demo), empty: empty ? "1" : undefined, ...days }).then(
       (r) => live && r.ok && setData(r.data),
     );
     return () => {
@@ -64,15 +75,36 @@ export function MetricsScreen({ initial, empty }: { initial: MetricsSummary; emp
 
   const pick = (r: RangeKey) => {
     setRange(r);
+    if (r === "custom") {
+      // Start from the range on screen; nothing loads until "Show".
+      setFirst((f) => f || data.range.first);
+      setLast((l) => l || data.range.last);
+      return;
+    }
     const u = new URL(window.location.href);
     u.searchParams.set("range", r);
+    u.searchParams.delete("first");
+    u.searchParams.delete("last");
     window.history.replaceState(null, "", u);
     void load(r, tz, demo);
   };
+  const applyCustom = (e: React.FormEvent) => {
+    e.preventDefault();
+    const problem = customRangeProblem(first, last, new Date().toISOString().slice(0, 10));
+    if (problem) return setRangeError(tMet(`range.${problem}`));
+    setRangeError(null);
+    const u = new URL(window.location.href);
+    u.searchParams.set("range", "custom");
+    u.searchParams.set("first", first);
+    u.searchParams.set("last", last);
+    window.history.replaceState(null, "", u);
+    void load("custom", tz, demo, { first, last });
+  };
   const toggleDemo = (v: boolean) => {
     setDemo(v);
-    void load(range, tz, v);
+    void load(range, tz, v, range === "custom" ? { first, last } : undefined);
   };
+  const tag = rangeTag(range, data.range.first, data.range.last);
 
   const tt = data.totals;
   const nothing = tt.requests === 0 && tt.jobs_done === 0 && tt.jobs_failed === 0 && tt.value_usd === 0;
@@ -93,6 +125,26 @@ export function MetricsScreen({ initial, empty }: { initial: MetricsSummary; emp
           {busy ? tMet("updating") : tMet("tzNote", { tz })}
         </p>
       </div>
+      {range === "custom" && (
+        <form onSubmit={applyCustom} noValidate aria-label={tMet("range.custom")} className="surface-strong flex flex-wrap items-end gap-3 rounded-panel p-3">
+          <label className="grid gap-1 text-sm font-semibold">
+            {tMet("range.first")}
+            <input type="date" value={first} max={last || undefined} onChange={(e) => setFirst(e.target.value)} className="min-h-(--ctl) rounded-control border border-hairline bg-glass-strong px-3 tabular-nums" />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold">
+            {tMet("range.last")}
+            <input type="date" value={last} min={first || undefined} onChange={(e) => setLast(e.target.value)} className="min-h-(--ctl) rounded-control border border-hairline bg-glass-strong px-3 tabular-nums" />
+          </label>
+          <button type="submit" className="inline-flex min-h-(--ctl) items-center rounded-chip bg-accent px-4 text-sm font-semibold text-on-accent">
+            {tMet("range.apply")}
+          </button>
+          {rangeError && (
+            <p role="alert" className="basis-full text-sm text-err">
+              {rangeError}
+            </p>
+          )}
+        </form>
+      )}
       {error && (
         <p role="alert" className="text-sm text-err">
           {tMet("pro.error", { error })}
@@ -160,7 +212,7 @@ export function MetricsScreen({ initial, empty }: { initial: MetricsSummary; emp
               format={(v) => usd(v ?? 0)}
               axisFormat={(v) => (v === 0 ? "$0" : `$${v < 1 ? v.toFixed(2) : v.toFixed(0)}`)}
               csvName="spend-and-value"
-              range={range}
+              range={tag}
             />
           </GlassPanel>
         </>
@@ -168,9 +220,10 @@ export function MetricsScreen({ initial, empty }: { initial: MetricsSummary; emp
 
       {mode === "pro" && (
         <MetricsPro
-          key={`${range}-${tz}-${demo}`}
+          key={`${tag}-${tz}-${demo}`}
           summary={data}
-          range={range}
+          range={tag}
+          days={range === "custom" ? { first: data.range.first, last: data.range.last } : undefined}
           tz={tz}
           demo={demo}
           onDemo={toggleDemo}

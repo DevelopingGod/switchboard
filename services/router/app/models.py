@@ -278,6 +278,7 @@ class Project(Base):
     removed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )  # off the allowlist; jobs kept
+    accounts: Mapped[dict[str, str] | None] = mapped_column(JSONB)  # M6.5: {cli: account} for this project
 
 
 class Job(Base):
@@ -318,6 +319,15 @@ class Job(Base):
     result_text: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
     tag: Mapped[str | None] = mapped_column(String(64))
+    # M6.5 (ADR 0013/0014): the CLI account (fixed at create: never switched to another account of the same
+    # CLI), the routing rule (light vs heavy work), waiting for a usage-window reset, paid overflow.
+    account: Mapped[str | None] = mapped_column(String(32))
+    rule_id: Mapped[str | None] = mapped_column(String(64))
+    resume_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempt: Mapped[int] = mapped_column(SmallInteger, default=0)  # re-runs of the same phase after a limit
+    waits: Mapped[int] = mapped_column(SmallInteger, default=0)
+    paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    paid_budget_usd: Mapped[float | None] = mapped_column(Numeric(10, 4))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -353,9 +363,42 @@ class AgentProfile(Base):
     monthly_list_usd: Mapped[float | None] = mapped_column(Numeric(10, 2))
     allowed_project_ids: Mapped[list[int] | None] = mapped_column(JSONB)
     paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    account: Mapped[str | None] = mapped_column(String(32))  # M6.5: the CLI account it uses (None = default)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CliAccount(Base):
+    """A named account of a subscription CLI (M6.5, ADR 0013). Its folder is on the host
+    (~/.switchboard/accounts/<cli>/<name>) and only the vendor CLI writes in it; "default" is never stored."""
+
+    __tablename__ = "cli_accounts"
+    __table_args__ = (UniqueConstraint("cli", "name", name="uq_cli_accounts_cli_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cli: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(32))
+    label: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UsageWindow(Base):
+    """The latest reading of one usage window (M6.5, ADR 0014): one row per (cli, account, window)."""
+
+    __tablename__ = "usage_windows"
+
+    cli: Mapped[str] = mapped_column(String(16), primary_key=True)
+    account: Mapped[str] = mapped_column(String(32), primary_key=True)
+    window: Mapped[str] = mapped_column(String(32), primary_key=True)
+    used: Mapped[float | None] = mapped_column(Float)
+    resets_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    limited: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str] = mapped_column(String(16))  # reported | estimate
+    capacity: Mapped[float | None] = mapped_column(Float)
+    hours: Mapped[float | None] = mapped_column(Float)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class MetricsBucket(Base):

@@ -23,8 +23,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import accounts, jobs
 from app import agents as agents_mod
-from app import jobs
 from app.agents import AgentDef, AgentRegistry, load_agents
 from app.models import AgentProfile, Job, Project
 from app.paperclip import Paperclip, PaperclipError
@@ -42,6 +42,7 @@ COLUMNS = (
     "monthly_list_usd",
     "allowed_project_ids",
     "paused",
+    "account",
     "deleted_at",
 )
 
@@ -83,8 +84,16 @@ async def _validate(
     default_autonomy: int | None,
     monthly_list_usd: float | None,
     allowed_project_ids: list[int] | None,
+    account: str | None = None,
 ) -> None:
     reg = load_agents()
+    if account and accounts.key(account) != accounts.DEFAULT:
+        if tpl.cli not in reg.clis:
+            raise FleetError(400, f"{tpl.label} doesn't use a subscription account")
+        try:
+            await accounts.validate_choice(session, reg, tpl.cli, account)
+        except accounts.AccountError as e:
+            raise FleetError(e.status, e.message) from e
     if label is not None and not label.strip():
         raise FleetError(400, "Give the agent a name")
     if model and tpl.models and model not in tpl.models:
@@ -126,12 +135,15 @@ async def hire(
     default_autonomy: int | None,
     monthly_list_usd: float | None,
     allowed_project_ids: list[int] | None,
+    account: str | None = None,
 ) -> AgentDef:
     reg = await refresh(session)
     base = agents_mod.load_base()
     tpl = base.agents.get(template)
     if tpl is None:
         raise FleetError(400, f"No template called “{template}” (config/agents.yaml)")
+    if tpl.paid:
+        raise FleetError(400, f"{tpl.label} is the paid-overflow agent; it can't be hired as a template")
     if not tpl.runnable:
         raise FleetError(400, tpl.note or f"{tpl.label} can't run jobs yet, so it can't be hired")
     await _validate(
@@ -142,6 +154,7 @@ async def hire(
         default_autonomy=default_autonomy,
         monthly_list_usd=monthly_list_usd,
         allowed_project_ids=allowed_project_ids,
+        account=account,
     )
     names = {a.label.lower() for a in reg.agents.values()}
     if label.strip().lower() in names:
@@ -163,6 +176,7 @@ async def hire(
             monthly_list_usd=monthly_list_usd,
             allowed_project_ids=allowed_project_ids,
             paused=False,
+            account=None if accounts.key(account) == accounts.DEFAULT else account,
         )
     )
     await session.commit()
@@ -186,6 +200,7 @@ async def edit(session: AsyncSession, pc: Paperclip | None, agent_id: str, patch
         default_autonomy=patch.get("default_autonomy"),
         monthly_list_usd=patch.get("monthly_list_usd"),
         allowed_project_ids=patch.get("allowed_project_ids"),
+        account=patch.get("account"),
     )
     if "label" in patch and patch["label"]:
         clash = [
@@ -201,7 +216,17 @@ async def edit(session: AsyncSession, pc: Paperclip | None, agent_id: str, patch
     if row is None:  # first edit of a built-in agent
         row = AgentProfile(id=agent_id, template=agent_id, builtin=True, paused=False)
         session.add(row)
-    for k in ("label", "role", "model", "default_autonomy", "monthly_list_usd", "allowed_project_ids"):
+    if "account" in patch and accounts.key(patch["account"]) == accounts.DEFAULT:
+        patch = {**patch, "account": None}
+    for k in (
+        "label",
+        "role",
+        "model",
+        "default_autonomy",
+        "monthly_list_usd",
+        "allowed_project_ids",
+        "account",
+    ):
         if k in patch:
             v = patch[k]
             setattr(row, k, (v.strip() or None) if isinstance(v, str) else v)

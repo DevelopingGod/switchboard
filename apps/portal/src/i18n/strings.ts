@@ -121,6 +121,7 @@ export const strings = {
     done: "Done",
     failed: "Failed",
     stopped: "Stopped",
+    waiting: "Waiting for reset",
   },
   state: {
     loading: "Loading",

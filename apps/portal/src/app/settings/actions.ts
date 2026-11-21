@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { routerSend } from "@/lib/server/router";
-import type { ActionResult, LocalProfileView, SettingsView } from "@/lib/router-types";
+import type { ActionResult, LocalProfileView, SettingsView, OverflowSettings } from "@/lib/router-types";
 import type { SubscriptionItem } from "@/lib/metrics-types";
 
 export interface SettingsPatch {
@@ -83,4 +83,41 @@ export async function saveSubscriptions(items: SubscriptionItem[]): Promise<Acti
   revalidatePath("/settings");
   revalidatePath("/metrics");
   return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
+}
+
+
+// --- M6.5: accounts (ADR 0013) and paid overflow (ADR 0015) -------------------------------------------
+const ACCOUNT = /^[a-z0-9][a-z0-9-]{0,30}$/;
+const CLI = /^[a-z][a-z0-9-]{0,15}$/;
+const done = <T>(r: { ok: true; data: T } | { ok: false; error: string; code?: string; detail?: string | null }): ActionResult<T> =>
+  r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
+
+export async function addAccount(cli: string, name: string, label: string): Promise<ActionResult<{ login_command: string | null; home: string | null }>> {
+  if (!CLI.test(cli)) return { ok: false, error: "Pick a CLI." };
+  if (!ACCOUNT.test(name) || name === "default") return { ok: false, error: "Use a short name: lowercase letters, digits and dashes." };
+  const r = await routerSend<{ login_command: string | null; home: string | null }>("POST", "/accounts", { cli, name, label: label.trim().slice(0, 80) || null }, 30_000);
+  revalidatePath("/settings");
+  return done(r);
+}
+
+export async function removeAccount(cli: string, name: string): Promise<ActionResult<{ removed: boolean }>> {
+  if (!CLI.test(cli) || !ACCOUNT.test(name)) return { ok: false, error: "Invalid account." };
+  const r = await routerSend<{ removed: boolean }>("DELETE", `/accounts/${cli}/${name}`);
+  revalidatePath("/settings");
+  return done(r);
+}
+
+export async function checkAccount(cli: string, name: string): Promise<ActionResult<{ logged_in: boolean | null }>> {
+  if (!CLI.test(cli) || !ACCOUNT.test(name)) return { ok: false, error: "Invalid account." };
+  const r = await routerSend<{ logged_in: boolean | null }>("POST", `/accounts/${cli}/${name}/check`, undefined, 30_000);
+  revalidatePath("/settings");
+  return done(r);
+}
+
+export async function saveOverflow(v: { enabled: boolean; monthly_usd: number | null; model: string | null }): Promise<ActionResult<OverflowSettings>> {
+  if (v.monthly_usd != null && !(Number.isFinite(v.monthly_usd) && v.monthly_usd > 0 && v.monthly_usd <= 10_000)) return { ok: false, error: "Enter a monthly budget between $0.01 and $10,000." };
+  if (v.model != null && (v.model.length > 200 || !/^[\w./:-]+$/.test(v.model))) return { ok: false, error: "Pick a model." };
+  const r = await routerSend<OverflowSettings>("PUT", "/settings/overflow", { enabled: !!v.enabled, monthly_usd: v.monthly_usd, model: v.model });
+  revalidatePath("/settings");
+  return done(r);
 }

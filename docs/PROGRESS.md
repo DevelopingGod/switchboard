@@ -25,7 +25,9 @@
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
-| M6 Metrics | ✅ Done (PR in review) | m6 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
+| M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
+| M6.5 Subscription windows | ✅ Done (PR in review) | m65 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
+| M2.5 Attachments | ⏳ Next, before M7 | — | — | Files and images in chat; moved ahead of M7 (order M6.5 → M2.5 → M7) |
 | M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
 
 **MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
@@ -615,6 +617,70 @@ backend; portal; docs, media and version 0.7.0.
 - **LiteLLM upgrade:** re-run `pytest -m live` (`LITELLM_LIVE_URL`, `LITELLM_LIVE_KEY`) before trusting the ingester.
 - Still open from earlier: see "Carry-over to M4.5 and later".
 
+## M6.5 outcome
+
+Branch `m65`. Guide: [docs/m65.md](m65.md) (what you can do, how it works, checks, live proof, decisions taken without
+asking). ADRs: [0013](adr/0013-separate-accounts-never-rotated.md) separate accounts, never rotated,
+[0014](adr/0014-subscription-windows-and-waiting-for-resets.md) usage windows and waiting for resets,
+[0015](adr/0015-paid-overflow-per-job-litellm-keys.md) paid overflow through per-run LiteLLM keys. Commits: docs;
+backend; portal; fixes found live and version 0.8.0; docs and media.
+
+- **Usage windows:** verified what the CLIs report: Claude Code's stream-json `rate_limit_event` (5-hour and 7-day
+  share, reset, allowed/rejected) and Codex's own session file (`rate_limits`). Claude is read while the run streams;
+  Codex's numbers are read by hostprobe by thread id (numbers only, no paths, no symlinks; tests for traversal and
+  leakage). Without a report: an estimate from our own runs, always labelled, no share without a calibration. Shown
+  on Agents, Status, Metrics Pro and the job preview. Guard: light work moves on at 80%, every job at 100%.
+- **Waiting for resets:** a job that hits a limit waits (`waiting_reset`) and re-runs the phase in the same worktree
+  after the reset (with a note to check `git status`/`git diff`); a reset more than 12 h away asks first (Wait
+  anyway / another provider / paid overflow / cancel); max 3 waits; survives restarts (proved live).
+- **Accounts:** `~/.switchboard/accounts/<cli>/<name>` folders the vendor CLI logs into; per project or agent; a job
+  never switches to another account of the same CLI (create, preview, engine and reroute; tested). FAQ added.
+- **Paid overflow (off by default):** per-run LiteLLM virtual key (budget-capped, one model, short-lived) written by
+  hostprobe to a 600 key file that OpenCode reads with `{file:…}`; never in Paperclip (its config keeps every
+  revision); revoked on every outcome and swept after crashes; spend filed under the job from LiteLLM's logs.
+- **M6 carry-overs done:** custom date range on `/metrics`; rollup worker health on Status (Catch up now) and in
+  doctor.
+- **Found live and fixed:** Paperclip merges a PATCHed `adapterConfig` key by key, so M4a's level-3 attempt had left
+  `filesystemScope: workspace` on the Claude agent and every later Claude job failed in bwrap; every Claude run now
+  states its sandbox keys.
+- **Checks:** router 459 pytest, hostprobe 89, ruff clean; portal tsc, eslint, vitest 112, Playwright 463 (axe both
+  themes, layout, baselines stable 318/318); JS ≤ 192.5 KB per route; Lighthouse ≥ 97 performance everywhere;
+  `test:bundle` and `docs:check` pass; doctor green.
+- **Also:** `VERSION` 0.8.0; README feature tour (two new shots), roadmap ✅ M6.5, every shot and the demo re-recorded
+  (108 s, with a "waiting for reset" segment on sample data); graphify noted under M4.5.
+- **Changes on your machine (outside the repo):**
+  - migration 0010 applied to your router database;
+  - the router runs this branch's code **mounted on the existing image** through
+    `~/.switchboard/m65-router-override.yml` (the image rebuild timed out on PyPI four times, even with the new
+    patient pip settings in the Dockerfile). When PyPI answers: `docker compose -f deploy/docker-compose.yml up -d
+    --build router`, then delete that file. Until then the mounts follow this checkout: **don't switch it to `main`
+    and restart the router** (main's code doesn't know migration 0010 and won't start);
+  - hostprobe restarted (new routes);
+  - `~/.switchboard/accounts/claude/work` (the account `work`, not logged in; the CLI wrote its own `.claude.json`
+    there when its status was checked) and `~/.switchboard/overflow/` (empty);
+  - jobs 12–17 in `~/switchboard-playground` (12 failed on the stale sandbox key; 16 failed on Groq's free token
+    limit; branches kept); the Claude agent's stale sandbox keys cleared in Paperclip; a new `opencode-paid` agent in
+    Paperclip (from jobs 16–17); overflow turned on for the test and off again;
+  - demo stack created and removed again.
+- **Deviations:** one Paperclip agent per Switchboard agent (not per account; the config is written per run);
+  thresholds live in `agents.yaml` rather than `rules.yaml`; limit hits on Metrics are for the last 30 days, not the
+  selected range; the second-account login and a real paid model were not exercised (yours to do).
+
+## Carry-over to M2.5 and later (from M6.5)
+
+- **Rebuild the router image** when PyPI is reachable (above).
+- **Log in to a second account** (`CLAUDE_CONFIG_DIR=~/.switchboard/accounts/claude/work claude auth login`) and run a
+  job on it to prove the passthrough live; or remove the `work` account in Settings → Accounts and delete the folder.
+- **A real limit hit** (`rejected` from Claude, `limit reached` from Codex) hasn't been captured live; the first one
+  should be recorded as a fixture.
+- **A real paid model** for overflow needs a paid key (for example xAI); then check LiteLLM's pre-call estimate with
+  OpenCode's ~9,500-token prompt against small budgets.
+- **Resume the CLI's own session** after a reset instead of re-running the phase (`claude --resume`, `codex exec
+  resume`), once verified per CLI.
+- **`max_active_per_agent` > 1** would need per-job overflow key files (ADR 0015).
+- Still open from earlier: see "Carry-over to M7 and later (from M6)" (media spend, LiteLLM upgrade re-check) and
+  "Carry-over to M4.5 and later".
+
 ## Future providers
 
 - **Cloudflare Workers AI**: 10,000 Neurons/day free, no card per the pricing page. The URL needs your account id (supported now through `params:`), and there's no OpenAI-style `/models`, so it needs a `models_url` plus `models_fields` mapping. Check its data terms first.
@@ -628,8 +694,13 @@ Ideas and later milestones, not scheduled. Additions only.
 - **Local compute optimizer:** multi-GPU and one Ollama instance per GPU (NVIDIA and an AMD iGPU), show the GPU-vs-RAM split of each loaded model, a fit advisor ("this model fits / spills to RAM"), and tuning in Settings → Local models. Builds on the profile options (`classifier_options`, `tasks_options`, `max_loaded`) and `scripts/measure-local.py`; a RAM check belongs here too (the small profile assumes ~3.5 GB free for the CPU models).
 - **Ollama Cloud** as a YAML provider (adapter: openai-compatible); check its free-tier terms first.
 - **Check Antigravity (Google)** as a provider.
-- **M2.5 Attachments** (files and images in chat).
+- **M2.5 Attachments** (files and images in chat): scheduled before M7 (order M6.5 → M2.5 → M7), see the status table.
 - **M4.5 Workflow packs** (SPEC §8a).
+  - **graphify as the first auto pack** (planned 2026-11-21): used automatically only for agent jobs on
+    projects above a size threshold; project-scoped install in the job worktree only (never `~/.claude` or
+    global hooks); local AST pass by default, AI semantic pass opt-in via Switchboard routing; exact pinned
+    package `graphifyy` plus its hash; graph files never committed; Metrics measures the token savings and
+    disables it per project if there is no gain.
 - **M5 Studio:** no free Gemini images (see Gemini limits above), so local Stable Diffusion or paid Grok Imagine.
 - **M5.5 Content Studio** (SPEC §8d).
 - **M7 launch:** one-command cross-platform install (Docker for Mac, Linux and Windows), **portal user auth before any remote access**, tag `v1.0.0`. (The README and the demo GIF were done in README v1.)

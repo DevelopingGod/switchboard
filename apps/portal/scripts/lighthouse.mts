@@ -44,6 +44,11 @@ const targets = [
   "/metrics?theme=dark",
   "/metrics?mode=pro",
   "/metrics?mode=pro&theme=dark",
+  // M6.5
+  "/jobs/31",
+  "/jobs/31?theme=dark",
+  "/metrics?range=custom&first=2026-11-10&last=2026-11-20",
+  "/metrics?range=custom&first=2026-11-10&last=2026-11-20&theme=dark",
 ];
 const chrome =
   process.env.CHROME_PATH ?? join(homedir(), ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome");

@@ -25,6 +25,11 @@ Security rules (M1a, docs/m1a.md):
   exactly `switchboard/job-<n>` from the project's HEAD; nothing is ever pushed or fetched, and the
   project's own checkout and branch are never changed.
 
+- Accounts, Codex usage, overflow key (M6.5, ADRs 0013-0015): create an empty account folder (700) the
+  vendor CLI logs into; run the fixed status argv with that folder as the CLI's home; read only the numbers
+  of the last `rate_limits` record in one Codex session file (by thread id); write/remove one LiteLLM key
+  file (600) per agent for paid overflow. Never anything inside an account folder. Details by the code.
+
 Stdlib only, so it runs on the system python3 without a venv.
 """
 
@@ -63,13 +68,16 @@ class CliSpec:
     auth_argv: tuple[str, ...] | None  # argv after the binary; None = no status command
     auth_kind: str  # how to read the status command: exit0 | claude | codex | opencode
     auth_files: tuple[str, ...]  # relative to $HOME; stat only
+    home_env: str | None = None  # M6.5: the CLI's own "config home" variable, for named accounts
 
 
 # The allowlist. Verified against each CLI's docs/--help at M1a (see docs/m1a.md); grok's
 # credential location is unverified until Grok Build is installed.
 CLIS: dict[str, CliSpec] = {
-    "claude": CliSpec("claude", ("auth", "status", "--json"), "claude", (".claude/.credentials.json",)),
-    "codex": CliSpec("codex", ("login", "status"), "codex", (".codex/auth.json",)),
+    "claude": CliSpec(
+        "claude", ("auth", "status", "--json"), "claude", (".claude/.credentials.json",), "CLAUDE_CONFIG_DIR"
+    ),
+    "codex": CliSpec("codex", ("login", "status"), "codex", (".codex/auth.json",), "CODEX_HOME"),
     "gemini": CliSpec("gemini", None, "", (".gemini/oauth_creds.json",)),
     "grok": CliSpec("grok", None, "", (".grok/auth.json", ".config/grok/auth.json")),
     "opencode": CliSpec("opencode", ("auth", "list"), "opencode", (".local/share/opencode/auth.json",)),
@@ -108,9 +116,11 @@ def windows_copy(name: str) -> bool:
     return any(glob.glob(p) for p in patterns)
 
 
-def run(argv: list[str], path: list[str]) -> tuple[int | None, str]:
-    """Run a fixed argv; returns (exit code or None on timeout/error, combined output)."""
+def run(argv: list[str], path: list[str], extra_env: dict[str, str] | None = None) -> tuple[int | None, str]:
+    """Run a fixed argv; returns (exit code or None on timeout/error, combined output). `extra_env` is only
+    ever a named account's home (CLAUDE_CONFIG_DIR / CODEX_HOME), derived here, never from a request."""
     env = {"HOME": str(HOME), "PATH": ":".join(path), "NO_COLOR": "1", "TERM": "dumb", "CI": "1"}
+    env.update(extra_env or {})
     try:
         r = subprocess.run(  # noqa: S603 - argv comes only from the CLIS allowlist
             argv,
@@ -155,6 +165,22 @@ def parse_auth(kind: str, code: int | None, out: str) -> bool | None:
     return None
 
 
+# Plan names `claude auth status --json` reports (`subscriptionType`). Anything else is "unknown": the
+# label is the only account detail that leaves this function (never the email, org or ids).
+CLAUDE_PLANS = ("free", "pro", "max", "team", "enterprise")
+
+
+def parse_plan(kind: str, out: str) -> str | None:
+    if kind != "claude":
+        return None
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return None
+    plan = data.get("subscriptionType") if isinstance(data, dict) else None
+    return plan if plan in CLAUDE_PLANS else None
+
+
 def files_exist(rel_paths: tuple[str, ...]) -> bool:
     # os.path.exists stats the path; the file is never opened.
     return any(os.path.exists(HOME / rel) for rel in rel_paths)
@@ -173,10 +199,11 @@ def probe_cli(spec: CliSpec, path: list[str], user_path: str | None = None) -> d
         }
     code, out = run([exe, "--version"], path)
     m = VERSION_RE.search(out) if code == 0 else None
-    logged_in, method = None, None
+    logged_in, method, plan = None, None, None
     if spec.auth_argv:
         code, out = run([exe, *spec.auth_argv], path)
         logged_in = parse_auth(spec.auth_kind, code, out)
+        plan = parse_plan(spec.auth_kind, out) if logged_in else None
         method = f"{spec.bin} {' '.join(spec.auth_argv)}"
         del out
     if logged_in is None and spec.auth_files:
@@ -189,6 +216,7 @@ def probe_cli(spec: CliSpec, path: list[str], user_path: str | None = None) -> d
         "logged_in": logged_in,
         "windows_only": False,
         "login_method": method,
+        "plan": plan,
         # Where it lives, and whether a new terminal can find it ("command not found" otherwise).
         "bin_path": display_path(exe),
         "bin_dir": display_path(bin_dir),
@@ -298,6 +326,7 @@ class Probe:
         self.lock = threading.Lock()
         self.installer = installer or Installer(on_success=self.invalidate)
         self.hw_fn = probe_hw
+        self.account_probes = TokenBucket(30, 60.0)  # M6.5: one status command per account check
         self.hw_cache: tuple[float, dict] | None = None
 
     def hw(self) -> tuple[int, dict]:
@@ -1097,6 +1126,260 @@ def listening(port: object) -> dict:
     return {"port": want, "addresses": sorted(addrs), "loopback_only": bool(addrs) and loopback}
 
 
+# --- Named accounts, Codex usage numbers, overflow key file (M6.5, ADRs 0013-0015) -----------------
+# Accounts: each extra account of a subscription CLI is a folder the vendor CLI itself logs into
+# (`CLAUDE_CONFIG_DIR=<folder> claude auth login`). hostprobe only creates the empty folder (mode 700) and
+# runs the same fixed status argv with that folder as the CLI's home. It never copies, reads, moves or
+# writes anything inside it. Folder paths are derived here from a validated (cli, name); no request path.
+#
+# Codex usage: `codex exec --json` doesn't report the usage window; the session file Codex writes for that
+# run does. One read-only call takes the run's thread id (UUID format), opens only
+# <codex home>/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl (no symlinks anywhere on the way, a regular file,
+# the last 4 MB only), and returns only numbers from the last `rate_limits` record. Content is never
+# returned or logged; auth.json and every other file are never opened.
+#
+# Overflow key: a paid-overflow job's LiteLLM key is written to ~/.switchboard/overflow/<agent>.key
+# (folder 700, file 600) right before its run and removed when the job ends; the agent's OpenCode config
+# refers to it with `{file:...}`, so the key never enters Paperclip. One active job per agent, so one file
+# per agent is enough; per-job names are needed if that limit is ever raised (ADR 0015).
+
+ACCOUNT_CLIS = ("claude", "codex")
+ACCOUNT_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+AGENT_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+LLM_KEY_RE = re.compile(r"sk-[A-Za-z0-9_\-]{8,200}")
+DEFAULT_HOMES = {"claude": ".claude", "codex": ".codex"}
+SESSION_TAIL_BYTES = 4 * 1024 * 1024
+DATE_PART_RE = re.compile(r"\d{2,4}")
+
+
+def switchboard_dir(env_name: str, sub: str) -> Path:
+    return Path(os.environ.get(env_name) or HOME / ".switchboard" / sub).expanduser()
+
+
+def accounts_root() -> Path:
+    return switchboard_dir("SWITCHBOARD_ACCOUNTS_ROOT", "accounts")
+
+
+def overflow_root() -> Path:
+    return switchboard_dir("SWITCHBOARD_OVERFLOW_ROOT", "overflow")
+
+
+def _no_symlinks(path: Path, stop: Path) -> None:
+    """Refuse if `path` or any parent up to (and including) `stop` is a symlink."""
+    p = path
+    while True:
+        if p.is_symlink():
+            raise InstallError(400, "That folder is a link; Switchboard won't use it.")
+        if p == stop or p.parent == p:
+            return
+        p = p.parent
+
+
+def _private_dir(path: Path) -> None:
+    """Create `path` (and parents) as 700 folders; an existing one must be a real folder."""
+    if path.is_symlink():
+        raise InstallError(400, "That folder is a link; Switchboard won't use it.")
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise InstallError(400, "That path exists and isn't a folder.")
+    os.chmod(path, 0o700)
+
+
+def account_home(cli: object, name: object) -> Path | None:
+    """The folder of a named account; None = the CLI's default home (its own default, no env)."""
+    if cli not in ACCOUNT_CLIS:
+        raise InstallError(400, "Accounts are available for Claude Code and Codex only.")
+    if name in (None, "", "default"):
+        return None
+    if not isinstance(name, str) or not ACCOUNT_NAME_RE.fullmatch(name):
+        raise InstallError(
+            400, 'Use a short name: lowercase letters, digits and dashes (for example "work").'
+        )
+    root = accounts_root()
+    home = root / str(cli) / name
+    if home.exists():
+        _no_symlinks(home, root)
+    return home
+
+
+def account_env(cli: str, name: object) -> dict[str, str]:
+    home = account_home(cli, name)
+    spec = CLIS[cli]
+    return {spec.home_env: str(home)} if home is not None and spec.home_env else {}
+
+
+def login_command(cli: str, name: str | None) -> str:
+    spec = CLIS[cli]
+    base = {"claude": "claude auth login", "codex": "codex login"}[cli]
+    home = account_home(cli, name)
+    return f"{spec.home_env}={display_path(str(home))} {base}" if home is not None else base
+
+
+def create_account(body: dict) -> dict:
+    cli, name = body.get("cli"), body.get("name")
+    home = account_home(cli, name)
+    if home is None:
+        raise InstallError(400, "The default account already exists: it is the CLI's own login.")
+    _private_dir(accounts_root())
+    _private_dir(accounts_root() / str(cli))
+    _private_dir(home)
+    _no_symlinks(home, accounts_root())
+    return {
+        "cli": cli,
+        "name": name,
+        "home": display_path(str(home)),
+        "login_command": login_command(str(cli), str(name)),
+    }
+
+
+def probe_account(cli: object, name: object) -> dict:
+    """The same fixed status argv as GET /cli, with the account's home in the env."""
+    home = account_home(cli, name)
+    spec = CLIS[str(cli)]
+    path = linux_path()
+    exe = which(spec.bin, path)
+    out_base = {
+        "cli": cli,
+        "name": name or "default",
+        "home": display_path(str(home)) if home is not None else f"~/{DEFAULT_HOMES[str(cli)]}",
+        "exists": home is None or home.is_dir(),
+        "login_command": login_command(str(cli), None if home is None else str(name)),
+        # The variable a job run sets so the vendor CLI uses this login (absolute: env values aren't expanded).
+        "env": account_env(str(cli), name),
+    }
+    if exe is None:
+        return {**out_base, "installed": False, "logged_in": None, "plan": None}
+    if home is not None and not home.is_dir():
+        return {**out_base, "installed": True, "logged_in": False, "plan": None}
+    code, out = run([exe, *(spec.auth_argv or ())], path, account_env(str(cli), name))
+    logged_in = parse_auth(spec.auth_kind, code, out)
+    plan = parse_plan(spec.auth_kind, out) if logged_in else None
+    del out
+    return {**out_base, "installed": True, "logged_in": logged_in, "plan": plan}
+
+
+def _num(v: object) -> float | None:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _window(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    w = {
+        "used_percent": _num(raw.get("used_percent")),
+        "window_minutes": _num(raw.get("window_minutes")),
+        "resets_at": _num(raw.get("resets_at")),
+    }
+    return w if any(v is not None for v in w.values()) else None
+
+
+def reduce_rate_limits(rl: object) -> dict | None:
+    """Only numbers (and one derived boolean) leave this function."""
+    if not isinstance(rl, dict):
+        return None
+    out = {
+        "primary": _window(rl.get("primary")),
+        "secondary": _window(rl.get("secondary")),
+        "limit_reached": rl.get("rate_limit_reached_type") not in (None, "", False),
+    }
+    return out if out["primary"] or out["secondary"] else None
+
+
+def _session_file(base: Path, thread_id: str) -> Path | None:
+    sessions = base / "sessions"
+    if not sessions.is_dir() or sessions.is_symlink():
+        return None
+    # sessions/YYYY/MM/DD/rollout-<timestamp>-<thread id>.jsonl, newest day first; no recursion into links.
+    for y in sorted(sessions.iterdir(), reverse=True):
+        if y.is_symlink() or not y.is_dir() or not DATE_PART_RE.fullmatch(y.name):
+            continue
+        for m in sorted(y.iterdir(), reverse=True):
+            if m.is_symlink() or not m.is_dir() or not DATE_PART_RE.fullmatch(m.name):
+                continue
+            for d in sorted(m.iterdir(), reverse=True):
+                if d.is_symlink() or not d.is_dir() or not DATE_PART_RE.fullmatch(d.name):
+                    continue
+                for f in d.iterdir():
+                    if f.name.startswith("rollout-") and f.name.endswith(f"-{thread_id}.jsonl"):
+                        return None if f.is_symlink() or not f.is_file() else f
+    return None
+
+
+def codex_usage(body: dict) -> dict:
+    thread_id, name = body.get("thread_id"), body.get("account")
+    if not isinstance(thread_id, str) or not UUID_RE.fullmatch(thread_id):
+        raise InstallError(400, "thread_id must be a Codex thread id")
+    home = account_home("codex", name)
+    base = home if home is not None else HOME / DEFAULT_HOMES["codex"]
+    if base.is_symlink():
+        return {"found": False}
+    f = _session_file(base, thread_id)
+    if f is None:
+        return {"found": False}
+    try:
+        with open(f, "rb") as fh:  # noqa: PTH123 - opened only after the checks above
+            size = os.fstat(fh.fileno()).st_size
+            fh.seek(max(0, size - SESSION_TAIL_BYTES))
+            tail = fh.read(SESSION_TAIL_BYTES)
+    except OSError:
+        return {"found": False}
+    for line in reversed(tail.split(b"\n")):
+        if b'"rate_limits"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        payload = rec.get("payload") if isinstance(rec, dict) else None
+        rl = payload.get("rate_limits") if isinstance(payload, dict) else None
+        reduced = reduce_rate_limits(rl)
+        if reduced:
+            return {"found": True, **reduced}
+    return {"found": False}
+
+
+def _key_path(agent: object) -> Path:
+    if not isinstance(agent, str) or not AGENT_ID_RE.fullmatch(agent):
+        raise InstallError(400, "agent must be an agent id")
+    return overflow_root() / f"{agent}.key"
+
+
+def write_overflow_key(body: dict) -> dict:
+    path, key = _key_path(body.get("agent")), body.get("key")
+    if not isinstance(key, str) or not LLM_KEY_RE.fullmatch(key):
+        raise InstallError(400, "key must be a LiteLLM key")
+    _private_dir(overflow_root())
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, key.encode())
+    finally:
+        os.close(fd)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    # The absolute path goes into OpenCode's `{file:...}` (no ~ expansion there); the key itself never leaves.
+    return {"path": display_path(str(path)), "abs_path": str(path)}
+
+
+def remove_overflow_key(body: dict) -> dict:
+    path = _key_path(body.get("agent"))
+    try:
+        path.unlink()
+        return {"removed": True}
+    except FileNotFoundError:
+        return {"removed": False}  # already gone = success
+
+
+def list_overflow_keys() -> dict:
+    """Agent ids that still have a key file (names only, never contents): the router's startup sweep."""
+    root = overflow_root()
+    if not root.is_dir() or root.is_symlink():
+        return {"agents": []}
+    names = [p.stem for p in root.iterdir() if p.suffix == ".key" and AGENT_ID_RE.fullmatch(p.stem)]
+    return {"agents": sorted(names)}
+
+
 def make_handler(probe: Probe):
     class Handler(BaseHTTPRequestHandler):
         server_version = "hostprobe"
@@ -1173,6 +1456,12 @@ def make_handler(probe: Probe):
                     return self._send(200, list_worktrees(q1.get("project"), q1.get("slug")))
                 if url.path == "/net/listen":
                     return self._send(200, listening(q1.get("port")))
+                if url.path == "/accounts/status":
+                    if not probe.account_probes.take():
+                        return self._send(429, {"error": "rate limited"})
+                    return self._send(200, probe_account(q1.get("cli"), q1.get("name")))
+                if url.path == "/overflow-keys":
+                    return self._send(200, list_overflow_keys())
             except InstallError as e:
                 return self._send(e.status, {"error": e.message})
             m = re.fullmatch(r"/install/jobs/([\w-]+)(/events)?", url.path)
@@ -1210,6 +1499,14 @@ def make_handler(probe: Probe):
                     "/git/worktrees/commit": commit_worktree,
                     "/git/worktrees/remove": remove_worktree,
                 }
+                small_actions = {
+                    "/accounts": create_account,
+                    "/codex/usage": codex_usage,
+                    "/overflow-key": write_overflow_key,
+                    "/overflow-key/remove": remove_overflow_key,
+                }
+                if path in small_actions:
+                    return self._send(200, small_actions[path](self._body()))
                 if path in git_actions:
                     with GIT_LOCK:  # one git action at a time: worktree add/remove share the repo's lock
                         return self._send(200, git_actions[path](self._body()))

@@ -18,6 +18,8 @@ const themes = { day: "light", dusk: "dark" } as const;
 
 // Metrics fixtures are dated 21 Nov 2026 (noon UTC): relative times ("today 18:00") need that "now".
 const METRICS_NOW = new Date("2026-11-21T12:00:00Z");
+// Jobs fixtures (M6.5 reset times) are dated 20 Nov 2026 (UTC).
+const JOBS_NOW = new Date("2026-11-20T10:00:00Z");
 
 const shots: Record<string, { path: string; clock?: Date; act?: (p: Page) => Promise<void> }> = {
   home: { path: "/" },
@@ -61,7 +63,16 @@ const shots: Record<string, { path: string; clock?: Date; act?: (p: Page) => Pro
       await dlg.getByRole("heading", { name: "What will happen" }).waitFor();
     },
   },
-  agents: { path: "/jobs/agents" },
+  agents: { path: "/jobs/agents", clock: JOBS_NOW },
+  // M6.5: a job waiting for a usage-limit reset, and Settings → Accounts (fixture data)
+  "job-waiting": { path: "/jobs/31", clock: JOBS_NOW },
+  accounts: {
+    path: "/settings",
+    clock: JOBS_NOW,
+    act: async (p) => {
+      await p.getByRole("region", { name: "Accounts" }).evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 90));
+    },
+  },
   // M6: Metrics (fixture data)
   metrics: { path: "/metrics", clock: METRICS_NOW },
   "metrics-pro": {

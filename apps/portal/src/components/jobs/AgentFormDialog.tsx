@@ -9,6 +9,7 @@ import { useToast } from "@/components/kit/Toast";
 import { editAgent, hireAgent } from "@/app/jobs/actions";
 import type { AgentInput, AgentRow, AgentTemplate, ProjectRow } from "@/lib/router-types";
 import { jobsStrings, tJobs } from "@/i18n/jobs";
+import { tSubs } from "@/i18n/subscriptions";
 
 const NAMES = jobsStrings.autonomy.names;
 
@@ -22,12 +23,15 @@ export default function AgentFormDialog({
   templates,
   projects,
   agent,
+  accounts = {},
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   templates: AgentTemplate[];
   projects: ProjectRow[];
   agent?: AgentRow;
+  /** M6.5: subscription CLI → account names. */
+  accounts?: Record<string, string[]>;
 }) {
   const router = useRouter();
   const { push } = useToast();
@@ -43,6 +47,9 @@ export default function AgentFormDialog({
   const [monthly, setMonthly] = React.useState(agent?.monthly_budget_list_usd != null ? String(agent.monthly_budget_list_usd) : "");
   const [scope, setScope] = React.useState<"all" | "some">(agent?.allowed_project_ids ? "some" : "all");
   const [chosen, setChosen] = React.useState<number[]>(agent?.allowed_project_ids ?? []);
+  const [account, setAccount] = React.useState(agent?.account ?? "default");
+  const cli = agent?.cli ?? tpl?.cli ?? "";
+  const accountNames = accounts[cli] ?? [];
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -63,6 +70,7 @@ export default function AgentFormDialog({
       default_autonomy: level,
       monthly_list_usd: m,
       allowed_project_ids: scope === "all" ? null : chosen,
+      ...(accountNames.length ? { account: account === "default" ? null : account } : {}),
     };
     if (!models.length) delete body.model;
     setBusy(true);
@@ -196,6 +204,30 @@ export default function AgentFormDialog({
               {tJobs("hire.monthlyHelp")}
             </p>
           </div>
+
+          {accountNames.length > 1 && (
+            <div className="grid gap-1.5">
+              <label htmlFor={`${ids}-acct`} className="text-sm font-semibold">
+                {tSubs("accounts.choose")}
+              </label>
+              <select
+                id={`${ids}-acct`}
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                aria-describedby={`${ids}-ah`}
+                className="min-h-(--ctl) w-56 rounded-control border border-hairline bg-glass-strong px-3"
+              >
+                {accountNames.map((n) => (
+                  <option key={n} value={n}>
+                    {n === "default" ? tSubs("accounts.defaultName") : n}
+                  </option>
+                ))}
+              </select>
+              <p id={`${ids}-ah`} className="text-[0.8125rem] text-ink-muted">
+                {tSubs("accounts.chooseHelp", { cli })} {tSubs("accounts.never")}
+              </p>
+            </div>
+          )}
 
           <fieldset className="grid gap-1.5">
             <legend className="mb-1 text-sm font-semibold">{tJobs("hire.projects")}</legend>

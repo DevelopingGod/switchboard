@@ -146,7 +146,54 @@ async def series(c: Common = Depends(common), session: AsyncSession = Depends(ge
 
 @router.get("/metrics/quotas")
 async def quotas(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
-    return await cache.get(("quotas",), lambda: _wrap("providers", queries.quotas(session)))
+    """API-key providers' free quotas (M6) and, since M6.5, each subscription account's usage windows
+    (reported or estimated) with its limit hits in the last 30 days."""
+
+    async def make() -> dict[str, Any]:
+        return {
+            "providers": await queries.quotas(session),
+            "subscriptions": await _subscription_windows(session),
+        }
+
+    return await cache.get(("quotas",), make)
+
+
+async def _subscription_windows(session: AsyncSession) -> list[dict[str, Any]]:
+    from datetime import UTC, datetime, timedelta
+
+    from app import accounts, fleet
+    from app import subscriptions as windows
+    from app.models import Job, JobEvent
+
+    reg = await fleet.refresh(session)
+    by_cli = {c: await accounts.names(session, c) for c in reg.clis}
+    since = datetime.now(UTC) - timedelta(days=30)
+    hits = (
+        await session.execute(
+            select(Job.agent, Job.account, func.count(JobEvent.id))
+            .join(Job, Job.id == JobEvent.job_id)
+            .where(JobEvent.kind == "limit_hit", JobEvent.created_at >= since)
+            .group_by(Job.agent, Job.account)
+        )
+    ).all()
+    counts: dict[tuple[str, str], int] = {}
+    for agent_id, account, n in hits:
+        a = reg.agents.get(agent_id) or reg.retired.get(agent_id)
+        if a is not None:
+            k = (a.cli, accounts.key(account))
+            counts[k] = counts.get(k, 0) + int(n)
+    out = []
+    for row in await windows.overview(session, reg, by_cli):
+        st = await accounts.status(row["cli"], row["account"])
+        cli = reg.clis[row["cli"]]
+        out.append(
+            {
+                **row,
+                "plan_label": cli.plan_label(st.get("plan")) if st.get("plan") else cli.label,
+                "limit_hits_30d": counts.get((row["cli"], row["account"]), 0),
+            }
+        )
+    return out
 
 
 @router.get("/metrics/budgets")

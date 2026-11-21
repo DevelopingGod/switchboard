@@ -9,17 +9,21 @@ import { useToast } from "@/components/kit/Toast";
 import { ErrorNote } from "@/components/kit/ErrorNote";
 import { Button } from "@/components/ui/button";
 import { cliCheck, testConnection } from "@/app/connections/actions";
-import { pullModels, resyncModels } from "@/app/status/actions";
+import { pullModels, resyncModels, runRollups } from "@/app/status/actions";
+import { sourceText, windowText } from "@/lib/subscription-format";
+import { tSubs } from "@/i18n/subscriptions";
 import { usePrefs } from "@/lib/prefs";
 import type { ActionResult, ComponentsResponse, PaperclipNotes, SystemComponent } from "@/lib/router-types";
 import { type StatusKey, statusStrings, tStatus } from "@/i18n/status";
 import { tErr } from "@/i18n/errors";
 
-type InAppFix = "resync" | "recheck_cli" | "retest" | "pull_models";
+type InAppFix = "resync" | "recheck_cli" | "retest" | "pull_models" | "rebuild_rollups";
 
 const knownId = (id: string): id is keyof typeof statusStrings.name => id in statusStrings.name;
 
 function label(c: SystemComponent): string {
+  if (c.id === "rollups") return tSubs("status.rollups");
+  if (c.id.startsWith("subscription:")) return tSubs("account.line", { plan: c.name ?? c.id, account: c.account === "default" ? tSubs("account.default") : (c.account ?? "") });
   return knownId(c.id) ? tStatus(`name.${c.id}`) : (c.name ?? c.id.replace(/^provider:/, ""));
 }
 
@@ -30,6 +34,12 @@ const hhmm = (iso?: string | null) =>
 const hasReason = (code: string): code is keyof typeof statusStrings.reason => code in statusStrings.reason;
 
 function sentence(c: SystemComponent): string {
+  // M6.5: a subscription account's tightest usage window, and the Metrics rollup worker (M6 carry-over).
+  if (c.id.startsWith("subscription:")) return `${windowText(c.window)} · ${sourceText(c.window)}`;
+  if (c.id === "rollups") {
+    const n = c.pending_buckets ?? 0;
+    return c.state === "stopped" ? tSubs("status.rollupsStopped", { n }) : c.state === "behind" ? tSubs("status.rollupsBehind", { n }) : tSubs("status.rollupsOk");
+  }
   const key = knownId(c.id) ? c.id : "provider";
   if (key === "local_profile") {
     const vram = c.vram_gb != null ? `${c.vram_gb} GB` : tStatus("unknownGpu");
@@ -51,7 +61,7 @@ function sentence(c: SystemComponent): string {
 
 function fixOf(c: SystemComponent): { kind: InAppFix; arg?: string } | { instruction: string } | null {
   if (!c.fix) return null;
-  if (c.fix === "resync" || c.fix === "recheck_cli" || c.fix === "pull_models") return { kind: c.fix };
+  if (c.fix === "resync" || c.fix === "recheck_cli" || c.fix === "pull_models" || c.fix === "rebuild_rollups") return { kind: c.fix };
   if (c.fix.startsWith("retest:")) return { kind: "retest", arg: c.fix.slice(7) };
   return c.fix in statusStrings.instruction ? { instruction: tStatus(`instruction.${c.fix}` as StatusKey) } : null;
 }
@@ -106,6 +116,7 @@ export function StatusScreen({ data }: { data: ComponentsResponse }) {
     if (kind === "resync") r = await resyncModels();
     else if (kind === "recheck_cli") r = await cliCheck();
     else if (kind === "pull_models") r = await pullModels();
+    else if (kind === "rebuild_rollups") r = await runRollups();
     else {
       const t = await testConnection(arg ?? "");
       r = t.ok && !t.data.ok ? { ok: false, error: t.data.error ?? "", code: t.data.error_code, detail: t.data.error } : t;

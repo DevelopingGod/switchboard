@@ -20,8 +20,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import accounts, fleet, jobs, subscriptions
 from app import agents as agents_mod
-from app import fleet, jobs
 from app.agents import AgentDef, AgentRegistry
 from app.db import get_session
 from app.deps import require_admin
@@ -41,6 +41,7 @@ class HireIn(BaseModel):
     default_autonomy: int | None = Field(default=None, ge=0, le=3)
     monthly_list_usd: float | None = Field(default=None, gt=0, le=10_000)
     allowed_project_ids: list[int] | None = Field(default=None, max_length=200)
+    account: str | None = Field(default=None, max_length=32)  # M6.5: a named CLI account (None = default)
 
 
 class EditIn(BaseModel):
@@ -52,6 +53,7 @@ class EditIn(BaseModel):
     default_autonomy: int | None = Field(default=None, ge=0, le=3)
     monthly_list_usd: float | None = Field(default=None, gt=0, le=10_000)
     allowed_project_ids: list[int] | None = Field(default=None, max_length=200)
+    account: str | None = Field(default=None, max_length=32)
 
 
 async def _stats(session: AsyncSession) -> dict[str, dict[str, Any]]:
@@ -134,6 +136,9 @@ def _agent_json(
         "month_list_usd": round(st.get("month_list", 0.0), 4),
         "month_cost_usd": round(st.get("month_cost", 0.0), 4),
         "monthly_budget_list_usd": monthly,
+        "account": a.account,
+        "paid": a.paid,
+        "subscription": None,  # filled by the caller: the usage window of the agent's account (M6.5)
     }
 
 
@@ -148,6 +153,7 @@ async def list_agents(session: AsyncSession = Depends(get_session)) -> dict[str,
         d = _agent_json(a, reg, clis, bwrap, stats.get(a.id, {}))
         if a.runnable:
             d["spent_today_list_usd"] = round(await jobs.agent_spent_today(session, a.id), 4)
+        d["subscription"] = await _subscription(session, reg, a)
         d["paperclip_agent_id"] = (m.get("agents") or {}).get(a.id)
         out.append(d)
     base = agents_mod.load_base()
@@ -157,6 +163,7 @@ async def list_agents(session: AsyncSession = Depends(get_session)) -> dict[str,
             {
                 "id": t.id,
                 "label": t.label,
+                "cli": t.cli,
                 "runnable": t.runnable,
                 "note": t.note,
                 "installed": bool((clis.get(t.cli) or {}).get("installed"))
@@ -166,8 +173,11 @@ async def list_agents(session: AsyncSession = Depends(get_session)) -> dict[str,
                 "levels": {str(n): t.level_unavailable(lv) for n, lv in sorted(reg.levels.items())},
             }
             for t in base.agents.values()
+            if not t.paid
         ],
         "bwrap": bwrap,
+        # M6.5: each subscription CLI's account names, for the Account choice (default first)
+        "accounts": {c: await accounts.names(session, c) for c in reg.clis},
         "defaults": {
             "max_active_per_agent": reg.defaults.max_active_per_agent,
             "per_job_list_usd": reg.defaults.per_job_list_usd,
@@ -179,11 +189,30 @@ async def list_agents(session: AsyncSession = Depends(get_session)) -> dict[str,
     }
 
 
+async def _subscription(session: AsyncSession, reg: AgentRegistry, a: AgentDef) -> dict[str, Any] | None:
+    """The agent's account and its usage windows (reported or estimated), or None for non-subscription
+    agents."""
+    cli = reg.subscription(a)
+    if cli is None:
+        return None
+    st = await accounts.status(cli.id, a.account)
+    views = await subscriptions.windows(session, reg, cli, a.account)
+    return {
+        "cli": cli.id,
+        "account": accounts.key(a.account),
+        "plan_label": cli.plan_label(st.get("plan")) if st.get("plan") else cli.label,
+        "windows": views,
+        "tightest": subscriptions.tightest(views),
+    }
+
+
 async def _one(session: AsyncSession, a: AgentDef) -> dict[str, Any]:
     reg = agents_mod.load_agents()
     clis, bwrap = await jobs.host_facts()
     stats = await _stats(session)
-    return _agent_json(a, reg, clis, bwrap, stats.get(a.id, {}))
+    d = _agent_json(a, reg, clis, bwrap, stats.get(a.id, {}))
+    d["subscription"] = await _subscription(session, reg, a)
+    return d
 
 
 def _err(e: fleet.FleetError) -> HTTPException:

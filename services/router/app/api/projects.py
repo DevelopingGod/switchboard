@@ -16,12 +16,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import hostprobe_client, jobs
+from app import accounts, fleet, hostprobe_client, jobs
 from app.db import get_session
 from app.deps import require_admin
 from app.models import Job, Project
 
 router = APIRouter(tags=["projects"], dependencies=[Depends(require_admin)])
+
+
+class AccountsIn(BaseModel):
+    """{cli: account}; "default" or a missing CLI = the agent's choice."""
+
+    accounts: dict[str, str] = Field(default_factory=dict, max_length=8)
 
 
 class ProjectIn(BaseModel):
@@ -39,6 +45,7 @@ def project_json(p: Project, active: int = 0, total: int = 0) -> dict[str, Any]:
         "created_at": p.created_at.isoformat(),
         "active_jobs": active,
         "jobs": total,
+        "accounts": p.accounts or {},  # M6.5: {cli: account} this project's jobs use (wins over the agent's)
     }
 
 
@@ -144,3 +151,26 @@ async def cleanup(project_id: int, session: AsyncSession = Depends(get_session))
     if p is None or p.removed_at is not None:
         raise HTTPException(404, "no such project")
     return await jobs.retention(session, p)
+
+
+@router.put("/projects/{project_id}/accounts")
+async def set_accounts(
+    project_id: int, body: AccountsIn, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
+    """Which account each subscription CLI uses for this project's new jobs (M6.5, ADR 0013). Jobs already
+    created keep theirs."""
+    reg = await fleet.refresh(session)
+    p = await session.get(Project, project_id)
+    if p is None or p.removed_at is not None:
+        raise HTTPException(404, "no such project")
+    chosen: dict[str, str] = {}
+    for cli, name in body.accounts.items():
+        try:
+            await accounts.validate_choice(session, reg, cli, name)
+        except accounts.AccountError as e:
+            raise HTTPException(e.status, e.message) from e
+        if accounts.key(name) != accounts.DEFAULT:
+            chosen[cli] = name
+    p.accounts = chosen or None
+    await session.commit()
+    return project_json(p)

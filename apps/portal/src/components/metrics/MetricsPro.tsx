@@ -10,12 +10,17 @@ import type { BreakdownBy, BreakdownPage, BreakdownRow, BudgetsView, Forecast, M
 import { tMet } from "@/i18n/metrics";
 import { BarChart, DataTable, LineChart } from "./charts";
 import { fetchView } from "@/lib/metrics-client";
+import { WindowMeter } from "@/components/jobs/WindowMeter";
+import type { SubscriptionView } from "@/lib/router-types";
+import { tSubs } from "@/i18n/subscriptions";
 
 const BYS: BreakdownBy[] = ["provider", "model", "agent", "rule", "intent", "project", "kind"];
 
 interface Props {
   summary: MetricsSummary;
   range: string;
+  /** M6.5: a custom range's first and last day. */
+  days?: { first: string; last: string };
   tz: string;
   demo: boolean;
   onDemo: (v: boolean) => void;
@@ -58,8 +63,11 @@ function Loading({ error }: { error: string | null }) {
   );
 }
 
-export default function MetricsPro({ summary, range, tz, demo, onDemo, empty }: Props) {
-  const base = { range, tz, include_demo: String(demo), empty: empty ? "1" : undefined };
+export default function MetricsPro({ summary, range, tz, demo, onDemo, empty, days }: Props) {
+  // `range` is the CSV tag ("2026-11-01_2026-11-20" for a custom range); requests send the key and days.
+  const base = days
+    ? { range: "custom", first: days.first, last: days.last, tz, include_demo: String(demo), empty: empty ? "1" : undefined }
+    : { range, tz, include_demo: String(demo), empty: empty ? "1" : undefined };
   const unit = summary.range.slot;
   const labels = summary.series.map((p) => slotLabel(p.slot, unit));
   const unitWord = tMet(unit === "hour" ? "chart.unitHour" : "chart.unitDay");
@@ -224,7 +232,7 @@ function Breakdown({ base, range }: { base: Record<string, string | undefined>; 
 }
 
 function Quotas({ tz }: { tz: string }) {
-  const { data, error } = useView<{ providers: QuotaProvider[] }>("quotas", {});
+  const { data, error } = useView<{ providers: QuotaProvider[]; subscriptions?: SubscriptionView[] }>("quotas", {});
   return (
     <Panel id="met-quotas" title={tMet("pro.quotas")} lead={tMet("pro.quotasLead")}>
       {!data ? (
@@ -256,7 +264,32 @@ function Quotas({ tz }: { tz: string }) {
           })}
         </ul>
       )}
+      {data && <SubscriptionWindows subs={data.subscriptions ?? []} />}
     </Panel>
+  );
+}
+
+/** M6.5: each subscription account's usage window now, and its limit hits in 30 days. */
+function SubscriptionWindows({ subs }: { subs: SubscriptionView[] }) {
+  return (
+    <section aria-labelledby="met-subs" className="grid gap-3 border-t border-hairline pt-4">
+      <h3 id="met-subs" className="font-display text-lg font-bold tracking-tight">
+        {tSubs("metrics.title")}
+      </h3>
+      <p className="text-sm text-ink-muted">{tSubs("metrics.intro")}</p>
+      {subs.length === 0 ? (
+        <p className="text-sm text-ink-muted">{tSubs("metrics.none")}</p>
+      ) : (
+        <ul className="grid gap-4">
+          {subs.map((s) => (
+            <li key={`${s.cli}-${s.account}`} className="grid gap-1">
+              <WindowMeter sub={s} pro />
+              <p className="pl-[76px] text-[0.8125rem] text-ink-muted tabular-nums">{tSubs("metrics.hits", { n: s.limit_hits_30d ?? 0 })}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
