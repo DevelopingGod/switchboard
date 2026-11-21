@@ -303,6 +303,13 @@ class FakeHost:
             "has_commits": True,
             "head_branch": "main",
         }
+        # M6.5 routes (accounts, Codex usage numbers, overflow key file): see tests/test_m65.py
+        self.accounts: set[tuple[str, str]] = set()
+        self.logged_out: set[tuple[str, str]] = set()
+        self.plans: dict[tuple[str, str], str] = {("claude", "default"): "pro", ("claude", "work"): "team"}
+        self.key_files: dict[str, str] = {}
+        self.codex: dict = {"found": False}
+        self.codex_calls: list[dict] = []
 
     def install(self, m):
         m.get(f"{HP}/cli").mock(
@@ -335,6 +342,14 @@ class FakeHost:
                 },
             )
         )
+        m.post(f"{HP}/accounts").mock(side_effect=self._create_account)
+        m.get(url__regex=rf"{HP}/accounts/status\?").mock(side_effect=self._account_status)
+        m.post(f"{HP}/codex/usage").mock(side_effect=self._codex)
+        m.post(f"{HP}/overflow-key").mock(side_effect=self._key_write)
+        m.post(f"{HP}/overflow-key/remove").mock(side_effect=self._key_remove)
+        m.get(f"{HP}/overflow-keys").mock(
+            side_effect=lambda r: httpx.Response(200, json={"agents": sorted(self.key_files)})
+        )
         m.post(f"{HP}/git/worktrees").mock(side_effect=self._create)
         m.post(f"{HP}/git/worktrees/diff").respond(
             200,
@@ -359,6 +374,48 @@ class FakeHost:
                 },
             )
         )
+
+    def _create_account(self, r):
+        b = json.loads(r.content)
+        self.accounts.add((b["cli"], b["name"]))
+        home = f"~/.switchboard/accounts/{b['cli']}/{b['name']}"
+        env = "CLAUDE_CONFIG_DIR" if b["cli"] == "claude" else "CODEX_HOME"
+        return httpx.Response(
+            200, json={**b, "home": home, "login_command": f"{env}={home} {b['cli']} login"}
+        )
+
+    def _account_status(self, r):
+        cli, name = r.url.params["cli"], r.url.params["name"]
+        env_name = "CLAUDE_CONFIG_DIR" if cli == "claude" else "CODEX_HOME"
+        env = {} if name == "default" else {env_name: f"/home/user/.switchboard/accounts/{cli}/{name}"}
+        logged = (cli, name) not in self.logged_out and (name == "default" or (cli, name) in self.accounts)
+        return httpx.Response(
+            200,
+            json={
+                "cli": cli,
+                "name": name,
+                "installed": True,
+                "logged_in": logged,
+                "plan": self.plans.get((cli, name)) if logged else None,
+                "home": "~/.claude" if name == "default" else f"~/.switchboard/accounts/{cli}/{name}",
+                "login_command": f"{env_name}=… {cli} login",
+                "env": env,
+            },
+        )
+
+    def _codex(self, r):
+        self.codex_calls.append(json.loads(r.content))
+        return httpx.Response(200, json=self.codex)
+
+    def _key_write(self, r):
+        b = json.loads(r.content)
+        self.key_files[b["agent"]] = b["key"]
+        path = f"/home/user/.switchboard/overflow/{b['agent']}.key"
+        return httpx.Response(200, json={"path": path, "abs_path": path})
+
+    def _key_remove(self, r):
+        removed = self.key_files.pop(json.loads(r.content)["agent"], None) is not None
+        return httpx.Response(200, json={"removed": removed})
 
     def _create(self, r):
         b = json.loads(r.content)

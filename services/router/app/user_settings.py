@@ -10,6 +10,7 @@ rules.yaml is mounted read-only and stays the source of the defaults; these over
 - `auto_private` (M3a, on): messages the classifier finds sensitive stay local (Privacy section).
 - `approval_expiry_h` (M4b, 24): a job waiting longer for your approval is stopped (0 = never).
 - `keep_worktrees_per_project` (M4b): finished jobs' worktrees kept per project (default from agents.yaml).
+- `overflow_enabled`, `overflow_monthly_usd`, `overflow_model` (M6.5): paid overflow, off by default.
 """
 
 import json
@@ -30,6 +31,11 @@ FIELDS = (
     # jobs' worktrees to keep per project (agents.yaml `worktrees.keep_per_project` is the default).
     "approval_expiry_h",
     "keep_worktrees_per_project",
+    # M6.5 paid overflow (ADR 0015): off by default; a monthly budget in USD and the paid model (a LiteLLM
+    # alias of a paid provider) are required to turn it on.
+    "overflow_enabled",
+    "overflow_monthly_usd",
+    "overflow_model",
 )
 
 

@@ -12,6 +12,7 @@ from app import db, fleet, jobs, local_profile, secrets, sync
 from app.api import agents, catalog, chat, connections, health, onboarding, projects, rules, settings, system
 from app.api import jobs as jobs_api
 from app.api import metrics as metrics_api
+from app.api import subscriptions as subscriptions_api
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
@@ -88,3 +89,4 @@ app.include_router(projects.router)
 app.include_router(agents.router)
 app.include_router(jobs_api.router)
 app.include_router(metrics_api.router)
+app.include_router(subscriptions_api.router)

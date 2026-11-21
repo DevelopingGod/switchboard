@@ -41,7 +41,21 @@ async def health(request: Request, session: AsyncSession = Depends(get_session))
         "rules": rules,
         "fault_injection": get_settings().router_fault_injection,
         "quota_test_limits": get_settings().router_quota_test_limits or None,
+        # M6.5: dev-only switches doctor.sh warns about, and the Metrics rollup worker (M6 carry-over)
+        "limit_test": get_settings().router_limit_test or None,
+        "overflow_allow_free": get_settings().router_overflow_allow_free,
+        "rollups": await _rollups(session) if db == "ok" else None,
     }
+
+
+async def _rollups(session: AsyncSession) -> dict[str, Any] | None:
+    from app.metrics import rollup
+
+    try:
+        h = await rollup.health(session)
+    except Exception:  # noqa: BLE001 - before migration 0009 there is nothing to report
+        return None
+    return {k: h[k] for k in ("state", "pending_buckets", "last_run_at")}
 
 
 @router.get("/system/status")

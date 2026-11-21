@@ -8,6 +8,7 @@ instruction for the person (`start_docker`, `open_ollama`, `start_paperclip`, `s
 
 import asyncio
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -17,13 +18,16 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import (
+    accounts,
     credits,
+    fleet,
     hostprobe_client,
     local_profile,
     ollama,
     quota,
     rules_versions,
     secrets,
+    subscriptions,
     sync,
     user_settings,
 )
@@ -32,6 +36,7 @@ from app.db import get_session
 from app.deps import litellm, require_admin
 from app.errors import classify, problem
 from app.litellm_admin import LiteLLMAdmin
+from app.metrics import rollup
 from app.models import Connection
 from app.paperclip import PINNED_VERSION as PAPERCLIP_PINNED
 from app.paperclip import Paperclip
@@ -169,6 +174,18 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
     ]
     # Local models (M3a): the active profile, its classifier, missing models.
     out += await _local_rows(ollama_ok)
+    # M6.5: the Metrics rollup worker (M6 carry-over) and each subscription account's usage window.
+    rh = await rollup.health(session)
+    out.append(
+        _c(
+            "rollups",
+            {"ok": "ok", "behind": "degraded", "stopped": "down"}[rh["state"]],
+            None if rh["state"] == "ok" else "rebuild_rollups",
+            rh["last_error"],
+            **rh,
+        )
+    )
+    out += await _subscription_rows(session)
     # Providers needing attention: a failed test/catalog fetch, a failed LiteLLM registration, a
     # rate limit or other cooldown (with the time it ends), or a provider near its free limit.
     registry = load_registry()
@@ -240,6 +257,43 @@ async def components(request: Request, session: AsyncSession) -> list[dict[str, 
                 )
             )
     return out
+
+
+async def _subscription_rows(session: AsyncSession) -> list[dict[str, Any]]:
+    """One row per subscription account that has a reading or a run: its tightest usage window."""
+    reg = await fleet.refresh(session)
+    by_cli = {c: await accounts.names(session, c) for c in reg.clis}
+    rows = []
+    for a in await subscriptions.overview(session, reg, by_cli):
+        t = a["tightest"]
+        if t is None or (t["used"] is None and not t["runs"] and not t["seen_at"]):
+            continue  # never used through Switchboard: nothing to say
+        g = reg.defaults.guard
+        status = "down" if t["limited"] else "degraded" if (t["used"] or 0) >= g.save_at else "ok"
+        st = await accounts.status(a["cli"], a["account"])
+        cli = reg.clis[a["cli"]]
+        rows.append(
+            _c(
+                f"subscription:{a['cli']}:{a['account']}",
+                status,
+                None,
+                None,
+                name=cli.plan_label(st.get("plan")) if st.get("plan") else cli.label,
+                account=a["account"],
+                window=t,
+                until=t["resets_at"],
+            )
+        )
+    return rows
+
+
+@router.post("/system/rollups/run", dependencies=[Depends(require_admin)])
+async def run_rollups(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    """Status → Rollups "Catch up now": recompute every waiting bucket at once."""
+    n = await rollup.drain(session)
+    t = datetime.now(UTC).isoformat()
+    await rollup._save_health(session, last_run_at=t, last_ok_at=t, last_count=n, last_error=None)
+    return {"recomputed": n, **(await rollup.health(session))}
 
 
 COOLDOWN_CODES = {"rate_limited", "credit_limit", "timeout", "error", "not_found", "not_connected"}

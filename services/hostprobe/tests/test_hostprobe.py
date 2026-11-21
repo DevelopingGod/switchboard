@@ -625,6 +625,253 @@ class EnvFileTests(unittest.TestCase):
             os.unlink(f.name)
 
 
+# --- M6.5: accounts, Codex usage numbers, overflow key file -------------------------------------------
+
+CODEX_LINE = {
+    "timestamp": "2026-11-20T06:24:30Z",
+    "type": "event_msg",
+    "payload": {
+        "type": "token_count",
+        "info": {"total_token_usage": {"input_tokens": 13820}},
+        "rate_limits": {
+            "limit_id": "codex",
+            "primary": {"used_percent": 42.0, "window_minutes": 300, "resets_at": 1797747531},
+            "secondary": {"used_percent": 7.5, "window_minutes": 10080, "resets_at": 1798000000},
+            "credits": {"has_credits": False, "balance": None},
+            "plan_type": "plus",
+            "rate_limit_reached_type": None,
+        },
+    },
+}
+THREAD = "01a1f7c1-5f22-7161-8aae-2ae85c268df3"
+
+
+class HomeCase(unittest.TestCase):
+    """A fake $HOME and CLI folder; no tests of its own."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.bin = self.home / "bin"
+        self.bin.mkdir()
+        for patch in (
+            mock.patch.object(hostprobe, "HOME", self.home),
+            mock.patch.object(hostprobe, "linux_path", lambda: [str(self.bin)]),
+            mock.patch.dict(os.environ, {}, clear=False),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        os.environ.pop("SWITCHBOARD_ACCOUNTS_ROOT", None)
+        os.environ.pop("SWITCHBOARD_OVERFLOW_ROOT", None)
+        self.addCleanup(self.tmp.cleanup)
+
+
+class AccountTests(HomeCase):
+    def test_create_account_makes_a_private_empty_folder_and_a_login_command(self):
+        out = hostprobe.create_account({"cli": "claude", "name": "work"})
+        home = self.home / ".switchboard/accounts/claude/work"
+        self.assertTrue(home.is_dir())
+        self.assertEqual(stat.S_IMODE(home.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.home / ".switchboard/accounts").stat().st_mode), 0o700)
+        self.assertEqual(list(home.iterdir()), [])
+        self.assertEqual(
+            out["login_command"], "CLAUDE_CONFIG_DIR=~/.switchboard/accounts/claude/work claude auth login"
+        )
+        self.assertEqual(
+            hostprobe.create_account({"cli": "claude", "name": "work"})["home"], out["home"]
+        )  # idempotent
+
+    def test_account_names_and_clis_are_validated(self):
+        for name in ("../x", "Work", "a/b", "-x", "x" * 40, "", "default", 7):
+            with self.assertRaises(hostprobe.InstallError):
+                hostprobe.create_account({"cli": "claude", "name": name})
+        with self.assertRaises(hostprobe.InstallError):
+            hostprobe.create_account({"cli": "opencode", "name": "work"})
+
+    def test_symlinked_account_folder_is_refused(self):
+        target = self.home / "elsewhere"
+        target.mkdir()
+        (self.home / ".switchboard/accounts/claude").mkdir(parents=True)
+        (self.home / ".switchboard/accounts/claude/work").symlink_to(target)
+        with self.assertRaises(hostprobe.InstallError):
+            hostprobe.create_account({"cli": "claude", "name": "work"})
+        with self.assertRaises(hostprobe.InstallError):
+            hostprobe.probe_account("claude", "work")
+
+    def test_status_runs_with_the_account_home_and_returns_only_the_plan(self):
+        # The fake CLI prints the env var it got, the email and org: only logged_in and plan come back.
+        fake_bin(
+            self.bin,
+            "claude",
+            'echo "{\\"loggedIn\\": true, \\"subscriptionType\\": \\"team\\", '
+            '\\"email\\": \\"me@example.com\\", \\"orgName\\": \\"$CLAUDE_CONFIG_DIR\\"}"',
+        )
+        hostprobe.create_account({"cli": "claude", "name": "work"})
+        out = hostprobe.probe_account("claude", "work")
+        self.assertEqual((out["logged_in"], out["plan"]), (True, "team"))
+        self.assertNotIn("me@example.com", json.dumps(out))
+        shown = {k: v for k, v in out.items() if k != "env"}
+        self.assertNotIn(str(self.home), json.dumps(shown))  # home-relative paths for display
+        self.assertEqual(out["env"], {"CLAUDE_CONFIG_DIR": str(self.home / ".switchboard/accounts/claude/work")})
+
+    def test_status_sees_the_account_home(self):
+        fake_bin(
+            self.bin,
+            "codex",
+            'if [ "$CODEX_HOME" = "$HOME/.switchboard/accounts/codex/work" ]; '
+            'then echo "Logged in using ChatGPT"; else echo "Not logged in"; exit 1; fi',
+        )
+        hostprobe.create_account({"cli": "codex", "name": "work"})
+        self.assertTrue(hostprobe.probe_account("codex", "work")["logged_in"])
+        self.assertFalse(hostprobe.probe_account("codex", None)["logged_in"])
+
+    def test_missing_account_folder_is_logged_out_without_running_anything(self):
+        fake_bin(self.bin, "claude", "touch $HOME/ran; echo '{\"loggedIn\": true}'")
+        out = hostprobe.probe_account("claude", "never-made")
+        self.assertEqual((out["exists"], out["logged_in"]), (False, False))
+        self.assertFalse((self.home / "ran").exists())
+
+    def test_plan_label_is_allowlisted(self):
+        self.assertEqual(hostprobe.parse_plan("claude", json.dumps({"subscriptionType": "pro"})), "pro")
+        self.assertIsNone(hostprobe.parse_plan("claude", json.dumps({"subscriptionType": "<b>x"})))
+        self.assertIsNone(hostprobe.parse_plan("codex", "Logged in"))
+
+
+class CodexUsageTests(HomeCase):
+    def write_session(self, base: Path, lines: list, name: str | None = None) -> Path:
+        d = base / "sessions/2026/11/20"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / (name or f"rollout-2026-11-20T06-24-18-{THREAD}.jsonl")
+        f.write_text("\n".join(json.dumps(x) if not isinstance(x, str) else x for x in lines) + "\n")
+        return f
+
+    def test_returns_only_the_numbers_of_the_last_rate_limits_record(self):
+        older = json.loads(json.dumps(CODEX_LINE))
+        older["payload"]["rate_limits"]["primary"]["used_percent"] = 1.0
+        secret_line = {"type": "response_item", "payload": {"content": SECRET}}
+        self.write_session(self.home / ".codex", [older, secret_line, CODEX_LINE, secret_line])
+        (self.home / ".codex/auth.json").write_text(json.dumps({"token": SECRET}))
+        out = hostprobe.codex_usage({"thread_id": THREAD})
+        self.assertEqual(
+            out["primary"], {"used_percent": 42.0, "window_minutes": 300.0, "resets_at": 1797747531.0}
+        )
+        self.assertEqual(out["secondary"]["window_minutes"], 10080.0)
+        self.assertFalse(out["limit_reached"])
+        dumped = json.dumps(out)
+        for leak in (SECRET, "plus", "codex", "credits", "13820"):
+            self.assertNotIn(leak, dumped)
+
+    def test_limit_reached_is_a_boolean(self):
+        hit = json.loads(json.dumps(CODEX_LINE))
+        hit["payload"]["rate_limits"]["rate_limit_reached_type"] = "primary"
+        self.write_session(self.home / ".codex", [hit])
+        self.assertIs(hostprobe.codex_usage({"thread_id": THREAD})["limit_reached"], True)
+
+    def test_named_account_reads_its_own_home(self):
+        hostprobe.create_account({"cli": "codex", "name": "work"})
+        self.write_session(self.home / ".switchboard/accounts/codex/work", [CODEX_LINE])
+        self.assertTrue(hostprobe.codex_usage({"thread_id": THREAD, "account": "work"})["found"])
+        self.assertFalse(hostprobe.codex_usage({"thread_id": THREAD})["found"])
+
+    def test_thread_id_must_be_a_uuid(self):
+        for bad in ("../../auth", "*", THREAD + "/../x", THREAD.upper(), "", None, 5):
+            with self.assertRaises(hostprobe.InstallError):
+                hostprobe.codex_usage({"thread_id": bad})
+
+    def test_symlinks_are_refused_anywhere_on_the_way(self):
+        real = self.home / "real"
+        self.write_session(real, [CODEX_LINE])
+        (self.home / ".codex").mkdir()
+        (self.home / ".codex/sessions").symlink_to(real / "sessions")
+        self.assertFalse(hostprobe.codex_usage({"thread_id": THREAD})["found"])
+        os.unlink(self.home / ".codex/sessions")
+        day = self.home / ".codex/sessions/2026/11/20"
+        day.mkdir(parents=True)
+        (day / f"rollout-x-{THREAD}.jsonl").symlink_to(self.home / ".codex/auth.json")
+        (self.home / ".codex/auth.json").write_text(
+            json.dumps({"payload": {"rate_limits": CODEX_LINE["payload"]["rate_limits"]}})
+        )
+        self.assertFalse(hostprobe.codex_usage({"thread_id": THREAD})["found"])
+
+    def test_missing_or_unparseable_is_not_found(self):
+        self.assertFalse(hostprobe.codex_usage({"thread_id": THREAD})["found"])
+        self.write_session(self.home / ".codex", ['{"payload": {"rate_limits": "x"', "not json"])
+        self.assertFalse(hostprobe.codex_usage({"thread_id": THREAD})["found"])
+
+    def test_reads_only_the_tail_of_a_large_file(self):
+        filler = "x" * 1000
+        with mock.patch.object(hostprobe, "SESSION_TAIL_BYTES", 4096):
+            self.write_session(self.home / ".codex", [CODEX_LINE] + [filler] * 50)
+            self.assertFalse(hostprobe.codex_usage({"thread_id": THREAD})["found"])  # beyond the tail
+            self.write_session(self.home / ".codex", [filler] * 50 + [CODEX_LINE])
+            self.assertTrue(hostprobe.codex_usage({"thread_id": THREAD})["found"])
+
+
+class OverflowKeyTests(HomeCase):
+    KEY = "sk-abcDEF123_overflowkey-xyz"
+
+    def test_write_is_private_and_remove_is_idempotent(self):
+        out = hostprobe.write_overflow_key({"agent": "opencode-paid", "key": self.KEY})
+        f = self.home / ".switchboard/overflow/opencode-paid.key"
+        self.assertEqual(f.read_text(), self.KEY)
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(f.parent.stat().st_mode), 0o700)
+        self.assertNotIn(self.KEY, json.dumps(out))
+        self.assertEqual(hostprobe.list_overflow_keys(), {"agents": ["opencode-paid"]})
+        self.assertEqual(hostprobe.remove_overflow_key({"agent": "opencode-paid"}), {"removed": True})
+        self.assertEqual(hostprobe.remove_overflow_key({"agent": "opencode-paid"}), {"removed": False})
+        self.assertEqual(hostprobe.list_overflow_keys(), {"agents": []})
+
+    def test_inputs_are_validated(self):
+        for agent in ("../x", "A", "", None):
+            with self.assertRaises(hostprobe.InstallError):
+                hostprobe.write_overflow_key({"agent": agent, "key": self.KEY})
+        for key in ("nope", "sk-short", "sk-" + "a" * 300, "sk-abc def ghijk", None):
+            with self.assertRaises(hostprobe.InstallError):
+                hostprobe.write_overflow_key({"agent": "opencode-paid", "key": key})
+
+    def test_never_writes_through_a_symlink(self):
+        root = self.home / ".switchboard/overflow"
+        root.mkdir(parents=True)
+        (root / "opencode-paid.tmp").symlink_to(self.home / "target")
+        with self.assertRaises(OSError):
+            hostprobe.write_overflow_key({"agent": "opencode-paid", "key": self.KEY})
+        self.assertFalse((self.home / "target").exists())
+
+
+class AccountServerTests(unittest.TestCase):
+    start = ServerTests.start
+    get = ServerTests.get
+
+    def test_new_routes_need_the_token_and_never_echo_the_key(self):
+        base, _ = self.start()
+        for path in ("/accounts/status?cli=claude", "/overflow-keys"):
+            self.assertEqual(self.get(base + path, token=None)[0], 401)
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.dict(os.environ, {"SWITCHBOARD_OVERFLOW_ROOT": d}),
+        ):
+            req = urllib.request.Request(
+                base + "/overflow-key",
+                method="POST",
+                data=json.dumps({"agent": "opencode-paid", "key": OverflowKeyTests.KEY}).encode(),
+                headers={"X-Probe-Token": TOKEN, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                body = r.read().decode()
+            self.assertNotIn(OverflowKeyTests.KEY, body)
+            self.assertEqual(self.get(base + "/overflow-keys")[1], {"agents": ["opencode-paid"]})
+            bad = urllib.request.Request(
+                base + "/codex/usage",
+                method="POST",
+                data=json.dumps({"thread_id": "../../.codex/auth"}).encode(),
+                headers={"X-Probe-Token": TOKEN},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(bad, timeout=5)
+            self.assertEqual(e.exception.code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
 

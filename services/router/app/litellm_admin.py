@@ -140,6 +140,57 @@ class LiteLLMAdmin:
             raise LiteLLMError(f"LiteLLM chat {model} -> {r.status_code}: {r.text[:200]}")
         return r.headers.get("x-litellm-model-name") or r.json().get("model")
 
+    # --- per-job virtual keys for paid overflow (M6.5, ADR 0015; verified on v1.108.8: /key/generate with
+    # models, max_budget, duration, key_alias and metadata.tags (copied into the spend logs' request tags);
+    # /key/list?key_alias=&return_full_object=true gives each key's hashed `token` and `spend`;
+    # /key/delete {keys:[token]} answers 404 "No keys found" when it is already gone) ---
+    async def generate_key(
+        self, *, alias: str, models: list[str], max_budget: float, minutes: int, tags: list[str]
+    ) -> str:
+        """A new budget-capped, model-limited, short-lived key. Returns the key itself (never logged)."""
+        data = await self._req(
+            "POST",
+            "/key/generate",
+            json={
+                "key_alias": alias,
+                "models": models,
+                "max_budget": round(max_budget, 6),
+                "duration": f"{max(1, minutes)}m",
+                "metadata": {"tags": tags, "managed_by": MANAGED_BY},
+            },
+        )
+        key = (data or {}).get("key")
+        if not isinstance(key, str) or not key.startswith("sk-"):
+            raise LiteLLMError("LiteLLM /key/generate returned no key")
+        return key
+
+    async def keys(self, alias: str | None = None) -> list[dict[str, Any]]:
+        """Keys (hashed token, alias, spend, expiry) with this alias, or every key."""
+        params: dict[str, Any] = {"return_full_object": "true", "size": 100}
+        if alias:
+            params["key_alias"] = alias
+        data = await self._req("GET", "/key/list", params=params)
+        rows = (data or {}).get("keys") or []
+        return [
+            {
+                "token": k.get("token"),
+                "alias": k.get("key_alias"),
+                "spend": float(k.get("spend") or 0),
+                "expires": k.get("expires"),
+            }
+            for k in rows
+            if isinstance(k, dict) and k.get("token")
+        ]
+
+    async def delete_keys(self, tokens: list[str]) -> None:
+        if not tokens:
+            return
+        r = await self._client.post("/key/delete", json={"keys": tokens})
+        if r.status_code == 404 or (r.status_code >= 400 and "no keys found" in r.text.lower()):
+            return  # already gone = done
+        if r.status_code >= 400:
+            raise LiteLLMError(f"LiteLLM POST /key/delete -> {r.status_code}: {r.text[:200]}")
+
 
 def spec_hash(model_name: str, litellm_params: dict[str, Any], model_info: dict[str, Any]) -> str:
     """Hash of the desired deployment; LiteLLM returns params encrypted, so we compare this instead."""

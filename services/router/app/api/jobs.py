@@ -13,6 +13,9 @@ GET  /jobs/{id}/diff        the job's changes against its base commit
 POST /jobs/{id}/approve     {note}   plan / diff / result
 POST /jobs/{id}/reject      {note}
 POST /jobs/{id}/stop
+POST /jobs/{id}/wait        M6.5: "Wait anyway" when the usage-limit reset is far away
+POST /jobs/{id}/reroute     {agent}       M6.5: run a job waiting on a limit on another provider's agent
+POST /jobs/{id}/paid        {budget_usd}  M6.5: use paid overflow for it (after "Paid — up to $X")
 """
 
 from __future__ import annotations
@@ -59,6 +62,16 @@ class JobIn(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     # The chat request this job came from ("Run as job"), for traceability.
     from_request_id: int | None = None
+    # M6.5 paid overflow: set only after you confirmed "Paid — up to $X" (ADR 0015).
+    paid_budget_usd: float | None = Field(default=None, gt=0, le=1000)
+
+
+class RerouteIn(BaseModel):
+    agent: str = Field(min_length=1, max_length=64)
+
+
+class PaidIn(BaseModel):
+    budget_usd: float = Field(gt=0, le=1000)
 
 
 class DecisionIn(BaseModel):
@@ -90,6 +103,12 @@ def job_json(j: Job, events: list[JobEvent] | None = None, project: Project | No
         "cost_usd": round(float(j.cost_usd or 0), 6),
         "cost_reported": j.cost_reported,
         "turns": j.turns,
+        "account": j.account,
+        "resume_at": j.resume_at.isoformat() if j.resume_at else None,
+        "attempt": j.attempt or 0,
+        "waits": j.waits or 0,
+        "paid": bool(j.paid),
+        "paid_budget_usd": float(j.paid_budget_usd) if j.paid_budget_usd is not None else None,
         "plan": j.plan_text,
         "result": j.result_text,
         "error": j.error,
@@ -129,6 +148,16 @@ def _kick(job_id: int) -> None:
 
     if get_settings().background_jobs:
         asyncio.get_running_loop().create_task(run())
+
+
+async def _rule_of(body: JobIn, session: AsyncSession, dec: Any) -> str | None:
+    """The routing rule behind the job ("light" vs heavy work, config/agents.yaml `subscription_guard`): the
+    chat request's own rule for Run as job. A job started from New job has no rule: only its level counts."""
+    if body.from_request_id is not None:
+        src = await session.get(RequestRow, body.from_request_id)
+        if src is not None and src.rule_id:
+            return str(src.rule_id)
+    return None
 
 
 async def _resolve(body: JobIn, session: AsyncSession) -> tuple[Project, str, list[str], int, Any]:
@@ -190,10 +219,16 @@ async def _resolve(body: JobIn, session: AsyncSession) -> tuple[Project, str, li
 @router.post("/jobs/preview")
 async def preview_job(body: JobIn, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     await fleet.refresh(session)
-    project, _, chain, autonomy, _ = await _resolve(body, session)
+    project, _, chain, autonomy, dec = await _resolve(body, session)
     try:
         return await jobs.preview(
-            session, project=project, chain=chain, autonomy=autonomy, budget_list_usd=body.budget_list_usd
+            session,
+            project=project,
+            chain=chain,
+            autonomy=autonomy,
+            budget_list_usd=body.budget_list_usd,
+            rule_id=await _rule_of(body, session, dec),
+            paid_budget_usd=body.paid_budget_usd,
         )
     except jobs.JobError as e:
         raise HTTPException(e.status, e.message) from e
@@ -229,6 +264,8 @@ async def create_job(body: JobIn, session: AsyncSession = Depends(get_session)) 
             budget_list_usd=body.budget_list_usd,
             request_id=req.id,
             title=body.title,
+            rule_id=await _rule_of(body, session, dec),
+            paid_budget_usd=body.paid_budget_usd,
         )
     except jobs.JobError as e:
         await session.rollback()
@@ -237,7 +274,7 @@ async def create_job(body: JobIn, session: AsyncSession = Depends(get_session)) 
     return job_json(job, project=project)
 
 
-STATUS_PATTERN = "^(queued|running|needs_approval|done|failed|stopped)$"
+STATUS_PATTERN = "^(queued|running|needs_approval|waiting_reset|done|failed|stopped)$"
 
 
 def _filtered(q: Any, agent: str | None, project_id: int | None) -> Any:
@@ -261,7 +298,12 @@ async def job_counts(
     ).all()
     counts = {st: 0 for st in (*jobs.ACTIVE, *jobs.TERMINAL)}
     counts.update({st: int(n) for st, n in rows})
-    return {"counts": counts, "all": sum(counts.values()), "needs_you": counts["needs_approval"]}
+    return {
+        "counts": counts,
+        "all": sum(counts.values()),
+        "needs_you": counts["needs_approval"],
+        "waiting": counts["waiting_reset"],
+    }
 
 
 @router.get("/jobs/proposal")
@@ -440,6 +482,38 @@ async def stop(job_id: int, session: AsyncSession = Depends(get_session)) -> dic
         await pc.aclose()
     await session.refresh(j)
     return job_json(j, project=await session.get(Project, j.project_id))
+
+
+async def _limit_action(job_id: int, session: AsyncSession, action: Any) -> dict[str, Any]:
+    j = await _job(session, job_id)
+    await fleet.refresh(session)
+    pc = Paperclip()
+    try:
+        await action(pc, j)
+    except jobs.JobError as e:
+        raise HTTPException(e.status, e.message) from e
+    finally:
+        await pc.aclose()
+    await session.refresh(j)
+    _kick(j.id)
+    return job_json(j, project=await session.get(Project, j.project_id))
+
+
+@router.post("/jobs/{job_id}/wait")
+async def wait_anyway(job_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    return await _limit_action(job_id, session, lambda pc, j: jobs.wait_anyway(session, pc, j))
+
+
+@router.post("/jobs/{job_id}/reroute")
+async def reroute(
+    job_id: int, body: RerouteIn, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
+    return await _limit_action(job_id, session, lambda pc, j: jobs.reroute(session, pc, j, body.agent))
+
+
+@router.post("/jobs/{job_id}/paid")
+async def use_paid(job_id: int, body: PaidIn, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+    return await _limit_action(job_id, session, lambda pc, j: jobs.use_paid(session, pc, j, body.budget_usd))
 
 
 def _sse(event: str, data: Any, eid: str | None = None) -> str:

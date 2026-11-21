@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # Dev only (never in compose defaults): low quota limits to demo the quota guard live, e.g.
     # "groq:openai/gpt-oss-120b=rpd:3" (docs/m3a.md). doctor.sh warns while it is set.
     router_quota_test_limits: str = ""
+    # Dev only (M6.5, never in compose defaults; doctor.sh warns while set): "claude:resets_in=120" makes the
+    # next run of that CLI end as if it hit its usage limit, resetting in 120 s, once per job (docs/m65.md).
+    router_limit_test: str = ""
+    # Dev only: lets paid overflow use a free model, to demo the key lifecycle without spending money. The
+    # UI labels such a job "test: free model", never just "Paid".
+    router_overflow_allow_free: bool = False
 
 
 @lru_cache

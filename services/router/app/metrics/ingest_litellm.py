@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -61,10 +62,28 @@ def _provider(registry: Registry, lg: SpendLog) -> tuple[str, str]:
     return p.id, lg.model[len(prefix) :] if lg.model.startswith(prefix) else lg.model
 
 
+OVERFLOW_TAG = "switchboard-overflow"
+JOB_TAG = re.compile(r"sb-job-(\d{1,18})")
+
+
+def overflow_job(lg: SpendLog) -> int | None:
+    """A paid-overflow call (M6.5, ADR 0015): its per-job LiteLLM key carries the tags `switchboard-overflow`
+    and `sb-job-<id>`, which LiteLLM copies into the log's request tags (verified on v1.108.8)."""
+    if OVERFLOW_TAG not in lg.tags:
+        return None
+    for t in lg.tags:
+        if m := JOB_TAG.fullmatch(t):
+            return int(m.group(1))
+    return None
+
+
 def row_for(registry: Registry, lg: SpendLog) -> dict | None:
     if lg.status != "success":
         return None
     kind = litellm_calls.kind_of(lg.call_id)
+    job_id = overflow_job(lg)
+    if job_id is not None:
+        kind = "job"
     provider, model_id = _provider(registry, lg)
     p = registry.providers.get(provider)
     free = bool(p and (p.kind == "local" or p.is_free_tier(model_id)))
@@ -82,6 +101,7 @@ def row_for(registry: Registry, lg: SpendLog) -> dict | None:
         "external_id": litellm_calls.external_id(lg.call_id),
         "tag": _tag(lg),
         "created_at": lg.started,
+        **({"job_id": job_id} if job_id is not None else {}),
     }
 
 

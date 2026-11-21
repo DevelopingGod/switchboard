@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.agents import AgentDef
+from app.subscriptions import Reading, parse_claude
 
 SUBSCRIPTION_BILLING = {"subscription_included", "subscription"}
 VENDOR = {"claude": "anthropic", "codex": "openai", "opencode": "opencode"}
@@ -34,6 +35,13 @@ class TurnCounter:
     list_price_usd: float = 0.0
     _tail: str = ""
     events: list[dict[str, Any]] = field(default_factory=list)  # the parsed JSON lines (for outcome())
+    # M6.5: the latest usage-window reading the CLI printed (Claude's rate_limit_event), not yet stored;
+    # whether a window said "rejected" (the run hit its limit) and when it resets; Codex's thread id (its
+    # session file has the window numbers).
+    readings: list[Reading] = field(default_factory=list)
+    limit_hit: bool = False
+    limit_resets: Any = None
+    thread_id: str | None = None
 
     def feed(self, chunk: str) -> None:
         text = self._tail + chunk
@@ -50,6 +58,16 @@ class TurnCounter:
                 continue
             self.events.append(ev)
             t = ev.get("type")
+            if t == "rate_limit_event":
+                got = parse_claude(ev)
+                if got:
+                    self.readings = got
+                    hit = [r for r in got if r.limited]
+                    if hit:
+                        self.limit_hit = True
+                        self.limit_resets = max((r.resets_at for r in hit if r.resets_at), default=None)
+            elif t == "thread.started" and isinstance(ev.get("thread_id"), str):
+                self.thread_id = ev["thread_id"]
             if self.permissions == "claude" and t == "assistant":
                 self.turns += 1
             elif self.permissions == "codex" and t == "item.completed":
@@ -63,6 +81,20 @@ class TurnCounter:
     def finish(self) -> None:
         if self._tail.strip():
             self.feed("\n")
+
+    def take_readings(self) -> list[Reading]:
+        got, self.readings = self.readings, []
+        return got
+
+    def error_text(self) -> str:
+        """Error messages the CLI printed (Codex `error` / `turn.failed` events), lower-case."""
+        parts = []
+        for ev in self.events:
+            if ev.get("type") in ("error", "turn.failed"):
+                parts.append(json.dumps(ev)[:2000])
+            elif ev.get("type") == "result" and ev.get("is_error"):
+                parts.append(str(ev.get("result") or "")[:2000])
+        return " ".join(parts).lower()
 
 
 @dataclass(frozen=True)

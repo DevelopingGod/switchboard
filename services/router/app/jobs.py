@@ -7,6 +7,12 @@ starts, never switched mid-job), one autonomy level (config/agents.yaml `levels`
     needs_approval ─approve→ running (after the plan) | done      ─reject→ stopped
     any active state ─stop→ stopped;  a run that fails or a cap that trips → failed / stopped
 
+M6.5 (ADR 0014): a run that ends on a subscription usage limit, or a job whose agents' windows are all used
+up, **waits**: `waiting_reset` until `resume_at`, then the same phase runs again in the same worktree (the
+run is told to check what the cut-off attempt left). A reset further away than `max_auto_wait_h` asks you
+instead (`needs_approval`, gate `limit`: wait anyway, another agent, paid overflow, or cancel). A job is bound
+to one account per CLI and never switches to another account of the same CLI (ADR 0013).
+
 Each run: the agent's Paperclip config is set for that run (worktree, the level's flags, a clean
 environment, the task), then one agent-level wake. One active run per agent (`max_active_per_agent`), the
 rest wait in the queue. The job loop (`loop()`) advances active jobs; everything is persisted, so a restart
@@ -32,7 +38,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import db, hostprobe_client, user_settings
+from app import accounts, db, hostprobe_client, overflow, subscriptions, user_settings
 from app.agents import AgentDef, AgentRegistry, Level, build_run, load_agents
 from app.config import get_settings
 from app.job_output import TurnCounter, outcome
@@ -41,17 +47,19 @@ from app.paperclip import TERMINAL_RUN, Paperclip, PaperclipError
 
 log = logging.getLogger("app.jobs")
 
-ACTIVE = ("queued", "running", "needs_approval")
+ACTIVE = ("queued", "running", "needs_approval", "waiting_reset")
 TERMINAL = ("done", "failed", "stopped")
 META_KEY = "paperclip"
 COMPANY_NAME = "Switchboard"
 LOOP_INTERVAL_S = 2.0
 READY_WAIT_S = 90
 LOG_PAGE_BYTES = 256 * 1024
+SWEEP_INTERVAL_S = 300
 ISSUE_STATUS = {
     "queued": "todo",
     "running": "in_progress",
     "needs_approval": "in_review",
+    "waiting_reset": "blocked",
     "done": "done",
     "failed": "blocked",
     "stopped": "cancelled",
@@ -76,7 +84,7 @@ def day_start() -> datetime:
     return t.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-# --- small persistence helpers ------------------------------------------------------------------
+# --- small persistence helpers --------------------------------------------------------------------------
 async def event(session: AsyncSession, job: Job, kind: str, /, **data: Any) -> None:
     session.add(JobEvent(job_id=job.id, kind=kind, data=data))
 
@@ -102,7 +110,7 @@ def slugify(name: str) -> str:
     return s or "project"
 
 
-# --- availability ---------------------------------------------------------------------------------
+# --- availability ---------------------------------------------------------------------------------------
 async def host_facts() -> tuple[dict[str, Any], bool | None]:
     """(hostprobe's CLI rows, whether bwrap exists). Never raises: unknown when hostprobe is down."""
     ok, data, _ = await hostprobe_client.probe("/cli", timeout=30)
@@ -138,9 +146,21 @@ async def agent_check(
     project_id: int,
     clis: dict[str, Any],
     bwrap: bool | None,
+    *,
+    account: str | None = None,
+    light: bool = False,
+    paid: bool = False,
 ) -> str | None:
     """Why `agent` can't take a job at `level` in this project now, or None. One rule set for the
-    preview, the create check and the start (fallback) choice, so the preview says what will happen."""
+    preview, the create check and the start (fallback) choice, so the preview says what will happen.
+
+    M6.5: the account must exist and be logged in; a subscription window that is used up (or nearly, for
+    light work) is a `subscriptions.WindowReason`, which lets the job wait for the reset instead of failing.
+    The paid-overflow agent only runs for a job you confirmed as paid."""
+    if agent.paid and not paid:
+        return f"{agent.label} runs only when you confirm paid overflow for a job"
+    if paid and not agent.paid:
+        return f"{agent.label} isn't the paid-overflow agent"
     if agent.paused:
         return f"{agent.label} is paused (Agents page: Resume)"
     if agent.allowed_projects is not None and project_id not in agent.allowed_projects:
@@ -148,6 +168,18 @@ async def agent_check(
     why = unavailable(reg, agent, level, clis, bwrap)
     if why:
         return why
+    cli = reg.subscription(agent)
+    if cli is not None and accounts.key(account) != accounts.DEFAULT:
+        if not await accounts.exists(session, cli.id, account):
+            return f"{agent.label}'s account “{account}” was removed (Settings → Accounts)"
+        st = await accounts.status(cli.id, account)
+        if st.get("logged_in") is False:
+            return f"{agent.label}'s account “{account}” is not logged in: run `{st.get('login_command')}`"
+    if agent.paid:
+        ov = await overflow.status(session)
+        if not ov["ready"]:
+            return "Paid overflow is off, has no model or has no budget left this month"
+        return None  # its spend is capped by the job's paid budget and the monthly overflow budget
     spent = await agent_spent_today(session, agent.id)
     cap = reg.defaults.per_agent_daily_list_usd
     if spent >= cap:
@@ -161,7 +193,7 @@ async def agent_check(
         spent_m = await agent_spent_since(session, agent.id, month_start())
         if spent_m >= monthly:
             return f"{agent.label} reached this month's budget (${spent_m:.2f} of ${monthly:.2f} list price)"
-    return None
+    return await subscriptions.guard(session, reg, agent, account, light)
 
 
 def unavailable(
@@ -183,7 +215,7 @@ def unavailable(
     return None
 
 
-# --- Paperclip objects ------------------------------------------------------------------------------
+# --- Paperclip objects ----------------------------------------------------------------------------------
 async def ensure_company(session: AsyncSession, pc: Paperclip) -> str:
     m = await meta(session)
     if m.get("company_id"):
@@ -272,7 +304,7 @@ async def wait_ready(pc: Paperclip, pid: str, agent: AgentDef) -> None:
         await asyncio.sleep(2)
 
 
-# --- settings the owner can change (Settings page; system_meta, over agents.yaml) ------------------
+# --- settings the owner can change (Settings page; system_meta, over agents.yaml) -----------------------
 APPROVAL_EXPIRY_DEFAULT_H = 24.0
 
 
@@ -286,7 +318,7 @@ async def keep_per_project(session: AsyncSession) -> int:
     return int(o.get("keep_worktrees_per_project", load_agents().defaults.keep_per_project))
 
 
-# --- creating a job ---------------------------------------------------------------------------------
+# --- creating a job -------------------------------------------------------------------------------------
 async def create(
     session: AsyncSession,
     *,
@@ -297,16 +329,28 @@ async def create(
     budget_list_usd: float | None,
     request_id: int | None,
     title: str | None = None,
+    rule_id: str | None = None,
+    paid_budget_usd: float | None = None,
 ) -> Job:
+    """`paid_budget_usd` set = a paid-overflow job you confirmed ("Paid — up to $X"): it runs on the paid
+    agent only, within that budget and this month's overflow budget (ADR 0015)."""
     reg = load_agents()
     level = reg.levels.get(autonomy)
     if level is None:
         raise JobError(400, "autonomy must be 0, 1, 2 or 3")
     if level.needs_budget and budget_list_usd is None:
         raise JobError(400, "Level 3 needs a budget for this job (budget_list_usd)")
-    known = [a for a in chain if a in reg.agents]
+    paid = paid_budget_usd is not None
+    if paid:
+        chain = [paid_agent(reg).id]
+        try:
+            await overflow.check(session, float(paid_budget_usd or 0))
+        except overflow.OverflowError as e:
+            raise JobError(e.status, e.message) from e
+    known = [a for a in chain if a in reg.agents and (paid or not reg.agents[a].paid)]
     if not known:
         raise JobError(400, "none of these agents is in config/agents.yaml")
+    bound = chain_accounts(reg, known, project)  # raises if one CLI would use two accounts
     budget = budget_list_usd if budget_list_usd is not None else reg.defaults.per_job_list_usd
     if budget <= 0:
         raise JobError(400, "the budget must be more than $0")
@@ -322,17 +366,56 @@ async def create(
         budget_list_usd=budget,
         cost_reported=reg.agents[known[0]].cost == "reported",
         tag=get_settings().router_request_tag or None,
+        account=bound.get(reg.agents[known[0]].cli),
+        rule_id=rule_id,
+        paid=paid,
+        paid_budget_usd=paid_budget_usd,
     )
     session.add(job)
     await session.flush()
     await event(
-        session, job, "created", agent_chain=known, autonomy=autonomy, project=project.path, budget=budget
+        session,
+        job,
+        "created",
+        agent_chain=known,
+        autonomy=autonomy,
+        project=project.path,
+        budget=budget,
+        accounts={k: accounts.key(v) for k, v in bound.items()},
+        **({"paid_budget": paid_budget_usd} if paid else {}),
     )
     await session.commit()
     return job
 
 
-# --- preview: exactly what a job would do (the confirm dialog shows these words as they are) ----------
+def paid_agent(reg: AgentRegistry) -> AgentDef:
+    found = next((a for a in reg.agents.values() if a.paid), None)
+    if found is None:
+        raise JobError(409, "config/agents.yaml has no paid-overflow agent")
+    return found
+
+
+def chain_accounts(reg: AgentRegistry, chain: list[str], project: Project | None) -> dict[str, str | None]:
+    """cli -> the one account this job uses for it (ADR 0013). Two agents of one CLI on different accounts
+    in one chain would be a switch of accounts on a limit, so it is refused."""
+    bound: dict[str, str | None] = {}
+    for aid in chain:
+        agent = reg.agents.get(aid)
+        if agent is None or reg.subscription(agent) is None:
+            continue
+        acct = accounts.resolve(reg, agent, project)
+        why = accounts.switch_reason(reg, agent, acct, bound)
+        if why:
+            raise JobError(400, why + ". Pick agents of other providers as fallbacks.")
+        bound.setdefault(agent.cli, acct)
+    return bound
+
+
+def job_light(reg: AgentRegistry, job: Job) -> bool:
+    return subscriptions.is_light(reg, job.autonomy, job.rule_id)
+
+
+# --- preview: exactly what a job would do (the confirm dialog shows these words as they are) ------------
 def _minutes(seconds: int) -> str:
     m = max(1, round(seconds / 60))
     return f"{m} minute{'s' if m != 1 else ''}"
@@ -345,6 +428,8 @@ async def preview(
     chain: list[str],
     autonomy: int,
     budget_list_usd: float | None,
+    rule_id: str | None = None,
+    paid_budget_usd: float | None = None,
 ) -> dict[str, Any]:
     """What `create` + the job loop would do with these choices, without writing anything. The agent check
     is the one the loop uses before the first run (`agent_check`), so the preview can't promise an agent
@@ -357,20 +442,64 @@ async def preview(
     clis, bwrap = await host_facts()
     rows: list[dict[str, Any]] = []
     chosen: AgentDef | None = None
+    paid = paid_budget_usd is not None
+    if paid:
+        chain = [paid_agent(reg).id]
+    try:
+        bound = chain_accounts(reg, [a for a in chain if a in reg.agents], project)
+        chain_problem = None
+    except JobError as e:
+        bound, chain_problem = {}, e.message
+    light = subscriptions.is_light(reg, autonomy, rule_id)
+    waits: list[datetime] = []
     for aid in chain:
         agent = reg.agents.get(aid)
         if agent is None:
             rows.append({"id": aid, "label": reg.label(aid), "reason": "Not in the fleet", "chosen": False})
             continue
-        why = await agent_check(session, reg, agent, level, project.id, clis, bwrap)
+        acct = bound.get(agent.cli) if reg.subscription(agent) else None
+        why = await agent_check(
+            session, reg, agent, level, project.id, clis, bwrap, account=acct, light=light, paid=paid
+        )
+        cli = reg.subscription(agent)
+        window = None
+        if cli is not None:
+            window = subscriptions.tightest(await subscriptions.windows(session, reg, cli, acct))
+        if isinstance(why, subscriptions.WindowReason) and why.until:
+            waits.append(why.until)
         rows.append(
-            {"id": aid, "label": agent.label, "reason": why, "chosen": why is None and chosen is None}
+            {
+                "id": aid,
+                "label": agent.label,
+                "reason": why,
+                "chosen": why is None and chosen is None,
+                "account": accounts.key(acct) if cli else None,
+                "window": window,
+                "paid": agent.paid,
+            }
         )
         if why is None and chosen is None:
             chosen = agent
+    window_only = (
+        chosen is None
+        and bool(rows)
+        and any(isinstance(r["reason"], subscriptions.WindowReason) for r in rows)
+    )
+    waits_until = min(waits) if window_only and waits else None
     problem = None
-    if level.needs_budget and budget_list_usd is None:
+    if chain_problem:
+        problem = chain_problem
+    elif paid:
+        try:
+            await overflow.check(session, float(paid_budget_usd or 0))
+        except overflow.OverflowError as e:
+            problem = e.message
+    if problem:
+        pass
+    elif level.needs_budget and budget_list_usd is None:
         problem = "Level 3 needs a budget for this job"
+    elif window_only:
+        problem = None  # it waits for the reset (or asks you, if that is far away); see `waits_until`
     elif chosen is None:
         problem = "No agent can take this job now: " + "; ".join(
             f"{r['label']}: {r['reason']}" for r in rows if r["reason"]
@@ -418,6 +547,24 @@ async def preview(
                 "(only before it starts)."
             )
         steps.append("Nothing is pushed. To use the work, review and merge the branch yourself.")
+        if paid:
+            steps.insert(
+                0,
+                f"Paid: this job runs on a paid model through LiteLLM and may spend up to "
+                f"${float(paid_budget_usd or 0):.2f} of real money (this month's paid-overflow budget).",
+            )
+    elif window_only:
+        steps.append(
+            "Every agent in the list has used up its subscription window, so the job waits and starts by "
+            "itself after the reset"
+            + (
+                f" (more than {reg.defaults.max_auto_wait_h:g} h away: it asks you first)"
+                if waits_until and waits_until - now() > timedelta(hours=reg.defaults.max_auto_wait_h)
+                else ""
+            )
+            + ". You can cancel it, or use paid overflow if you turned it on."
+        )
+    ov = await overflow.status(session)
     return {
         "ok": problem is None,
         "problem": problem,
@@ -439,10 +586,14 @@ async def preview(
         },
         "branch": "switchboard/job-<number>",
         "steps": steps,
+        "waits_until": waits_until.isoformat() if waits_until else None,
+        "paid": paid,
+        "paid_budget_usd": paid_budget_usd,
+        "overflow": {"ready": ov["ready"], "left_usd": ov["left_usd"], "model": ov["model"]},
     }
 
 
-# --- the state machine ------------------------------------------------------------------------------
+# --- the state machine ----------------------------------------------------------------------------------
 _locks: dict[int, asyncio.Lock] = {}
 _counters: dict[str, TurnCounter] = {}  # run id -> stdout read so far (rebuilt from offset 0 after a restart)
 
@@ -469,6 +620,8 @@ async def advance(job_id: int, pc: Paperclip) -> None:
                     await _follow_run(session, pc, job)
                 elif job.status == "needs_approval":
                     await _check_approval(session, pc, job)
+                elif job.status == "waiting_reset":
+                    await _check_resume(session, pc, job)
         except Exception:  # noqa: BLE001 - the loop must survive anything; the job keeps its state
             log.exception("job %s: step failed", job_id)
 
@@ -493,18 +646,48 @@ async def _maybe_start(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         clis, bwrap = await host_facts()
         reasons = []
         chosen = None
+        bound = chain_accounts(reg, [a for a in job.agent_chain if a in reg.agents], project)
+        light = job_light(reg, job)
+        waits: list[datetime | None] = []
         for aid in job.agent_chain:
             agent = reg.agents.get(aid)
             if agent is None:
                 reasons.append({"agent": aid, "reason": f"{reg.label(aid)} was removed from the fleet"})
                 continue
-            why = await agent_check(session, reg, agent, level, job.project_id, clis, bwrap)
+            acct = bound.get(agent.cli) if reg.subscription(agent) else None
+            why = await agent_check(
+                session,
+                reg,
+                agent,
+                level,
+                job.project_id,
+                clis,
+                bwrap,
+                account=acct,
+                light=light,
+                paid=job.paid,
+            )
             if why is None:
                 chosen = agent
+                job.account = acct
                 break
+            if isinstance(why, subscriptions.WindowReason):
+                waits.append(why.until)
             reasons.append({"agent": aid, "reason": why})
         if reasons:
             await event(session, job, "fallback", skipped=reasons, chosen=chosen.id if chosen else None)
+        if chosen is None and waits:
+            # Only usage windows stand in the way: wait for the earliest reset instead of failing.
+            known = [w for w in waits if w is not None]
+            await _wait(
+                session,
+                pc,
+                job,
+                min(known) if known else None,
+                "Every agent for this job has used up its subscription window",
+                interrupted=False,
+            )
+            return
         if chosen is None:
             await _finish(
                 session,
@@ -518,6 +701,14 @@ async def _maybe_start(session: AsyncSession, pc: Paperclip, job: Job) -> None:
             job.agent = chosen.id
             job.cost_reported = chosen.cost == "reported"
         await session.commit()
+    elif job.started_at and not job.paid:
+        # The agent is fixed once a job has started: if its window is still used up, keep waiting.
+        agent = reg.agents.get(job.agent)
+        if agent is not None:
+            why = await subscriptions.guard(session, reg, agent, job.account, light=False)
+            if why is not None:
+                await _wait(session, pc, job, why.until, str(why), interrupted=False)
+                return
     if await _busy(session, job.agent, job.id):
         return  # waits in the queue
     agent = reg.agents[job.agent]
@@ -555,7 +746,17 @@ async def _maybe_start(session: AsyncSession, pc: Paperclip, job: Job) -> None:
     await _start_run(session, pc, job, company)
 
 
+CUT_OFF_NOTE = (
+    "\n\nNote: an earlier attempt at this step was cut off by a usage limit. Before you continue, check "
+    "what is already in this folder (git status and git diff) so you don't repeat or duplicate that work."
+)
+
+
 def _task(job: Job, kind: str) -> str:
+    return _task_text(job, kind) + (CUT_OFF_NOTE if job.attempt else "")
+
+
+def _task_text(job: Job, kind: str) -> str:
     if kind == "read_only":
         return (
             f"{job.prompt}\n\nFor now, only make a plan: read what you need, change nothing, and end "
@@ -579,8 +780,32 @@ async def _start_run(session: AsyncSession, pc: Paperclip, job: Job, company: st
     if left <= 0:
         await _finish(session, pc, job, "stopped", "The job's budget is used up")
         return
+    account_home = None
+    cli = reg.subscription(agent)
+    if cli is not None and accounts.key(job.account) != accounts.DEFAULT:
+        st = await accounts.status(cli.id, job.account)
+        account_home = (st.get("env") or {}).get(cli.home_env)
+        if not account_home:
+            await _finish(session, pc, job, "failed", f"Couldn't find the folder of account “{job.account}”")
+            return
+    ov = None
+    if agent.paid:
+        try:
+            key_file, model = await overflow.start_run_key(session, reg, job, agent.id)
+        except overflow.OverflowError as e:
+            await _finish(session, pc, job, "stopped", e.message)
+            return
+        ov = {"key_file": key_file, "model": model}
+        await event(session, job, "paid_key", model=model, run_index=job.run_index, attempt=job.attempt)
     spec = build_run(
-        reg, agent, kind, worktree=job.worktree_path or "", task=_task(job, kind), budget_left_usd=left
+        reg,
+        agent,
+        kind,
+        worktree=job.worktree_path or "",
+        task=_task(job, kind),
+        budget_left_usd=left,
+        account_home=account_home,
+        overflow=ov,
     )
     try:
         pid = await ensure_agent(
@@ -604,10 +829,13 @@ async def _start_run(session: AsyncSession, pc: Paperclip, job: Job, company: st
             job.cost_reported = reg.agents[nxt].cost == "reported"
             await session.commit()
             return
+        if agent.paid:
+            await overflow.end_run(job, agent.id)
         await _finish(session, pc, job, "failed", str(e))
         return
+    suffix = f"-a{job.attempt}" if job.attempt else ""  # a re-run after a limit is a new run
     run = await pc.wake(
-        pid, reason="switchboard_job", idempotency_key=f"switchboard-job-{job.id}-run-{job.run_index}"
+        pid, reason="switchboard_job", idempotency_key=f"switchboard-job-{job.id}-run-{job.run_index}{suffix}"
     )
     if run.get("status") == "skipped":  # a retried start: the run already exists
         run_id = run.get("executionRunId") or job.current_run_id
@@ -620,7 +848,18 @@ async def _start_run(session: AsyncSession, pc: Paperclip, job: Job, company: st
     job.gate = None
     job.status = "running"
     job.started_at = job.started_at or now()
-    await event(session, job, "run_started", run=run_id, run_kind=kind, agent=agent.id, autonomy=job.autonomy)
+    job.resume_at = None
+    await event(
+        session,
+        job,
+        "run_started",
+        run=run_id,
+        run_kind=kind,
+        agent=agent.id,
+        autonomy=job.autonomy,
+        account=accounts.key(job.account) if cli else None,
+        attempt=job.attempt,
+    )
     await session.commit()
     await _issue(pc, session, job)
 
@@ -674,6 +913,9 @@ async def _follow_run(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         return
     await read_new_output(pc, job, agent)
     counter = _counters.get(job.current_run_id or "")
+    cli = reg.subscription(agent)
+    if cli is not None and counter is not None and counter.readings:  # live usage window (Claude)
+        await subscriptions.record(session, reg, cli.id, job.account, counter.take_readings())
     status = run.get("status")
     if status not in TERMINAL_RUN:
         # Caps while it runs: turns (every agent), list price (agents that report it as they go), run time.
@@ -697,6 +939,7 @@ async def _follow_run(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         if reason:
             await pc.cancel_run(job.current_run_id or "")
             await _record(session, job, agent, run, counter)
+            await _end_paid_run(session, job, agent)
             await _finish(session, pc, job, "stopped", reason)
             return
         await session.commit()
@@ -705,7 +948,31 @@ async def _follow_run(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         counter.finish()
     out = await _record(session, job, agent, run, counter)
     _counters.pop(job.current_run_id or "", None)
+    await _end_paid_run(session, job, agent)
+    codex_hit = await _codex_usage(session, reg, job, agent, counter)
+    injected = await _injected_limit(session, job, agent)
+    if injected is not None:
+        status, codex_hit = "failed", (True, injected)
     if status != "succeeded":
+        hit, resets = limit_hit(reg, agent, run, counter)
+        if hit or codex_hit[0]:
+            until = resets or codex_hit[1]
+            reported = until is not None
+            await event(
+                session, job, "limit_hit", agent=agent.id, resets=until.isoformat() if until else None
+            )
+            if cli is not None:
+                until = await subscriptions.record_limit(session, reg, cli.id, job.account, until)
+            await _wait(
+                session,
+                pc,
+                job,
+                until,
+                f"{agent.label} hit its subscription usage limit",
+                interrupted=True,
+                estimated=not reported,
+            )
+            return
         what = {"cancelled": "stopped", "timed_out": "failed"}.get(status, "failed")
         msg = str(run.get("error") or f"The run ended: {status}")
         if (
@@ -756,6 +1023,33 @@ async def _record(
     """Write the run's cost (idempotent per run) and add it to the job's totals."""
     out = outcome(agent, run, counter)
     ext = f"paperclip-run:{run.get('id')}"
+    if job.paid:
+        # Paid overflow: LiteLLM's spend log is the cost (the ingester files it under this job), so no row
+        # here, or the tokens would count twice. The money is added to the job when its key is revoked.
+        exists = await session.scalar(
+            select(JobEvent.id).where(
+                JobEvent.job_id == job.id,
+                JobEvent.kind == "run_finished",
+                JobEvent.data["run"].astext == str(run.get("id")),
+            )
+        )
+        if exists is None:
+            job.turns = (job.turns or 0) + out.turns
+            await event(
+                session,
+                job,
+                "run_finished",
+                run=run.get("id"),
+                status=run.get("status"),
+                turns=out.turns,
+                tokens_in=out.tokens_in,
+                tokens_out=out.tokens_out,
+                paid=True,
+                started=run.get("startedAt"),
+                finished=run.get("finishedAt"),
+            )
+            await session.commit()
+        return out
     exists = await session.scalar(select(Cost.id).where(Cost.external_id == ext))
     if exists is None:
         await session.execute(
@@ -803,7 +1097,12 @@ async def _record(
 async def _gate(session: AsyncSession, pc: Paperclip, job: Job, gate: str, text: str) -> None:
     """Stop for the owner: a Paperclip approval linked to the job's issue (ADR 0007)."""
     company = (await meta(session)).get("company_id")
-    title = {"plan": "Approve the plan", "diff": "Review the changes", "result": "Review the result"}[gate]
+    title = {
+        "plan": "Approve the plan",
+        "diff": "Review the changes",
+        "result": "Review the result",
+        "limit": "Wait for the usage limit to reset?",
+    }[gate]
     approval_id = None
     try:
         if company and job.paperclip_issue_id:
@@ -857,8 +1156,12 @@ async def _check_approval(session: AsyncSession, pc: Paperclip, job: Job) -> Non
             pc,
             job,
             "stopped",
-            f"Waited {hours:g} h for your approval of the {job.gate or 'job'}, so it was stopped. "
-            "Use Run again on the job page if you still want it.",
+            (
+                f"Waited {hours:g} h for your answer about the usage limit, so it was stopped. "
+                if job.gate == "limit"
+                else f"Waited {hours:g} h for your approval of the {job.gate or 'job'}, so it was stopped. "
+            )
+            + "Use Run again on the job page if you still want it.",
         )  # a stopped job's worktree is removed (retention rule); its branch stays
         return
     if not job.paperclip_approval_id:
@@ -882,6 +1185,15 @@ async def decide(
     if job.status != "needs_approval" or not job.gate:
         raise JobError(409, f"Job {job.id} isn't waiting for approval (it is {job.status})")
     gate = job.gate
+    if gate == "limit":  # the long-wait question: approve = wait anyway, reject = cancel
+        if approve:
+            if not mirror:
+                job.paperclip_approval_id = None  # decided in Paperclip already
+            await wait_anyway(session, pc, job)
+            return
+        await event(session, job, "rejected", gate=gate, note=note, by=by)
+        await _finish(session, pc, job, "stopped", "You chose not to wait for the usage limit to reset")
+        return
     if mirror and job.paperclip_approval_id:
         try:
             await pc.decide(job.paperclip_approval_id, approve, note)
@@ -968,10 +1280,16 @@ async def _finish(
     error: str | None,
     keep_worktree: bool = False,
 ) -> None:
+    if job.paid:  # whatever the outcome, no paid key or key file outlives the job (ADR 0015)
+        reg = load_agents()
+        agent = reg.agents.get(job.agent) or reg.retired.get(job.agent)
+        if agent is not None and agent.paid:
+            await _end_paid_run(session, job, agent)
     job.status = status
     job.error = error
     job.finished_at = now()
     job.current_run_id = None
+    job.resume_at = None
     if status != "done":
         job.gate = None
     await event(session, job, status, error=error)
@@ -1034,17 +1352,241 @@ async def retention(session: AsyncSession, project: Project) -> dict[str, Any]:
     return data
 
 
-# --- the loop -----------------------------------------------------------------------------------------
+# --- subscription limits (M6.5, ADR 0014) ---------------------------------------------------------------
+def limit_hit(
+    reg: AgentRegistry, agent: AgentDef, run: dict[str, Any], counter: TurnCounter | None
+) -> tuple[bool, datetime | None]:
+    """Did this failed run end on a subscription usage limit? (and its reset, when the CLI said)."""
+    cli = reg.subscription(agent)
+    if cli is None:
+        return False, None
+    if counter is not None and counter.limit_hit:
+        return True, counter.limit_resets
+    text = " ".join(
+        [
+            str(run.get("error") or ""),
+            str(run.get("errorCode") or ""),
+            json.dumps(run.get("resultJson") or "")[:4000],
+            counter.error_text() if counter is not None else "",
+        ]
+    ).lower()
+    return any(p in text for p in cli.limit_patterns), None
+
+
+async def _codex_usage(
+    session: AsyncSession, reg: AgentRegistry, job: Job, agent: AgentDef, counter: TurnCounter | None
+) -> tuple[bool, datetime | None]:
+    """Codex reports its window only in its own session file: hostprobe reads the numbers by thread id."""
+    cli = reg.subscription(agent)
+    if cli is None or cli.usage != "session_file" or counter is None or not counter.thread_id:
+        return False, None
+    code, data = await hostprobe_client.call(
+        "POST", "/codex/usage", {"thread_id": counter.thread_id, "account": accounts.key(job.account)}
+    )
+    readings = subscriptions.parse_codex(data) if code == 200 else []
+    if readings:
+        await subscriptions.record(session, reg, cli.id, job.account, readings)
+    hit = [r for r in readings if r.limited]
+    return bool(hit), max((r.resets_at for r in hit if r.resets_at), default=None)
+
+
+async def _injected_limit(session: AsyncSession, job: Job, agent: AgentDef) -> datetime | None:
+    """Dev only (`ROUTER_LIMIT_TEST=claude:resets_in=120`): the first run of that CLI in a job ends as if it
+    hit its limit, to show waiting and resuming live without burning a real window (docs/m65.md)."""
+    spec = get_settings().router_limit_test.strip()
+    m = re.fullmatch(r"([a-z][a-z0-9-]*):resets_in=(\d{1,6})", spec)
+    if not m or m.group(1) != agent.cli:
+        return None
+    done = await session.scalar(
+        select(JobEvent.id).where(JobEvent.job_id == job.id, JobEvent.kind == "limit_injected").limit(1)
+    )
+    if done is not None:
+        return None
+    await event(session, job, "limit_injected", cli=agent.cli, test=True)
+    return now() + timedelta(seconds=int(m.group(2)))
+
+
+async def _end_paid_run(session: AsyncSession, job: Job, agent: AgentDef) -> None:
+    """Revoke a paid run's key and remove its file (any outcome); add what it spent to the job."""
+    if not agent.paid:
+        return
+    spent = await overflow.end_run(job, agent.id)
+    if spent:
+        job.cost_usd = float(job.cost_usd or 0) + spent
+        job.list_price_usd = float(job.list_price_usd or 0) + spent
+    await event(session, job, "paid_key_revoked", spent_usd=round(spent, 6))
+    await session.commit()
+
+
+async def _wait(
+    session: AsyncSession,
+    pc: Paperclip,
+    job: Job,
+    until: datetime | None,
+    why: str,
+    *,
+    interrupted: bool,
+    estimated: bool | None = None,
+) -> None:
+    """Wait for a usage window to reset. The worktree stays; the same phase runs again afterwards. A reset
+    further away than `max_auto_wait_h` asks you first; too many waits end the job."""
+    reg = load_agents()
+    job.waits = (job.waits or 0) + 1
+    if interrupted:
+        job.attempt = (job.attempt or 0) + 1
+    if job.waits > reg.defaults.max_waits:
+        await _finish(
+            session,
+            pc,
+            job,
+            "failed",
+            f"{why}, and it already waited for {reg.defaults.max_waits} resets. Run it again later, on "
+            "another agent, or with paid overflow.",
+            keep_worktree=False,
+        )
+        return
+    estimated = until is None if estimated is None else estimated
+    until = until or now() + timedelta(
+        hours=reg.clis[next(iter(reg.clis))].windows[0].hours if reg.clis else 5
+    )
+    job.resume_at = until
+    job.current_run_id = None
+    if until - now() > timedelta(hours=reg.defaults.max_auto_wait_h):
+        await event(session, job, "limit_wait_long", until=until.isoformat(), reason=why, estimated=estimated)
+        await _gate(
+            session,
+            pc,
+            job,
+            "limit",
+            f"{why}. It resets at {until.strftime('%Y-%m-%d %H:%M')} UTC, more than "
+            f"{reg.defaults.max_auto_wait_h:g} h away, so the job asks before waiting. Wait anyway, run it "
+            "on another agent, use paid overflow, or cancel.",
+        )
+        return
+    job.status = "waiting_reset"
+    job.gate = None
+    await event(session, job, "waiting_reset", until=until.isoformat(), reason=why, estimated=estimated)
+    await session.commit()
+    await _issue(pc, session, job)
+
+
+async def _check_resume(session: AsyncSession, pc: Paperclip, job: Job) -> None:
+    if job.resume_at and now() >= job.resume_at:
+        job.status = "queued"
+        await event(session, job, "resumed", at=now().isoformat(), attempt=job.attempt)
+        await session.commit()
+        await _issue(pc, session, job)
+
+
+def _waiting_on_limit(job: Job) -> bool:
+    return job.status == "waiting_reset" or (job.status == "needs_approval" and job.gate == "limit")
+
+
+async def wait_anyway(session: AsyncSession, pc: Paperclip, job: Job) -> None:
+    """ "Wait anyway" on a far reset: the job waits until `resume_at`, then continues by itself."""
+    if not (job.status == "needs_approval" and job.gate == "limit"):
+        raise JobError(409, f"Job {job.id} isn't asking about a long wait (it is {job.status})")
+    await _decline_paperclip_approval(pc, job, "Waiting for the reset (chosen in Switchboard)", approve=True)
+    job.status, job.gate, job.paperclip_approval_id = "waiting_reset", None, None
+    await event(session, job, "wait_anyway", until=job.resume_at.isoformat() if job.resume_at else None)
+    await session.commit()
+    await _issue(pc, session, job)
+
+
+async def _decline_paperclip_approval(pc: Paperclip, job: Job, note: str, approve: bool = False) -> None:
+    if job.paperclip_approval_id:
+        try:
+            await pc.decide(job.paperclip_approval_id, approve, note)
+        except PaperclipError as e:
+            log.warning("job %s: decision not mirrored to Paperclip: %s", job.id, e)
+
+
+async def reroute(session: AsyncSession, pc: Paperclip, job: Job, agent_id: str) -> None:
+    """ "Run on another agent" for a job waiting on a limit: another CLI (never another account of the same
+    CLI, ADR 0013). The interrupted phase starts again with that agent in the same worktree; this is the one
+    exception to "the agent is fixed once a job starts", and it is your explicit choice (logged)."""
+    if not _waiting_on_limit(job):
+        raise JobError(409, f"Job {job.id} isn't waiting for a usage limit (it is {job.status})")
+    reg = load_agents()
+    agent = reg.agents.get(agent_id)
+    current = reg.agents.get(job.agent) or reg.retired.get(job.agent)
+    if agent is None or agent.paid:
+        raise JobError(400, "Pick an agent from the fleet (paid overflow has its own button)")
+    if current is not None and agent.cli == current.cli:
+        raise JobError(
+            400,
+            f"{agent.label} uses {reg.clis[agent.cli].label if agent.cli in reg.clis else agent.cli} too: "
+            "Switchboard never switches accounts of one provider to get around a limit. "
+            "Pick another provider.",
+        )
+    project = await session.get(Project, job.project_id)
+    acct = accounts.resolve(reg, agent, project)
+    clis, bwrap = await host_facts()
+    why = await agent_check(
+        session, reg, agent, reg.levels[job.autonomy], job.project_id, clis, bwrap, account=acct
+    )
+    if why:
+        raise JobError(409, str(why))
+    await _decline_paperclip_approval(pc, job, f"Moved to {agent.label} in Switchboard")
+    previous = job.agent
+    job.agent, job.account = agent.id, acct
+    job.agent_chain = [*job.agent_chain, agent.id] if agent.id not in job.agent_chain else job.agent_chain
+    job.cost_reported = job.cost_reported and agent.cost == "reported"
+    job.status, job.gate, job.resume_at, job.paperclip_approval_id = "queued", None, None, None
+    job.attempt = (job.attempt or 0) + 1
+    await event(session, job, "rerouted", previous=previous, agent=agent.id, by="you")
+    await session.commit()
+    await _issue(pc, session, job)
+
+
+async def use_paid(session: AsyncSession, pc: Paperclip, job: Job, budget_usd: float) -> None:
+    """ "Use paid overflow" for a job waiting on a limit, after you confirmed "Paid — up to $X"."""
+    if not _waiting_on_limit(job):
+        raise JobError(409, f"Job {job.id} isn't waiting for a usage limit (it is {job.status})")
+    try:
+        await overflow.check(session, budget_usd)
+    except overflow.OverflowError as e:
+        raise JobError(e.status, e.message) from e
+    reg = load_agents()
+    agent = paid_agent(reg)
+    if job.autonomy not in [n for n, lv in reg.levels.items() if not agent.level_unavailable(lv)]:
+        raise JobError(400, agent.level_unavailable(reg.levels[job.autonomy]) or "level not available")
+    await _decline_paperclip_approval(pc, job, "Moved to paid overflow in Switchboard")
+    previous = job.agent
+    job.agent, job.account, job.paid, job.paid_budget_usd = agent.id, None, True, budget_usd
+    job.agent_chain = [*job.agent_chain, agent.id]
+    job.status, job.gate, job.resume_at, job.paperclip_approval_id = "queued", None, None, None
+    job.attempt = (job.attempt or 0) + 1
+    await event(session, job, "paid_overflow", previous=previous, budget=budget_usd, by="you")
+    await session.commit()
+    await _issue(pc, session, job)
+
+
+async def sweep_overflow(session: AsyncSession) -> int:
+    running = (
+        await session.execute(select(Job.id, Job.agent).where(Job.paid.is_(True), Job.status == "running"))
+    ).all()
+    return await overflow.sweep(session, {(int(i), str(a)) for i, a in running})
+
+
+# --- the loop -------------------------------------------------------------------------------------------
 async def loop(stop_event: asyncio.Event | None = None) -> None:
     """Advance every active job every couple of seconds. Persisted state: safe to restart at any time."""
     from app import fleet  # fleet imports this module
 
     pc = Paperclip()
+    last_sweep = 0.0
     try:
         while not (stop_event and stop_event.is_set()):
             try:
                 async with db.sessionmaker()() as session:
                     await fleet.refresh(session)  # another worker's fleet edits, at most a step late
+                    if time.monotonic() - last_sweep > SWEEP_INTERVAL_S:
+                        last_sweep = time.monotonic()  # crash recovery: no paid key outlives its job
+                        try:
+                            await sweep_overflow(session)
+                        except Exception:  # noqa: BLE001 - retried on the next sweep
+                            log.exception("overflow sweep failed")
                     rows = (
                         await session.execute(
                             select(Job.id, Job.status)

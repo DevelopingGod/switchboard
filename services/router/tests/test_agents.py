@@ -31,7 +31,10 @@ def test_registry_loads_with_the_verified_agents():
     assert reg.levels[1].approve_plan and reg.levels[1].runs == ("read_only", "edit")
     assert reg.levels[3].needs_sandbox and reg.levels[3].needs_budget
     runnable = sorted(a.id for a in reg.agents.values() if a.runnable)
-    assert runnable == ["claude-code", "codex", "opencode"]
+    assert runnable == ["claude-code", "codex", "opencode", "opencode-paid"]
+    # M6.5: the paid-overflow agent is runnable but never a subscription agent or a hire template.
+    assert reg.agents["opencode-paid"].paid and reg.subscription(reg.agents["opencode-paid"]) is None
+    assert [a.id for a in reg.agents.values() if a.paid] == ["opencode-paid"]
     assert {a.id for a in reg.agents.values() if not a.runnable} == {"gemini-cli", "grok-build", "hermes"}
     # level 3: no agent has a sandbox that works here yet (Paperclip's bwrap fails on merged /usr)
     assert reg.agent("codex").level_unavailable(reg.levels[3]).startswith("Level 3 is off")

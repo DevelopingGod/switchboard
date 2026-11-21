@@ -91,6 +91,10 @@ class AgentDef:
     monthly_list_usd: float | None = None
     allowed_projects: tuple[int, ...] | None = None  # None = every project
     paused: bool = False
+    # M6.5: the named account this agent uses (None = the CLI's default login; a project can override it),
+    # and whether it is the paid-overflow agent (runs only for a job you confirmed as paid).
+    account: str | None = None
+    paid: bool = False
     edited: bool = False  # a built-in agent with saved changes ("Reset to default" removes them)
 
     @property
@@ -125,6 +129,42 @@ class Level:
 
 
 @dataclass(frozen=True)
+class WindowDef:
+    id: str
+    label: str
+    hours: float
+
+
+@dataclass(frozen=True)
+class CliDef:
+    """A subscription CLI (M6.5): where its login lives, where it reports its usage window."""
+
+    id: str
+    label: str
+    home_env: str
+    login: str
+    usage: str | None  # stream_event | session_file | None
+    plans: dict[str, str]
+    windows: tuple[WindowDef, ...]
+    estimate_by: str  # list_price | tokens
+    limit_patterns: tuple[str, ...]
+
+    def window(self, wid: str) -> WindowDef | None:
+        return next((w for w in self.windows if w.id == wid), None)
+
+    def plan_label(self, plan: str | None) -> str:
+        return self.plans.get(plan or "", self.label)
+
+
+@dataclass(frozen=True)
+class Guard:
+    save_at: float = 0.8
+    block_at: float = 1.0
+    light_levels: tuple[int, ...] = (0,)
+    heavy_rules: tuple[str, ...] = ("code-heavy",)
+
+
+@dataclass(frozen=True)
 class Defaults:
     max_active_per_agent: int
     run_timeout_s: int
@@ -136,6 +176,11 @@ class Defaults:
     per_agent_monthly_list_usd: float | None
     keep_per_project: int
     allowed_commands: tuple[str, ...]
+    max_auto_wait_h: float = 12.0
+    max_waits: int = 3
+    guard: Guard = field(default_factory=Guard)
+    litellm_base_url: str = "http://127.0.0.1:4000/v1"
+    key_margin_minutes: int = 30
 
 
 @dataclass(frozen=True)
@@ -145,6 +190,11 @@ class AgentRegistry:
     agents: dict[str, AgentDef]
     # Hired agents you deleted: never offered or run again, kept so old jobs still show a name.
     retired: dict[str, AgentDef] = field(default_factory=dict)
+    clis: dict[str, CliDef] = field(default_factory=dict)  # subscription CLIs (M6.5)
+
+    def subscription(self, agent: AgentDef) -> CliDef | None:
+        """The subscription CLI an agent runs on (its usage window and accounts), or None."""
+        return None if agent.paid else self.clis.get(agent.cli)
 
     def label(self, agent_id: str) -> str:
         a = self.agents.get(agent_id) or self.retired.get(agent_id)
@@ -202,6 +252,28 @@ def parse(data: dict[str, Any]) -> AgentRegistry:
         keep_per_project=int((d.get("worktrees") or {}).get("keep_per_project", 10)),
         allowed_commands=tuple(c.strip() for c in cmds),
     )
+    g = d.get("subscription_guard") or {}
+    ov = d.get("overflow") or {}
+    defaults = replace(
+        defaults,
+        max_auto_wait_h=float(d.get("max_auto_wait_h", 12)),
+        max_waits=int(d.get("max_waits", 3)),
+        guard=Guard(
+            save_at=float(g.get("save_at", 0.8)),
+            block_at=float(g.get("block_at", 1.0)),
+            light_levels=tuple(int(x) for x in g.get("light_levels", [0])),
+            heavy_rules=tuple(str(x) for x in g.get("heavy_rules", ["code-heavy"])),
+        ),
+        litellm_base_url=str(ov.get("litellm_base_url") or "http://127.0.0.1:4000/v1"),
+        key_margin_minutes=int(ov.get("key_margin_minutes", 30)),
+    )
+    if not 0 < defaults.guard.save_at <= defaults.guard.block_at <= 1:
+        raise AgentsConfigError("agents.yaml defaults.subscription_guard: 0 < save_at ≤ block_at ≤ 1")
+    if defaults.max_auto_wait_h < 0 or defaults.max_waits < 1:
+        raise AgentsConfigError("agents.yaml defaults: max_auto_wait_h ≥ 0 and max_waits ≥ 1")
+    if not re.fullmatch(r"https?://[^\s]+", defaults.litellm_base_url):
+        raise AgentsConfigError("agents.yaml defaults.overflow.litellm_base_url: an http(s) URL")
+    clis = _clis(data.get("clis") or {})
     if defaults.max_active_per_agent < 1 or defaults.run_timeout_s < 30 or defaults.max_turns < 1:
         raise AgentsConfigError("agents.yaml defaults: limits must be positive (run_timeout_s ≥ 30)")
 
@@ -278,10 +350,57 @@ def parse(data: dict[str, Any]) -> AgentRegistry:
             full_unavailable=a.get("full_unavailable"),
             note=a.get("note"),
             models=tuple(str(m) for m in (a.get("models") or ([a["model"]] if a.get("model") else []))),
+            paid=bool(a.get("paid")),
         )
+        if agents[aid].paid and (runner != "process" or a.get("permissions") != "opencode"):
+            raise AgentsConfigError(
+                f"agents.yaml {aid}: a paid agent runs OpenCode through LiteLLM (process)"
+            )
     if not agents:
         raise AgentsConfigError("agents.yaml: no agents")
-    return AgentRegistry(defaults, levels, agents)
+    return AgentRegistry(defaults, levels, agents, clis=clis)
+
+
+USAGE_SOURCES = {"stream_event", "session_file"}
+HOME_ENV = re.compile(r"[A-Z][A-Z0-9_]{2,40}")
+
+
+def _clis(raw: dict[str, Any]) -> dict[str, CliDef]:
+    out: dict[str, CliDef] = {}
+    for cid, c in raw.items():
+        cid = str(cid)
+        if not isinstance(c, dict):
+            raise AgentsConfigError(f"agents.yaml clis.{cid}: a mapping")
+        if not HOME_ENV.fullmatch(str(c.get("home_env") or "")):
+            raise AgentsConfigError(f"agents.yaml clis.{cid}.home_env: the CLI's config-folder variable")
+        usage = c.get("usage")
+        if usage is not None and usage not in USAGE_SOURCES:
+            raise AgentsConfigError(
+                f"agents.yaml clis.{cid}.usage: one of {', '.join(sorted(USAGE_SOURCES))}"
+            )
+        wins = []
+        for wid, w in (c.get("windows") or {}).items():
+            hours = float((w or {}).get("hours") or 0)
+            if hours <= 0:
+                raise AgentsConfigError(f"agents.yaml clis.{cid}.windows.{wid}.hours: more than 0")
+            wins.append(WindowDef(str(wid), str((w or {}).get("label") or wid), hours))
+        if not wins:
+            raise AgentsConfigError(f"agents.yaml clis.{cid}.windows: at least one window")
+        by = str(c.get("estimate_by") or "list_price")
+        if by not in ("list_price", "tokens"):
+            raise AgentsConfigError(f"agents.yaml clis.{cid}.estimate_by: list_price or tokens")
+        out[cid] = CliDef(
+            id=cid,
+            label=str(c.get("label") or cid),
+            home_env=str(c["home_env"]),
+            login=str(c.get("login") or f"{cid} login"),
+            usage=usage,
+            plans={str(k): str(v) for k, v in (c.get("plans") or {}).items()},
+            windows=tuple(wins),
+            estimate_by=by,
+            limit_patterns=tuple(str(p).lower() for p in (c.get("limit_patterns") or ())),
+        )
+    return out
 
 
 _cache: tuple[float, Path, AgentRegistry] | None = None
@@ -341,6 +460,7 @@ def _apply(a: AgentDef, row: dict[str, Any]) -> AgentDef:
         monthly_list_usd=num(row.get("monthly_list_usd")),
         allowed_projects=tuple(int(p) for p in projects) if projects is not None else None,
         paused=bool(row.get("paused")),
+        account=row.get("account") or None,
     )
 
 
@@ -356,14 +476,17 @@ def merge(base: AgentRegistry, rows: tuple[dict[str, Any], ...] | list[dict[str,
             if aid in base.agents and not row.get("deleted_at"):
                 agents[aid] = replace(_apply(base.agents[aid], row), edited=True)
             continue
-        if tpl is None or not tpl.runnable or aid in base.agents or not AGENT_ID.fullmatch(aid):
+        if tpl is None or not tpl.runnable or tpl.paid or aid in base.agents or not AGENT_ID.fullmatch(aid):
             continue
         hired = replace(_apply(tpl, row), id=aid, template=tpl.id, note=None)
         if row.get("deleted_at"):
             retired[aid] = hired
         else:
             agents[aid] = hired
-    return AgentRegistry(base.defaults, base.levels, agents, retired)
+    return AgentRegistry(base.defaults, base.levels, agents, retired, clis=base.clis)
+
+
+OVERFLOW_PROVIDER = "switchboard"
 
 
 # --- one run -> Paperclip agent config -------------------------------------------------------------------
@@ -387,11 +510,20 @@ def build_run(
     worktree: str,
     task: str,
     budget_left_usd: float | None,
+    account_home: str | None = None,
+    overflow: dict[str, str] | None = None,
 ) -> RunSpec:
     """The complete Paperclip adapter config for one run. Always complete: Paperclip's reads are redacted,
-    so the router never edits what it read back (docs/m4a.md)."""
+    so the router never edits what it read back (docs/m4a.md).
+
+    `account_home` (M6.5) is a named account's folder on the host: the CLI's `home_env` points at it, so the
+    vendor CLI uses that login (nothing in it is read or copied). `overflow` = {key_file, model} for the paid
+    agent: OpenCode reads the LiteLLM key from that file (`{file:...}`), so the key never enters Paperclip's
+    config (ADR 0015)."""
     if kind not in agent.profiles:
         raise KeyError(f"{agent.label} has no {kind} profile")
+    if agent.paid and not overflow:
+        raise KeyError(f"{agent.label} runs only as paid overflow")
     profile = agent.profiles[kind]
     d = reg.defaults
     if agent.role:  # a hired agent's role (ADR 0009) comes before the task, for every runner
@@ -414,14 +546,31 @@ def build_run(
             bash: dict[str, str] = {"*": "deny"}
             bash.update({f"{c}*": "allow" for c in d.allowed_commands})
             perm = {"edit": "allow", "bash": bash, "webfetch": "deny", "websearch": "deny"}
-        env["OPENCODE_CONFIG_CONTENT"] = json.dumps({"permission": perm})
+        content: dict[str, Any] = {"permission": perm}
+        if agent.paid and overflow:
+            content["provider"] = {
+                OVERFLOW_PROVIDER: {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "Switchboard LiteLLM (paid overflow)",
+                    "options": {
+                        "baseURL": d.litellm_base_url,
+                        "apiKey": "{file:" + overflow["key_file"] + "}",
+                    },
+                    "models": {overflow["model"]: {"name": overflow["model"]}},
+                }
+            }
+        env["OPENCODE_CONFIG_CONTENT"] = json.dumps(content)
+    cli = reg.subscription(agent)
+    if account_home and cli is not None:
+        env[cli.home_env] = account_home
+    model = f"{OVERFLOW_PROVIDER}/{overflow['model']}" if agent.paid and overflow else agent.model
 
     def render(arg: str) -> list[str]:
         if arg == "{allowed}":
             return allowed
         return [
             PLACEHOLDER.sub(
-                lambda m: {"model": agent.model or "", "worktree": worktree, "prompt": task}[m.group(1)], arg
+                lambda m: {"model": model or "", "worktree": worktree, "prompt": task}[m.group(1)], arg
             )
         ]
 
