@@ -1,6 +1,7 @@
 /**
  * Records the README demo against the throwaway Demo stack (docs/recording-the-demo.md):
- *   Home → chat with "Why this?" → private chat → Connections → Rules tester → Jobs → Agents → Metrics.
+ *   Home → chat with "Why this?" → private chat → Connections → Rules tester → Jobs → Agents → a job waiting for a
+ *   usage-limit reset (M6.5) → Metrics.
  * The jobs segment (M4b) runs on a second portal with fixture data, labelled "Sample data" on screen: a real job
  * through the Demo stack would reuse job numbers (branches `switchboard/job-<n>`, Paperclip issue keys) that your
  * real jobs already use in the shared Paperclip company and project.
@@ -196,7 +197,7 @@ async function story(page: Page): Promise<Wait[]> {
   await page.getByRole("heading", { level: 1, name: "Jobs" }).waitFor();
   await sampleLabel(page);
   await sleep(2400);
-  await click(page, page.getByRole("list", { name: "Jobs" }).getByRole("link").first());
+  await click(page, page.getByRole("list", { name: "Jobs" }).getByRole("link", { name: /#30/ }));
   await page.getByRole("region", { name: "Approve the plan" }).waitFor();
   await sampleLabel(page);
   mark("job plan");
@@ -224,6 +225,18 @@ async function story(page: Page): Promise<Wait[]> {
   await sleep(3200);
   await page.keyboard.press("Escape");
   await sleep(1200);
+
+  // 5b. M6.5 (sample data dated 20 Nov 2026): a job waiting for its usage limit to reset, and what you can
+  // do instead (another provider's agent, paid overflow, cancel)
+  await page.clock.setFixedTime(new Date("2026-11-20T10:00:00Z"));
+  await page.goto(`${SAMPLE}/jobs/31?nosplash`);
+  await page.getByTestId("limit-panel").waitFor();
+  await sampleLabel(page);
+  mark("waiting for reset");
+  await sleep(3200);
+  await click(page, page.getByRole("button", { name: "Run on another agent" }));
+  await page.getByTestId("limit-panel").getByLabel("Agent").waitFor();
+  await sleep(2600);
 
   // 6. Metrics (M6, sample data dated 21 Nov 2026): Simple numbers and insights, then Pro quotas and budgets
   const METRICS_LABEL = "Sample data · your own usage appears here";

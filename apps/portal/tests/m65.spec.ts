@@ -42,6 +42,8 @@ test.describe("read-only", () => {
     await expect(page.getByRole("article", { name: "Reviewer" }).getByText("Claude Team · work")).toBeVisible();
     await expect(page.getByRole("article", { name: "OpenCode", exact: true }).getByTestId("window-meter")).toHaveCount(0);
     await expect(claude.getByText(/7-day/)).toHaveCount(0); // the other windows are Pro detail
+    const paid = page.getByRole("article", { name: "Paid overflow (OpenCode)" });
+    await expect(paid.getByText("Paid · only when you confirm")).toBeVisible(); // never "Ready" like the others
     await sidebar(page).getByRole("radio", { name: "Pro" }).click();
     await expect(claude.getByText(/^12% of this 7-day window · resets Tue 02:20 PM$/)).toBeVisible();
   });

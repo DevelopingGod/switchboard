@@ -591,6 +591,13 @@ def build_run(
             "dangerouslySkipPermissions": False,  # Paperclip's default is true; the profile decides
             "maxTurnsPerRun": d.max_turns,
             "extraArgs": args,
+            # Paperclip merges a PATCHed adapterConfig into the stored one key by key (values such as
+            # `env` are replaced whole; verified in 2026.1106.0's routes/agents.js), so every key a profile
+            # may set is stated on every run and a sandbox setting from an earlier run never sticks (found
+            # live in M6.5: M4a's level-3 attempt had left `filesystemScope: workspace` on the Claude agent).
+            "filesystemScope": None,
+            "networkScope": None,
+            "networkAllowlist": [],
             **profile.adapter,
         }
         if agent.model:

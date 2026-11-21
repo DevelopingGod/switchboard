@@ -233,6 +233,10 @@ async def windows(
         ).all()
     }
     ids = [w.id for w in cli.windows] + [w for w in rows if not cli.window(w)]
+    if cli.usage == "session_file" and any(r.source == "reported" for r in rows.values()):
+        # Codex reports which windows the plan has (the free plan: one 30-day window); configured fallbacks it
+        # didn't report are not shown.
+        ids = [w for w in ids if w in rows]
     t = now()
     out = []
     for wid in ids:

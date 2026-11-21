@@ -564,6 +564,9 @@ async def test_codex_window_is_read_by_thread_id(client, fakes65, session):
     assert host.codex_calls == [{"thread_id": thread, "account": "default"}]
     row = await session.get(UsageWindow, ("codex", "default", "primary"))
     assert row.source == "reported" and row.used == 0.0 and row.hours == 720
+    views = (await client.get("/subscriptions/windows", headers=ADMIN)).json()["accounts"]
+    codex = next(v for v in views if v["cli"] == "codex")
+    assert [(w["window"], w["label"]) for w in codex["windows"]] == [("primary", "30-day")]
 
 
 async def test_codex_limit_from_its_session_file(client, fakes65, session):
@@ -776,3 +779,14 @@ async def test_status_and_metrics_show_subscription_windows(client, fakes65, ses
     q = (await client.get("/metrics/quotas", headers=ADMIN)).json()
     sub = next(s for s in q["subscriptions"] if s["cli"] == "claude" and s["account"] == "default")
     assert sub["limit_hits_30d"] == 1 and sub["tightest"]["limited"] and "providers" in q
+
+
+def test_every_claude_run_states_its_sandbox_keys():
+    """Paperclip merges adapterConfig key by key: a run must say "no sandbox" explicitly, or a key left by an
+    earlier run (a level-3 attempt) would make every later run use bwrap (found live, docs/m65.md)."""
+    reg = load_agents()
+    for kind in ("read_only", "edit"):
+        spec = build_run(reg, reg.agents["claude-code"], kind, worktree="/w", task="t", budget_left_usd=1)
+        cfg = spec.adapter_config
+        assert cfg["filesystemScope"] is None and cfg["networkScope"] is None
+        assert cfg["networkAllowlist"] == []

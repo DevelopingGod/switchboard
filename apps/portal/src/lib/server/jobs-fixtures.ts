@@ -295,7 +295,15 @@ function seed(): JobsStore {
   for (let n = 22; n >= 1; n--) jobs.push(job(n, "done", { title: `Small fix ${n}: tidy imports`, agent: "opencode", agent_label: "OpenCode", agent_chain: ["opencode"], finished_at: at(n + 2), list_price_usd: 0, worktree: null }));
   return {
     projects: [project(1, "mathutils", "/home/you/code/mathutils", 2, 27), project(2, "notes-app", "/home/you/code/notes-app", 2, 3)],
-    agents: [claude, codex, opencode, reviewer, ...optional],
+    agents: [
+      claude,
+      codex,
+      opencode,
+      reviewer,
+      // M6.5: the paid-overflow agent (runs only after "Paid — up to $X")
+      agent("opencode-paid", "Paid overflow (OpenCode)", { cli: "opencode", paid: true, success: { done: 1, failed: 0, rate: 1 } }),
+      ...optional,
+    ],
     jobs,
     nextJob: 32,
     nextProject: 3,

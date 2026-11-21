@@ -15,12 +15,15 @@ import { agentAction } from "@/app/jobs/actions";
 import { usd } from "@/lib/job-format";
 import type { AgentRow, AgentsResponse, ProjectRow } from "@/lib/router-types";
 import { WindowMeter } from "./WindowMeter";
+import { tSubs } from "@/i18n/subscriptions";
 import { tJobs } from "@/i18n/jobs";
 import { usePrefs } from "@/lib/prefs";
 
 const AgentFormDialog = dynamic(() => import("./AgentFormDialog"), { ssr: false });
 
 function stateOf(a: AgentRow): { status: Status; label: string } {
+  // M6.5: the paid-overflow agent never takes jobs by itself; it runs only after "Paid — up to $X".
+  if (a.paid && !a.current_job) return { status: "offline", label: tSubs("job.paidAgentState") };
   if (!a.runnable) return { status: "offline", label: tJobs("fleet.notVerified") };
   if (!a.installed) return { status: "offline", label: tJobs("fleet.notInstalled") };
   if (a.logged_in === false) return { status: "warning", label: tJobs("fleet.loggedOut") };
@@ -71,6 +74,7 @@ function AgentCard({ a, onEdit, projects, pro }: { a: AgentRow; onEdit: () => vo
         </header>
 
         {a.role && <p className="line-clamp-2 text-sm text-ink-muted">{a.role}</p>}
+        {a.paid && <p className="text-sm text-ink-muted">{tSubs("job.paidAgentNote")}</p>}
         {a.note && !a.runnable && <p className="text-sm text-ink-muted">{a.note}</p>}
 
         {a.runnable && (

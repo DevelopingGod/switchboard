@@ -78,6 +78,8 @@ export const subsStrings = {
     cancel: "Cancel job",
     attempt: "Attempt {n}",
     paidBadge: "Paid",
+    paidAgentState: "Paid · only when you confirm",
+    paidAgentNote: "Runs a job on a paid model only after you confirm “Paid — up to $X”, when every subscription window is used up. Off until you turn it on in Settings → Paid overflow.",
     testBadge: "Test: free model",
     previewWaits: "Every agent's window is used up: the job waits until {at}, then starts by itself.",
     account: "Account",
