@@ -529,6 +529,8 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |
 | M5.5 | Content Studio (§8d): templates, voice profiles, drafts library, media pairing, export | A LinkedIn post + matching image created, versioned, exported; cost shown under "content" in Metrics |
 | M6 | Metrics dashboard | All three cost sources merged (deduped, demo excluded); breakdowns by provider/model/agent/rule/intent/project; quota burn-down; budgets with forecast; honest net savings; CSV export |
+| M6.5 | Subscription windows: usage-window awareness per subscription CLI, jobs that wait for a reset and resume, named accounts per provider (never rotated), opt-in paid overflow | Windows shown (reported or labelled estimate) on Agents, Status and Metrics; a limit-hit job resumes after the reset and survives restarts; no automatic switch between accounts (test); overflow off by default, confirmed "Paid" before running |
+| M2.5 | Attachments: files and images in chat (before M7) | Defined when planned |
 | M7 | OSS packaging | One-command setup on a fresh Windows+WSL machine; README with screenshots; MIT; CI lint/tests |
 
 ## 12. Verify before implementing (do not assume)

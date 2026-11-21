@@ -25,7 +25,9 @@
 | M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
-| M6 Metrics | ✅ Done (PR in review) | m6 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
+| M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
+| M6.5 Subscription windows | 🔜 In progress | m65 | Opus 5.5 | Usage windows per subscription CLI, jobs that wait for resets, named accounts (never rotated), opt-in paid overflow; M6 carry-overs |
+| M2.5 Attachments | ⏳ Next, before M7 | — | — | Files and images in chat; moved ahead of M7 (order M6.5 → M2.5 → M7) |
 | M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
 
 **MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
@@ -628,7 +630,7 @@ Ideas and later milestones, not scheduled. Additions only.
 - **Local compute optimizer:** multi-GPU and one Ollama instance per GPU (NVIDIA and an AMD iGPU), show the GPU-vs-RAM split of each loaded model, a fit advisor ("this model fits / spills to RAM"), and tuning in Settings → Local models. Builds on the profile options (`classifier_options`, `tasks_options`, `max_loaded`) and `scripts/measure-local.py`; a RAM check belongs here too (the small profile assumes ~3.5 GB free for the CPU models).
 - **Ollama Cloud** as a YAML provider (adapter: openai-compatible); check its free-tier terms first.
 - **Check Antigravity (Google)** as a provider.
-- **M2.5 Attachments** (files and images in chat).
+- **M2.5 Attachments** (files and images in chat): scheduled before M7 (order M6.5 → M2.5 → M7), see the status table.
 - **M4.5 Workflow packs** (SPEC §8a).
 - **M5 Studio:** no free Gemini images (see Gemini limits above), so local Stable Diffusion or paid Grok Imagine.
 - **M5.5 Content Studio** (SPEC §8d).

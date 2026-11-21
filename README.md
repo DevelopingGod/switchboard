@@ -367,10 +367,12 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | 🔜 | **M5** Studio | Image and video generation with cost confirmation |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
 | ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
+| 🔜 | **M6.5** Subscription windows | See each subscription's usage window, jobs that wait for a reset and continue, separate accounts for separate purposes, opt-in paid overflow |
+| 🔜 | **M2.5** Attachments | Files and images in chat (next, before M7) |
 | 🔜 | **M7** Packaging | One-command install, macOS and Linux, portal login, CI, a GitHub Pages site |
 <!-- roadmap:end -->
 
-💡 Ideas, unscheduled: file and image attachments in chat; more free providers as YAML (for example Cloudflare Workers AI);
+💡 Ideas, unscheduled: more free providers as YAML (for example Cloudflare Workers AI);
 a local-compute optimizer for multi-GPU machines. Details in [PROGRESS.md](docs/PROGRESS.md#future).
 
 ## FAQ
@@ -389,6 +391,13 @@ Switchboard tries to spend those first and keeps paid models behind your approva
 Only through each vendor's official CLI, and only for agent jobs, which you start and approve on the Jobs page.
 Switchboard and Paperclip never copy, read, move or write a CLI's login files, and never pass a subscription login to
 another tool.
+
+</details>
+
+<details>
+<summary>Does Switchboard rotate multiple accounts to get around limits?</summary>
+
+No — it falls back to other providers, resumes after resets, and can use paid overflow if you opt in.
 
 </details>
 
