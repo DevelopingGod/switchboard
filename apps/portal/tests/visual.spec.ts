@@ -1,6 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { atTop, inPro, ready, renderAllSections, settled, unstick, unstickComposer } from "./helpers";
 
+// Metrics fixtures are dated 21 Nov 2026; relative times ("today 11:15") need that "now" (M6).
+const METRICS_NOW = new Date("2026-11-21T12:00:00Z");
+
 /** Visual-regression baselines: every gallery section in both themes (default system-follow). */
 const sections = [
   "brand",
@@ -139,14 +142,31 @@ for (const scheme of ["light", "dark"] as const) {
       ["job-done", "/jobs/25"],
       ["agents", "/jobs/agents"],
       ["projects", "/settings/projects"],
+      // M6
+      ["metrics", "/metrics"],
+      ["metrics-today", "/metrics?range=today"],
+      ["metrics-empty", "/metrics?fixture=empty"],
     ] as const) {
       test(name, async ({ page }) => {
+        if (path.startsWith("/metrics")) await page.clock.setFixedTime(METRICS_NOW);
         await page.goto(path);
         await ready(page);
         await settled(page);
         await expect(page).toHaveScreenshot(`${name}-${scheme}.png`, { fullPage: true });
       });
     }
+
+    test("metrics · Pro", async ({ page }) => {
+      await page.clock.setFixedTime(METRICS_NOW);
+      await page.goto("/metrics");
+      await ready(page);
+      await page.getByRole("complementary", { name: "Sidebar" }).getByRole("radio", { name: "Pro" }).click();
+      await page.getByRole("region", { name: "Most valuable requests" }).getByRole("table").waitFor();
+      await page.getByRole("region", { name: "Budgets" }).getByRole("meter").first().waitFor();
+      await page.getByRole("region", { name: "Free quotas" }).getByRole("meter").first().waitFor();
+      await settled(page);
+      await expect(page).toHaveScreenshot(`metrics-pro-${scheme}.png`, { fullPage: true });
+    });
 
     test("job · run as job preview", async ({ page }) => {
       await page.goto("/jobs");

@@ -18,7 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -203,6 +203,9 @@ class Cost(Base):
     # and the request tag ("switchboard-demo") so Metrics (M6) can exclude demo traffic.
     external_id: Mapped[str | None] = mapped_column(String(128), unique=True)
     tag: Mapped[str | None] = mapped_column(String(64))
+    # M6: chat | media | job | aux (titles, summaries) | test (model tests) | external (other LiteLLM clients)
+    kind: Mapped[str | None] = mapped_column(String(16))
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
 
 
 class QuotaUsage(Base):
@@ -353,3 +356,48 @@ class AgentProfile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MetricsBucket(Base):
+    """One 15-minute bucket per dimension set (M6, ADR 0012), recomputed from the raw tables by
+    app.metrics.rollup whenever the bucket is marked dirty. '' / 0 = no value for a dimension."""
+
+    __tablename__ = "metrics_15m"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    provider: Mapped[str] = mapped_column(String(64), default="")
+    model: Mapped[str] = mapped_column(String(255), default="")
+    agent: Mapped[str] = mapped_column(String(64), default="")
+    rule_id: Mapped[str] = mapped_column(String(64), default="")
+    intent: Mapped[str] = mapped_column(String(32), default="")
+    project_id: Mapped[int] = mapped_column(Integer, default=0)
+    demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    ok: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[int] = mapped_column(Integer, default=0)
+    rate_limited: Mapped[int] = mapped_column(Integer, default=0)
+    timeouts: Mapped[int] = mapped_column(Integer, default=0)
+    fallbacks: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_in: Mapped[int] = mapped_column(BigInteger, default=0)
+    tokens_out: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[float] = mapped_column(Numeric(14, 6), default=0)
+    list_price_usd: Mapped[float] = mapped_column(Numeric(14, 6), default=0)
+    unpriced: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_done: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_failed: Mapped[int] = mapped_column(Integer, default=0)
+    thumbs_up: Mapped[int] = mapped_column(Integer, default=0)
+    thumbs_down: Mapped[int] = mapped_column(Integer, default=0)
+    lat_hist: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list)
+    ttft_hist: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list)
+
+
+class MetricsDirty(Base):
+    """Buckets waiting for the rollup: an append-only log filled by triggers (migration 0009)."""
+
+    __tablename__ = "metrics_dirty"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    marked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

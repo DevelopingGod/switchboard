@@ -73,7 +73,7 @@ Subscription CLIs talk directly to their vendors, so LiteLLM never sees that tra
 
 | Component | Role | Notes |
 |---|---|---|
-| **Portal** (build) | The single UI | Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + Recharts |
+| **Portal** (build) | The single UI | Next.js (App Router) + TypeScript + Tailwind + shadcn/ui; charts are hand-rolled SVG (ADR 0011, replaces Recharts for the JS budget) |
 | **Router API** (build) | Classify, apply rules, dispatch, log, connection checks | Python 3.12 + FastAPI + SQLAlchemy |
 | **LiteLLM Proxy** (reuse) | One OpenAI-compatible endpoint for all API-key models; fallbacks; image + video generation; spend tracking | Needs Postgres for spend logs. Admin API to add models/keys |
 | **Paperclip** (reuse) | Agent registry, tasks, approvals, budgets, run history | `npx paperclipai@latest onboard --yes`; UI/API on `:3100`. Node ≥ 24.11. Subscription CLIs need Python 3 + the CLI on host |
@@ -250,6 +250,7 @@ dial shows level 3 but can't land on it, with the reason next to it.
    - Health dot, quota remaining (where the provider exposes it), last error.
 5. **Rules** (`/settings/rules`, M3b) — Simple mode: the presets (active one, paid policy) and the tester; Pro mode: rule table + form editor, slash commands, classifier wording, weights/quota/summary/defaults, version history with diff and rollback. The tester ("try a message") shows the decision, the classifier's answer, the order targets would be tried, the reasons, the per-factor score breakdown and the runner-up, and includes unsaved changes.
 6. **Metrics** — date range filter; tokens and cost by provider / model / agent / rule; requests, errors, 429s, latency p50/p95; quota burn-down; media spend; Paperclip budget status; top expensive requests.
+   **Built in M6** (docs/m6.md, ADRs 0011/0012): `/metrics` in the viewer's time zone (Today / 7 days / 30 days). Simple: spent, value at API prices, net saved (after Settings → Subscriptions fees and spend), requests, jobs done, one-sentence insights, spend/value chart. Pro: breakdowns by provider / model / agent / rule / intent / project / kind, errors and fallbacks, latency p50/p95, quota burn-down with reset times, budgets with a straight-line forecast, 👍/👎 per model, job success per agent, most valuable requests (titles and job names only; private chats show "Private chat"), include-demo toggle. Every table exports CSV. Media spend arrives with M5.
 7. **Settings** — users/roles (admin, user), budgets, data-retention, export/import config.
 
 Design: calm "dreamy sky" glass (Day sky / Dusk), keyboard-first (⌘K command palette), mobile-friendly read-only. See §8c.
@@ -468,7 +469,8 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `rules_versions(id, created_at, source[edit|rollback|reset], note, rolled_back_to, base_sha, overrides jsonb)`: append-only history of override documents; the newest row is current; a rollback appends a copy (M3b)
 - `user_overrides(user_id, rule_id, json)`
 - `requests(id, user_id, kind[chat|media|job], prompt_hash, rule_id, target, fallbacks_tried_json, temperature, autonomy, private, status, latency_ms, created_at, thread_id, intent, model, model_catalog_id, ttft_ms, error, decision_json)`: the M2 columns record the deployment that answered and the full decision
-- `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd, list_price_usd)`: `cost_usd` counts toward caps (free-tier calls are $0); `list_price_usd` keeps the provider's price as "value" (M2)
+- `costs(request_id, source[litellm|paperclip|router], provider, model, tokens_in, tokens_out, units, cost_usd, list_price_usd)`: `cost_usd` counts toward caps (free-tier calls are $0); `list_price_usd` keeps the provider's price as "value" (M2); M4a/M6: `external_id` (unique: `litellm:<x-litellm-call-id>`, `paperclip-run:<id>`) dedupes every source, `tag` marks demo traffic, `kind[chat|media|job|aux|test|external]`, `job_id`
+- `metrics_15m(bucket_start, kind, provider, model, agent, rule_id, intent, project_id, demo, requests, ok, errors, rate_limited, timeouts, fallbacks, tokens_in, tokens_out, cost_usd, list_price_usd, unpriced, jobs_done, jobs_failed, thumbs_up, thumbs_down, lat_hist, ttft_hist)` and `metrics_dirty(bucket_start)`: 15-minute rollups recomputed from the raw tables when triggers mark a bucket dirty (M6, ADR 0012)
 - `threads(id uuid, title, title_source[none|words|local|user], private, created_at, updated_at, private_source, summary_json)`: `private` is sticky (M2). `private_source` is user | slash | auto | secret, and only `auto` can be overridden. `summary_json` holds the running summary of older turns (M3a)
 - `quota_usage(provider, scope_key, window[m|d], window_start, requests, tokens)`, `quota_headers(provider, scope_key, data, seen_at)`, `cooldowns(target, provider, code, reason, until)`: the quota guard and persisted cooldowns (M3a)
 - `messages(id, thread_id, role, content, status[streaming|done|stopped|error|notice|blocked], request_id, private, feedback, meta_json, created_at)`: reasoning text is never stored; `meta_json` holds the "Why this?" data (M2)
@@ -479,7 +481,7 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `provider_secrets(provider, ciphertext, last4, source, created_at, updated_at)` — the "encrypted secret store" above: Fernet with `SWITCHBOARD_SECRET_KEY`; never returned by the API (M1a)
 - `system_meta(key, value, updated_at)` — install facts, e.g. SHA-256 fingerprints of `SWITCHBOARD_SECRET_KEY` / `LITELLM_SALT_KEY` checked by `doctor.sh` (M1a)
 
-Metrics service pulls LiteLLM spend logs and Paperclip run/cost data on a schedule (and on webhook if available) and writes into `costs`, so all dashboards read one table.
+Metrics service pulls LiteLLM spend logs and Paperclip run/cost data on a schedule (and on webhook if available) and writes into `costs`, so all dashboards read one table. Built in M6: the router ingests LiteLLM `/spend/logs/v2` every 5 minutes (only calls it didn't record itself, deduped by call id); Paperclip run costs are written per run by the job engine (M4a).
 
 ## 10. Repo layout
 
@@ -526,7 +528,7 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |
 | M5.5 | Content Studio (§8d): templates, voice profiles, drafts library, media pairing, export | A LinkedIn post + matching image created, versioned, exported; cost shown under "content" in Metrics |
-| M6 | Metrics dashboard | All three cost sources merged; filters by provider/model/agent/rule; quota burn-down |
+| M6 | Metrics dashboard | All three cost sources merged (deduped, demo excluded); breakdowns by provider/model/agent/rule/intent/project; quota burn-down; budgets with forecast; honest net savings; CSV export |
 | M7 | OSS packaging | One-command setup on a fresh Windows+WSL machine; README with screenshots; MIT; CI lint/tests |
 
 ## 12. Verify before implementing (do not assume)

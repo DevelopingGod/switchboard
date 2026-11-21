@@ -1,0 +1,63 @@
+{
+ "_recorded": "LiteLLM v1.108.8, GET /spend/logs/v2 (sort_by=startTime), 2026-11-21; trimmed to the fields Switchboard reads",
+ "data": [
+  {
+   "request_id": "chatcmpl-c1180c6e-cb32-4945-ac9f-c67102a322b6",
+   "litellm_call_id": "sbtest-1795223808",
+   "call_type": "acompletion",
+   "status": "success",
+   "spend": 0.0,
+   "total_tokens": 15,
+   "prompt_tokens": 10,
+   "completion_tokens": 5,
+   "startTime": "2026-11-21T01:16:48.403+00:00",
+   "endTime": "2026-11-21T01:16:55.121+00:00",
+   "model": "ollama_chat/qwen3:4b-instruct-2507-q4_K_M",
+   "model_id": "sb-f854766ee03ce0176d61cffd",
+   "model_group": "local",
+   "custom_llm_provider": "ollama_chat",
+   "end_user": "sb-verify",
+   "request_tags": [
+    "sb-verify",
+    "User-Agent: curl",
+    "User-Agent: curl/8.5.0"
+   ],
+   "user": "default_user_id",
+   "metadata": {
+    "litellm_call_id": "sbtest-1795223808",
+    "user_agent": "curl/8.5.0"
+   }
+  },
+  {
+   "request_id": "8fccd8be-e2cc-454e-8e73-a4a3a71bc82d",
+   "litellm_call_id": "068b8ce8-fac2-46ec-beb5-3666b8d7c86d",
+   "call_type": "acompletion",
+   "status": "success",
+   "spend": 0.0,
+   "total_tokens": 61,
+   "prompt_tokens": 59,
+   "completion_tokens": 2,
+   "startTime": "2026-11-20T12:26:55.330+00:00",
+   "endTime": "2026-11-20T12:26:55.684+00:00",
+   "model": "ollama_chat/qwen3:4b-instruct-2507-q4_K_M",
+   "model_id": "sb-f854766ee03ce0176d61cffd",
+   "model_group": "local",
+   "custom_llm_provider": "ollama_chat",
+   "end_user": "switchboard-demo",
+   "request_tags": [
+    "switchboard-demo",
+    "User-Agent: python-httpx",
+    "User-Agent: python-httpx/0.28.1"
+   ],
+   "user": "default_user_id",
+   "metadata": {
+    "litellm_call_id": "068b8ce8-fac2-46ec-beb5-3666b8d7c86d",
+    "user_agent": "python-httpx/0.28.1"
+   }
+  }
+ ],
+ "total": 100,
+ "page": 1,
+ "page_size": 2,
+ "total_pages": 50
+}

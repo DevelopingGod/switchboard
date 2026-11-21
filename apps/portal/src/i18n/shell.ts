@@ -5,7 +5,7 @@ export const shellStrings = {
   footer: {
     label: "Status and links",
     links: "Links",
-    saved: "Value saved {amount}",
+    saved: "Free value {amount}",
     savedTip: "What today’s free-tier replies would have cost at list price.",
     quota: {
       ok: "Quota OK",

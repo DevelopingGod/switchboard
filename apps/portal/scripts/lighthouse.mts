@@ -39,6 +39,11 @@ const targets = [
   "/jobs/agents?theme=dark",
   "/settings/projects",
   "/settings/projects?theme=dark",
+  // M6
+  "/metrics",
+  "/metrics?theme=dark",
+  "/metrics?mode=pro",
+  "/metrics?mode=pro&theme=dark",
 ];
 const chrome =
   process.env.CHROME_PATH ?? join(homedir(), ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome");

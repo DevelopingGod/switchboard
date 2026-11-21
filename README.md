@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.6.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.7.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>
@@ -15,12 +15,12 @@
 <p align="center">
   <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo, about 80 seconds: ask a question on Home and get a real reply; open Why this? to see which model answered and why; start a private chat that a local model answers at once; look at Connections, where keys show only as dots; try a message in the Rules tester; then, on sample data, approve a job's plan, review its changes per file and approve them, and open the Agents page and the Hire agent dialog." width="860"></a>
   <br>
-  <sub>Real replies, recorded on a separate demo profile, in real time; the jobs part uses labelled sample data. <a href="docs/media/demo.mp4">Watch the MP4</a> · <a href="docs/recording-the-demo.md">how it was recorded</a></sub>
+  <sub>Real replies, recorded on a separate demo profile, in real time; the jobs and Metrics parts use labelled sample data. <a href="docs/media/demo.mp4">Watch the MP4</a> · <a href="docs/recording-the-demo.md">how it was recorded</a></sub>
 </p>
 
 > **Status: early, and honest about it.** Chat, routing, the Rules editor, Connections and agent jobs (agents that
-> plan and edit a copy of your repo while you approve each step) work today; image and video Studio and Metrics are
-> not built yet. Those are marked *coming in Mx* below. Developed and tested on one Windows 11 + WSL2
+> plan and edit a copy of your repo while you approve each step) and a Metrics dashboard work today; image and
+> video Studio is not built yet. Those are marked *coming in Mx* below. Developed and tested on one Windows 11 + WSL2
 > machine, so expect rough edges.
 
 ## Why Switchboard
@@ -262,7 +262,7 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-agents-dusk.webp">
-        <img src="docs/media/shot-agents-day.webp" alt="The Agents page: one card per agent with its status, current job, success rate, today's budget dial and monthly cost, and Pause, Edit and Hire agent buttons.">
+        <img src="docs/media/shot-agents-day.webp" alt="The Agents page: one card per agent with its status, current job, success rate, a monthly budget dial (No cap when none is set), today's spend and Pause, Edit and Hire agent buttons.">
       </picture>
       <br><sub><b>Your agent fleet.</b> Hire agents from Claude Code, Codex or OpenCode with a role, model, budget and allowed projects; pause or edit them.</sub>
     </td>
@@ -281,6 +281,25 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
         <img src="docs/media/shot-job-diff-day.webp" alt="The changes of a job, per file, with added lines highlighted and an Approve and commit button.">
       </picture>
       <br><sub><b>Review every change.</b> Per-file diffs, the live log, cost (or "cost not reported"), and the branch with plain merge instructions.</sub>
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-metrics-dusk.webp">
+        <img src="docs/media/shot-metrics-day.webp" alt="Metrics in Simple mode: Today, 7 days and 30 days; five numbers (spent, value at API prices, net saved after subscriptions, requests, jobs done), short insights such as Groq handled 62% of your chats for free, and a spend and value bar chart.">
+      </picture>
+      <br><sub><b>Metrics.</b> Chat, agent jobs and every LiteLLM call in one place, counted once. Net saved is after your subscription fees, never just list price.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-metrics-pro-dusk.webp">
+        <img src="docs/media/shot-metrics-pro-day.webp" alt="Metrics in Pro mode: free quota dials per provider with reset times, budget dials with a forecast such as at this rate you'll reach it today 12:30, and a feedback-by-model table.">
+      </picture>
+      <br><sub><b>Pro view.</b> Breakdowns by provider, model, agent, rule, intent and project; errors, latency, quotas and budget forecasts. Every chart has a table view and CSV export.</sub>
     </td>
   </tr>
 </table>
@@ -347,7 +366,7 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand |
 | 🔜 | **M5** Studio | Image and video generation with cost confirmation |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
-| 🔜 | **M6** Metrics | One dashboard for tokens, cost, quota burn-down and errors |
+| ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
 | 🔜 | **M7** Packaging | One-command install, macOS and Linux, portal login, CI, a GitHub Pages site |
 <!-- roadmap:end -->
 

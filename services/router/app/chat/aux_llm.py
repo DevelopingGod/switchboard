@@ -13,7 +13,7 @@ import logging
 
 import httpx
 
-from app import local_profile, local_queue, ollama
+from app import litellm_calls, local_profile, local_queue, ollama
 
 log = logging.getLogger("app.chat.aux")
 
@@ -71,8 +71,15 @@ async def generate(
         "temperature": temperature,
         "disable_fallbacks": True,
     }
+    litellm_calls.tag_body(body)
     try:
-        r = await litellm.post("/v1/chat/completions", json=body, timeout=timeout)
+        # An sb-aux id: Metrics counts this call once, as a router task (title or summary), M6.
+        r = await litellm.post(
+            "/v1/chat/completions",
+            json=body,
+            timeout=timeout,
+            headers=litellm_calls.headers(litellm_calls.new_id("aux")),
+        )
         if r.status_code >= 400:
             return None, None
         text = ollama.THINK.sub("", r.json()["choices"][0]["message"].get("content") or "").strip()

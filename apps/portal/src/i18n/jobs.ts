@@ -209,6 +209,8 @@ export const jobsStrings = {
     todayText: "{used} of {cap} list price",
     budgetMonth: "Monthly budget",
     noMonthly: "No monthly cap",
+    noCap: "No cap",
+    monthOf: "{used} of {cap} list price this month",
     pause: "Pause",
     resume: "Resume",
     edit: "Edit",

@@ -25,7 +25,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import credits, db, local_profile, model_test, quota, secrets
+from app import credits, db, litellm_calls, local_profile, model_test, quota, secrets
 from app.chat import aux_llm, summary
 from app.chat.dispatch import (
     Delta,
@@ -534,6 +534,7 @@ class _TurnState:
         self.t0 = time.perf_counter()
         self.chosen: Candidate | None = None
         self.served: str | None = None
+        self.call_id: str | None = None  # the answering attempt's LiteLLM call id (M6 dedupe)
         self.usage: dict[str, Any] | None = None
         self.parts: list[str] = []
         self.ttft_ms: int | None = None
@@ -550,6 +551,7 @@ class _TurnState:
     def on(self, ev: object, ctx: Context) -> list[str]:
         if isinstance(ev, Route):
             self.chosen, self.served, self.usage = ev.candidate, None, None
+            self.call_id = ev.call_id
             c = ev.candidate
             return [
                 sse(
@@ -713,6 +715,9 @@ async def _finalize(
                 tokens_out=tout,
                 cost_usd=cost,
                 list_price_usd=list_price,
+                external_id=litellm_calls.external_id(st.call_id) if st.call_id else None,
+                tag=get_settings().router_request_tag or None,
+                kind=req.kind,
             )
         )
         if credits.is_credits(p):

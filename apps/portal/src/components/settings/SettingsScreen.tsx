@@ -6,6 +6,7 @@ import Link from "next/link";
 import { RotateCcw } from "lucide-react";
 import { ErrorNote } from "@/components/kit/ErrorNote";
 import type { LocalProfileView, Preset, SettingsView } from "@/lib/router-types";
+import type { SubscriptionItem } from "@/lib/metrics-types";
 import { tSet } from "@/i18n/settings";
 import { Section } from "./Section";
 
@@ -19,8 +20,9 @@ const JobsSection = dynamic(() => import("./JobsSection"));
 const RoutingSection = dynamic(() => import("./RoutingSection"));
 const LocalModelsSection = dynamic(() => import("./LocalModelsSection"));
 const DataSection = dynamic(() => import("./DataSection"));
+const SubscriptionsSection = dynamic(() => import("./SubscriptionsSection"));
 
-const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "jobs", "data", "setup"] as const;
+const SECTIONS = ["profile", "goals", "appearance", "privacy", "routing", "local", "budgets", "subscriptions", "jobs", "data", "setup"] as const;
 
 export interface SettingsData {
   name: string;
@@ -31,6 +33,8 @@ export interface SettingsData {
   spentToday: number | null;
   /** M3a: null when the router or Ollama can't be asked. */
   localProfile: LocalProfileView | null;
+  /** M6: plans you pay for (null when the router can't be asked). */
+  subscriptions: SubscriptionItem[] | null;
   /** Router unreachable: router-backed sections show a plain error instead. */
   routerCode: string | null;
 }
@@ -86,6 +90,13 @@ export function SettingsScreen({ data }: { data: SettingsData }) {
             <BudgetsSection settings={data.settings} spentToday={data.spentToday} />
           ) : (
             <Section id="budgets" title={tSet("section.budgets")}>{down}</Section>
+          )}
+        </div>
+        <div>
+          {data.subscriptions ? (
+            <SubscriptionsSection items={data.subscriptions} />
+          ) : (
+            <Section id="subscriptions" title={tSet("section.subscriptions")}>{down}</Section>
           )}
         </div>
         <div>
