@@ -13,13 +13,12 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
-from app import secrets
-from app.config import get_settings
+from app import litellm_calls, secrets
 from app.routing.engine import Candidate, Decision, Skip
 from app.routing.health import CREDIT_S, ERROR_S, NOT_FOUND_S, RATE_LIMIT_S, TIMEOUT_S, Cooldowns
 
@@ -30,6 +29,8 @@ INJECTED_TIMEOUT_S = 0.05
 @dataclass
 class Route:
     candidate: Candidate
+    # Sent as x-litellm-call-id; the turn's costs row uses it as external_id (M6 dedupe, ADR 0012).
+    call_id: str = field(default_factory=lambda: litellm_calls.new_id("chat"))
 
 
 @dataclass
@@ -183,6 +184,7 @@ async def _stream_one(
     messages: list[dict[str, str]],
     cancel: asyncio.Event,
     fault: Fault | None,
+    call_id: str,
 ) -> AsyncIterator[object]:
     read_timeout = cand.timeout
     if fault and fault.target == cand.target:
@@ -198,14 +200,13 @@ async def _stream_one(
         "temperature": dec.temperature,
         "max_tokens": cand.max_tokens,
     }
-    tag = get_settings().router_request_tag
-    if tag:  # demo recordings: LiteLLM spend logs carry it so Metrics can exclude them
-        body["user"] = tag
-        body["metadata"] = {"tags": [tag]}
+    litellm_calls.tag_body(body)  # demo recordings: spend logs carry the tag so Metrics can exclude them
     timeout = httpx.Timeout(connect=5, read=read_timeout, write=10, pool=5)
     splitter = ThinkSplitter()
     try:
-        async with client.stream("POST", "/v1/chat/completions", json=body, timeout=timeout) as r:
+        async with client.stream(
+            "POST", "/v1/chat/completions", json=body, timeout=timeout, headers=litellm_calls.headers(call_id)
+        ) as r:
             rate = {k: v for k, v in r.headers.items() if "ratelimit" in k.lower()}
             if r.status_code >= 400:
                 raw = (await r.aread()).decode(errors="replace")
@@ -266,10 +267,11 @@ async def dispatch(
     """Yields Route, Fallback, Thinking, Delta, Served, Usage, RateHeaders, then ends; or Failed /
     Exhausted."""
     for i, cand in enumerate(dec.candidates):
-        yield Route(cand)
+        route = Route(cand)
+        yield route
         committed = False
         try:
-            async for ev in _stream_one(client, cand, dec, messages, cancel, fault):
+            async for ev in _stream_one(client, cand, dec, messages, cancel, fault, route.call_id):
                 if isinstance(ev, Delta):
                     committed = True
                 yield ev

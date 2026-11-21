@@ -120,7 +120,7 @@ def month_start() -> datetime:
 async def agent_spent_since(session: AsyncSession, agent_id: str, since: datetime) -> float:
     total = await session.scalar(
         select(func.coalesce(func.sum(Cost.list_price_usd), 0))
-        .join(Job, Job.request_id == Cost.request_id)
+        .join(Job, Job.id == Cost.job_id)
         .where(Cost.source == "paperclip", Cost.created_at >= since, Job.agent == agent_id)
     )
     return float(total or 0)
@@ -771,6 +771,8 @@ async def _record(
                 list_price_usd=out.list_price_usd,
                 external_id=ext,
                 tag=job.tag,
+                kind="job",
+                job_id=job.id,
                 created_at=now(),
             )
             .on_conflict_do_nothing(index_elements=["external_id"])

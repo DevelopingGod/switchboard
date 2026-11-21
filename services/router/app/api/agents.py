@@ -74,7 +74,7 @@ async def _stats(session: AsyncSession) -> dict[str, dict[str, Any]]:
                 func.coalesce(func.sum(Cost.list_price_usd), 0),
                 func.coalesce(func.sum(Cost.cost_usd), 0),
             )
-            .join(Job, Job.request_id == Cost.request_id)
+            .join(Job, Job.id == Cost.job_id)
             .where(Cost.source == "paperclip", Cost.created_at >= jobs.month_start())
             .group_by(Job.agent)
         )

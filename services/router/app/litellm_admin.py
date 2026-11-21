@@ -16,6 +16,7 @@ from typing import Any
 
 import httpx
 
+from app import litellm_calls
 from app.config import get_settings
 
 MANAGED_BY = "switchboard"
@@ -128,7 +129,13 @@ class LiteLLMAdmin:
     async def chat(self, model: str, timeout: float = 60) -> str | None:
         """1-token call through LiteLLM; returns the deployment that served it (header), not the alias."""
         body = {"model": model, "max_tokens": 16, "messages": [{"role": "user", "content": "Reply: pong"}]}
-        r = await self._client.post("/v1/chat/completions", json=body, timeout=timeout)
+        litellm_calls.tag_body(body)
+        r = await self._client.post(
+            "/v1/chat/completions",
+            json=body,
+            timeout=timeout,
+            headers=litellm_calls.headers(litellm_calls.new_id("test")),
+        )
         if r.status_code >= 400:
             raise LiteLLMError(f"LiteLLM chat {model} -> {r.status_code}: {r.text[:200]}")
         return r.headers.get("x-litellm-model-name") or r.json().get("model")

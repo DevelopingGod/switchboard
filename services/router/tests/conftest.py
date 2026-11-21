@@ -77,7 +77,7 @@ def database():
 TABLES = (
     "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
     "costs, requests, quota_usage, cooldowns, quota_headers, rules_versions, job_events, jobs, projects, "
-    "agent_profiles"
+    "agent_profiles, metrics_15m, metrics_dirty"
 )
 
 
@@ -119,6 +119,10 @@ class FakeLiteLLM:
         self.title = "Centering a div in CSS"
         self.title_status = 200
         self.on_stream_chunk = None  # hook called between chunks (stop test)
+        # M6: x-litellm-call-id of every chat call, and the spend-log rows GET /spend/logs/v2 pages through
+        self.call_ids: list[str | None] = []
+        self.spend_logs: list[dict] = []
+        self.spend_down = False
 
     def install(self, mock: respx.MockRouter) -> None:
         base = "http://litellm.test"
@@ -132,6 +136,7 @@ class FakeLiteLLM:
         mock.post(f"{base}/model/delete").mock(side_effect=self.model_delete)
         mock.patch(url__regex=rf"{base}/model/.+/update").mock(side_effect=self.model_update)
         mock.post(f"{base}/v1/chat/completions").mock(side_effect=self.chat)
+        mock.get(f"{base}/spend/logs/v2").mock(side_effect=self.spend_page)
 
     def _auth(self, request: httpx.Request) -> bool:
         return request.headers.get("authorization") == "Bearer sk-master-test"
@@ -252,6 +257,7 @@ class FakeLiteLLM:
 
     def chat(self, request):
         body = json.loads(request.content)
+        self.call_ids.append(request.headers.get("x-litellm-call-id"))
         if body.get("stream"):
             return self.stream(body)
         alias = body["model"]
@@ -267,6 +273,25 @@ class FakeLiteLLM:
             200,
             json={"model": alias, "choices": [{"message": {"content": "pong"}}]},
             headers={"x-litellm-model-name": served},
+        )
+
+    def spend_page(self, request):
+        """Like v1.108.8: start/end filter on startTime, sorted ascending, `page` from 1."""
+        if self.spend_down:
+            raise httpx.ConnectError("connection refused")
+        q = request.url.params
+        lo, hi = q["start_date"], q["end_date"]
+        size, page = int(q.get("page_size", 50)), int(q.get("page", 1))
+
+        def key(r):
+            return r["startTime"][:19].replace("T", " ")
+
+        rows = sorted((r for r in self.spend_logs if lo <= key(r) <= hi), key=key)
+        pages = max(1, -(-len(rows) // size))
+        chunk = rows[(page - 1) * size : page * size]
+        return httpx.Response(
+            200,
+            json={"data": chunk, "total": len(rows), "page": page, "page_size": size, "total_pages": pages},
         )
 
     def stream(self, body: dict):

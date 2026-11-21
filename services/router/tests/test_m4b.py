@@ -254,7 +254,13 @@ async def test_paused_disallowed_and_monthly_budget_agents_are_skipped(client, f
     await client.post(f"/jobs/{earlier['id']}/stop", headers=ADMIN)
     session.add(
         Cost(
-            request_id=earlier["request_id"], source="paperclip", list_price_usd=1.5, cost_usd=0, provider="x"
+            request_id=earlier["request_id"],
+            job_id=earlier["id"],  # as jobs._record writes it (M6: costs join their job by id)
+            source="paperclip",
+            kind="job",
+            list_price_usd=1.5,
+            cost_usd=0,
+            provider="x",
         )
     )
     await session.commit()

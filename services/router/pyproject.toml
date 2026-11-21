@@ -50,3 +50,6 @@ known-third-party = ["alembic"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/*" = ["S105", "S106", "S310", "F811"]  # F811: fixtures imported from other test modules
+# SQL text built only from module constants and whitelisted column names (queries.DIMS); values are bound.
+"app/metrics/queries.py" = ["S608"]
+"alembic/versions/*" = ["S608"]

@@ -11,9 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import db, fleet, jobs, local_profile, secrets, sync
 from app.api import agents, catalog, chat, connections, health, onboarding, projects, rules, settings, system
 from app.api import jobs as jobs_api
+from app.api import metrics as metrics_api
 from app.catalog.job import run_forever
 from app.config import get_settings
 from app.litellm_admin import LiteLLMAdmin
+from app.metrics import ingest_litellm, rollup
 from app.registry import load_registry
 from app.routing import classifier
 from app.routing.health import cooldowns
@@ -52,8 +54,12 @@ async def lifespan(app: FastAPI):
             tasks.append(asyncio.create_task(run_forever(db.sessionmaker(), s.catalog_interval_s)))
             # M4a: agent jobs (ADR 0007). Only the main router runs them (never the demo router).
             tasks.append(asyncio.create_task(jobs.loop()))
+            # M6: LiteLLM calls the router didn't record (LiteLLM is shared with the demo router: main only).
+            tasks.append(asyncio.create_task(ingest_litellm.run_forever()))
         else:
             log.info("ROUTER_SYNC_ENABLED=false: no LiteLLM sync and no catalog refresh from this router")
+        # M6: 15-minute Metrics rollups of this router's own database.
+        tasks.append(asyncio.create_task(rollup.run_forever()))
     yield
     for t in tasks:
         t.cancel()
@@ -81,3 +87,4 @@ app.include_router(rules.router)
 app.include_router(projects.router)
 app.include_router(agents.router)
 app.include_router(jobs_api.router)
+app.include_router(metrics_api.router)
