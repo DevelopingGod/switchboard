@@ -57,13 +57,18 @@ def covered_upto(thread: Thread, before_id: int | None = None) -> int:
     return upto
 
 
-def build_history(thread: Thread, msgs: list[Message], before_id: int | None = None) -> list[dict[str, str]]:
+def build_history(thread: Thread, msgs: list[Message], before_id: int | None = None) -> list[dict[str, Any]]:
     """Prompt history: the summary note (if any) then every sendable message it doesn't cover."""
     upto = covered_upto(thread, before_id)
     out: list[dict[str, str]] = []
     if upto and (thread.summary_json or {}).get("text"):
         out.append({"role": "system", "content": NOTE + thread.summary_json["text"]})  # type: ignore[index]
-    out += [{"role": m.role, "content": m.content} for m in msgs if m.id > upto and _sendable(m)]
+    # `_mid` (user messages): the chat service adds that message's attachments (M2.5); dropped before sending
+    out += [
+        {"role": m.role, "content": m.content, **({"_mid": m.id} if m.role == "user" else {})}
+        for m in msgs
+        if m.id > upto and _sendable(m)
+    ]
     return out
 
 

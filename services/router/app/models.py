@@ -159,7 +159,8 @@ class Request(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(Integer)
-    kind: Mapped[str] = mapped_column(String(16))  # chat | media | job
+    # chat | media | job; M2.5: aux (a title or summary) | test (a model test), for the Activity log only
+    kind: Mapped[str] = mapped_column(String(16))
     prompt_hash: Mapped[str | None] = mapped_column(String(64))
     rule_id: Mapped[str | None] = mapped_column(String(64))
     target: Mapped[str | None] = mapped_column(String(255))
@@ -180,6 +181,8 @@ class Request(Base):
     ttft_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     decision_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # M2.5: the LiteLLM call id of an aux/test call (its cost row arrives from the spend-log ingester)
+    call_id: Mapped[str | None] = mapped_column(String(80))
 
 
 class Cost(Base):
@@ -444,3 +447,33 @@ class MetricsDirty(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     marked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Attachment(Base):
+    """A file attached to a chat message or a job (M2.5, ADR 0016). The bytes live on disk
+    (app/attachments/store.py), never in the DB. `status`: staged (uploaded, not sent) | bound."""
+
+    __tablename__ = "attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("threads.id", ondelete="CASCADE"), index=True
+    )
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="staged")
+    sha256: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(160))
+    kind: Mapped[str] = mapped_column(String(16))  # image | pdf | text
+    mime: Mapped[str] = mapped_column(String(64))
+    bytes: Mapped[int] = mapped_column(BigInteger)
+    code: Mapped[bool] = mapped_column(Boolean, default=False)
+    pages: Mapped[int | None] = mapped_column(Integer)
+    pages_read: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    text_chars: Mapped[int] = mapped_column(Integer, default=0)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    secret_kinds: Mapped[list[Any]] = mapped_column(default=list)
+    note: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

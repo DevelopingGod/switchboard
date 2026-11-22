@@ -17,7 +17,8 @@ from app.config import get_settings
 PaidPolicy = Literal["never", "manual", "allowed"]
 PRESETS = ("free", "balanced", "best")
 DEFAULT_PRESET = "balanced"
-WHEN_KEYS = {"private", "intent", "size", "quality", "command"}
+WHEN_KEYS = {"private", "intent", "size", "quality", "command", "attachment"}
+ATTACHMENT_WHEN = {"image", "long"}  # M2.5: `when: {attachment: image | long}`
 FACT_KEYS = {"intent", "size", "quality", "sensitive"}
 INTENTS = {"chat", "code", "research", "writing", "image", "video", "audio"}
 SENSITIVE = {"health", "finance", "legal", "personal"}
@@ -162,6 +163,10 @@ def parse(data: dict[str, Any]) -> RuleSet:
         bad = set(when) - WHEN_KEYS
         if bad:
             raise ValueError(f"rule {r.get('id')}: unknown `when` keys {sorted(bad)}")
+        if "attachment" in when and (when["attachment"] not in ATTACHMENT_WHEN or len(when) != 1):
+            raise ValueError(
+                f"rule {r.get('id')}: `attachment` must be one of {sorted(ATTACHMENT_WHEN)}, on its own"
+            )
         rules.append(
             Rule(
                 id=str(r["id"]),

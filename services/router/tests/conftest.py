@@ -77,8 +77,18 @@ def database():
 TABLES = (
     "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
     "costs, requests, quota_usage, cooldowns, quota_headers, rules_versions, job_events, jobs, projects, "
-    "agent_profiles, metrics_15m, metrics_dirty, cli_accounts, usage_windows"
+    "agent_profiles, metrics_15m, metrics_dirty, cli_accounts, usage_windows, attachments"
 )
+
+
+@pytest.fixture(autouse=True)
+def data_dir(tmp_path, monkeypatch):
+    """Each test gets its own attachments folder (M2.5)."""
+    from app.config import get_settings
+
+    d = tmp_path / "data"
+    monkeypatch.setattr(get_settings(), "data_dir", d)
+    return d
 
 
 @pytest.fixture(autouse=True)

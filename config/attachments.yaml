@@ -1,0 +1,46 @@
+# Attachments in chat and jobs (M2.5, SPEC §8, ADR 0016). Read by the Router API, re-read when the file changes.
+#
+# The type of a file is decided by its bytes (magic numbers), never by its name; the extension must agree with
+# what the bytes say. Archives, executables, HTML and SVG are refused. Nothing is ever executed.
+
+limits:
+  max_file_mb: 10              # per file
+  max_files_per_message: 5
+  max_pdf_pages: 50            # text is read from the first N pages; the rest is left out (and said so)
+  max_text_chars: 200000       # per text file or PDF extract (about 50k tokens)
+  max_image_px: 2048           # longest edge; larger images are scaled down before storing (fewer tokens)
+  max_image_pixels: 40000000   # decompression-bomb guard: refuse images with more pixels than this
+
+kinds:
+  image:
+    mimes: [image/png, image/jpeg, image/webp, image/gif]
+    extensions: [png, jpg, jpeg, webp, gif]
+  pdf:
+    mimes: [application/pdf]
+    extensions: [pdf]
+  text:
+    # UTF-8 text without NUL bytes. `code` files also set the request's intent to code.
+    extensions: [txt, md, markdown, csv, tsv, json, jsonl, yaml, yml, toml, xml, log, ini, cfg, conf]
+    code: [py, js, mjs, cjs, ts, tsx, jsx, go, rs, java, kt, c, h, cc, cpp, hpp, cs, rb, php, swift, scala,
+           sh, bash, zsh, sql, css, scss, lua, r, dart, ex, exs, hs, ml, vue, svelte, tf, dockerfile,
+           makefile, gradle, proto, graphql]
+
+routing:
+  # An attachment estimate above this many tokens counts as a "long document" (prefers long-context models).
+  long_document_tokens: 12000
+  # Images are resent with the most recent N image-bearing user turns; older images become a short note.
+  history_images: 1
+
+storage:
+  staging_ttl_h: 24            # uploads never sent are removed after this long
+
+# Image token accounting per provider, where the provider documents it (from the Gemini and xAI image docs;
+# re-check when a provider changes its pricing page).
+# Anything not listed gets the `default` estimate and is labelled "estimate" in the UI.
+#   tiles: the image is scaled to fit `fit` px (if set), cut into `tile` px squares; tokens = base + per_tile × n
+#   fixed: every image costs `tokens`
+#   area:  tokens = width × height / `divisor`
+image_tokens:
+  gemini: { method: tiles, tile: 768, per_tile: 258, small_edge: 384, small_tokens: 258 }
+  xai: { method: tiles, tile: 448, per_tile: 256, base: 0 }
+  default: { method: area, divisor: 750 }

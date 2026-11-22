@@ -123,8 +123,10 @@ async def compute(session: AsyncSession, start: datetime) -> dict[Key, Acc]:
             votes[rid] = (int(up), int(down))
     seen: set[int] = set()
     for r, c in reqs:
-        if r.kind == "job":
-            continue  # a job's own request row; its runs are counted from costs below
+        if r.kind in ("job", "aux", "test"):
+            # a job's own request row (its runs are counted from costs below); titles, summaries and model
+            # tests (M2.5 Activity rows) are counted from their cost rows in step 2, as before
+            continue
         tag = (r.decision_json or {}).get("tag") if isinstance(r.decision_json, dict) else None
         provider = (
             c.provider if c is not None else ((r.decision_json or {}).get("chip") or {}).get("provider")

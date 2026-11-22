@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from app.registry import Registry
@@ -87,6 +87,20 @@ class RouteRequest:
     # M4a: "Think harder" for this message. Local chat answers with the profile's fast, non-thinking
     # model; this switches the local aliases to `local-think` (the profile's `thinker`, ADR 0006).
     think: bool = False
+    # M2.5 attachments (app/attachments): an image needs a model tagged `vision`; a long document prefers
+    # `long-context`; a code file makes the request a code request. `attachment_tokens` is the estimate the
+    # composer shows; it counts toward the context window, the caps and the quota guard.
+    needs_vision: bool = False
+    long_document: bool = False
+    code_files: bool = False
+    attachment_tokens: int = 0
+
+
+VISION_ALIAS = "local-vision"  # the profile's vision model: images in a private chat (M2.5)
+NO_LOCAL_VISION = (
+    "This private chat has an image, and no model on this machine can read images. Remove the image, or pull "
+    "a vision model in Settings → Local models. Private images are never sent to the cloud."
+)
 
 
 # Local aliases that "Think harder" switches to the thinking model (config/local-models.yaml `thinker`).
@@ -161,6 +175,12 @@ class Decision:
     think: bool = False  # M4a: "Think harder" asked for this message
     # M4a: the rule's agents in order, for a job (POST /jobs). Chat still answers; nothing starts on its own.
     job_agents: list[dict[str, Any]] = field(default_factory=list)
+    # M2.5: what the attachments asked for ({vision, long_document, code, tokens}); None without attachments
+    attachments: dict[str, Any] | None = None
+
+    @property
+    def needs_vision(self) -> bool:
+        return bool(self.attachments and self.attachments.get("vision"))
 
     @property
     def blocked_by_budget(self) -> bool:
@@ -190,6 +210,7 @@ class Decision:
             "classifier": self.classifier,
             "sensitive": self.sensitive,
             "think": self.think,
+            "attachments": self.attachments,
             "job": (
                 {"agents": self.job_agents, "autonomy": self.autonomy, "suggested": self.job_suggested}
                 if self.job_agents
@@ -284,6 +305,15 @@ class _Resolver:
                 )
             return None
         entry = self.ctx.entry(first.provider, first.model)
+        if alias == VISION_ALIAS and entry is None:
+            # The profile names a vision model that isn't pulled (Ollama's catalog doesn't list it).
+            self.skip(
+                target,
+                label,
+                "not_configured",
+                f"{first.model} isn't downloaded yet (Settings → Local models)",
+            )
+            return None
         live_first = live[0]
         return Candidate(
             target=target,
@@ -438,8 +468,17 @@ class _Resolver:
         return []
 
     # --- policy filters ------------------------------------------------------------------------
+    def _has_tag(self, c: Candidate, tag: str) -> bool:
+        entry = next((e for e in self.ctx.catalog if e.id == c.catalog_id), None)
+        if entry is None and c.model_id:
+            entry = self.ctx.entry(c.provider, c.model_id)
+        return entry is not None and tag in entry.tags
+
     def _viable(self, c: Candidate) -> bool:
         dec, ctx = self.dec, self.ctx
+        if dec.needs_vision and not self._has_tag(c, "vision"):
+            self.skip(c.target, c.label, "needs_vision", "Can't read images (this message has an image)")
+            return False
         if dec.private and not c.local:
             why = (
                 "your pick was not used" if self.manual and c.position == 0 else "only models on this machine"
@@ -482,6 +521,30 @@ class _Resolver:
             return False
         if manual_pick and u.fraction >= cfg.reroute_at:
             c.quota_note = f"{c.label} {u.describe()}"
+        return self._fits_tokens(c, limit)
+
+    def _fits_tokens(self, c: Candidate, limit: float) -> bool:
+        """M2.5: a message with large attachments may not fit what is left of a token window, even when the
+        window isn't near its limit yet: count this request's estimate before sending."""
+        q = self.ctx.quota
+        need = (self.dec.attachments or {}).get("tokens") or 0
+        if not q or not need or not c.model_id:
+            return True
+        for w in q.windows(c.provider, c.model_id):
+            if (
+                w.kind == "tokens"
+                and w.limit
+                and w.used + need + tokens(len(self.dec.prompt)) > w.limit * limit
+            ):
+                self.skip(
+                    c.target,
+                    c.label,
+                    "quota",
+                    f"This message (≈{need:,} tokens with attachments) would go over the {w.window} "
+                    f"token limit ({w.used:,} of {w.limit:,} used)",
+                )
+                self.over_quota.add(c.target)
+                return False
         return True
 
     def _budget(self, c: Candidate) -> bool:
@@ -533,6 +596,9 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
     command, prompt = parse_slash(req.text.strip(), rules)
     private = req.private or command == "private"
     intent = req.classified or heuristics.detect(prompt)
+    if req.code_files and not req.needs_vision and intent.intent in ("chat", "writing", "research"):
+        # M2.5: an attached code file makes it a code question (the code rule), unless an image needs vision.
+        intent = replace(intent, intent="code", size="small", cue="code file attached")
     # SPEC §7.1: a manual pick beats a slash command (still stripped; /private still applies).
     manual = req.target not in ("", "auto")
 
@@ -568,6 +634,10 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
         facts = {"intent": intent.intent, "size": intent.size, "quality": intent.quality, "private": False}
         rule = pick_rule(rules, facts)
         matched_by = "default" if rule.id == "default" else "intent"
+        # M2.5 hard rules (SPEC §7.1 step 2): an image needs a vision model, a long document a long context.
+        att = _attachment_rule(rules, req)
+        if att is not None:
+            rule, matched_by = att, "attachment"
     assert rule is not None
     # A private request always follows the private rule, whatever the slash command said.
     if private and rule.id != "private" and not manual:
@@ -600,25 +670,42 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
         preset=rules.preset,
         job_suggested=rule.job and not manual,
         media=media_kind,
-        context_tokens=tokens(req.context_chars) if req.context_chars else 0,
+        context_tokens=(tokens(req.context_chars) if req.context_chars else 0) + req.attachment_tokens,
         classifier=req.classifier_info,
         sensitive=sensitive,
         explore=ctx.explore,
         weights=dict(rules.recommender.weights),
     )
+    if req.needs_vision or req.long_document or req.code_files or req.attachment_tokens:
+        dec.attachments = {
+            "vision": req.needs_vision,
+            "long_document": req.long_document,
+            "code": req.code_files,
+            "tokens": req.attachment_tokens,
+        }
     if media_kind and not manual:
         return dec
 
     dec.think = req.think
     r = _Resolver(ctx, dec, manual, req.think)
+    private_chain = (rules.get("private") or rules.get("default")).chain  # type: ignore[union-attr]
+    if private and req.needs_vision:
+        # M2.5: only the profile's local vision model can read a private image; never the cloud.
+        private_chain = [f"model:{VISION_ALIAS}"]
     if manual and private:
         # A local pick is honoured; anything else is skipped (reason: private) and the private
         # rule's local chain answers instead.
-        chain = [req.target, *(rules.get("private") or rules.get("default")).chain]  # type: ignore[union-attr]
+        chain = [req.target, *private_chain]
     elif manual:
         chain = [req.target]
+    elif private:
+        chain = private_chain
     else:
         chain = rule.chain
+    if req.needs_vision and not private:
+        # Whatever rule matched, models that can read images come next when its own targets can't.
+        vision = _attachment_rule(rules, replace(req, long_document=False))
+        chain = [*chain, *(vision.chain if vision else ["best:vision"])]
 
     seen: set[str] = set()
     for pos, target in enumerate(chain):
@@ -639,10 +726,31 @@ def decide(req: RouteRequest, ctx: Context) -> Decision:
     return dec
 
 
+def _attachment_rule(rules: RuleSet, req: RouteRequest) -> Rule | None:
+    want = "image" if req.needs_vision else "long" if req.long_document else None
+    if want is None:
+        return None
+    return next((r for r in rules.rules if r.when.get("attachment") == want), None)
+
+
+def attachment_reason(dec: Decision) -> str | None:
+    a = dec.attachments or {}
+    if a.get("vision"):
+        return "Needs vision: this message has an image"
+    if a.get("long_document"):
+        return f"Long document (≈{int(a.get('tokens') or 0):,} tokens) → a model with a long context"
+    if a.get("code"):
+        return "Code file attached → code rule"
+    return None
+
+
 def reasons(dec: Decision, chosen: Candidate, registry: Registry, catalog: list[CatalogEntry]) -> list[str]:
     """Top 3 plain-language reasons for the chip (SPEC §6.4 explainability)."""
     out: list[str] = []
-    if dec.matched_by == "manual":
+    why = attachment_reason(dec) if dec.matched_by == "attachment" else None
+    if why:
+        out.append(why)
+    elif dec.matched_by == "manual":
         out.append("You picked this model")
     elif dec.matched_by == "slash":
         out.append(f"/{dec.command} command → rule “{dec.rule_id}”")

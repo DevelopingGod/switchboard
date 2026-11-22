@@ -4,17 +4,22 @@ Every endpoint needs the admin token: chat history is private, and the portal ca
 its server (the browser never sees the token).
 """
 
+import io
+import json
 import re
 import uuid
+import zipfile
 from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attachments import service as att_service
+from app.attachments import store as att_store
 from app.chat import service
 from app.chat.dispatch import Fault
 from app.config import get_settings
@@ -62,7 +67,9 @@ class TurnOptionsIn(BaseModel):
 
 class SendIn(TurnOptionsIn):
     thread_id: uuid.UUID | None = None
-    text: str = Field(min_length=1, max_length=32_000)
+    # M2.5: an attachment-only message may have no text
+    text: str = Field(default="", max_length=32_000)
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class EditIn(TurnOptionsIn):
@@ -107,7 +114,8 @@ def _thread_json(t: Thread) -> dict[str, Any]:
     }
 
 
-def _message_json(m: Message) -> dict[str, Any]:
+def _message_json(m: Message, atts: dict[int, list[Any]] | None = None) -> dict[str, Any]:
+    files = (atts or {}).get(m.id) or []
     return {
         "id": m.id,
         "role": m.role,
@@ -117,6 +125,7 @@ def _message_json(m: Message) -> dict[str, Any]:
         "feedback": {1: "up", -1: "down"}.get(m.feedback or 0),
         "route": (m.meta_json or None) if m.role == "assistant" else None,
         "secret": ((m.meta_json or {}).get("secret") or None) if m.role == "user" else None,
+        "attachments": [att_service.as_json(a) for a in files] if m.role == "user" else [],
         "created_at": m.created_at,
     }
 
@@ -184,10 +193,11 @@ async def delete_all_threads(
     """Settings → Data → Clear chats. Needs the literal confirmation phrase in the body."""
     n = (await session.execute(delete(Thread))).rowcount  # messages go with them (ON DELETE CASCADE)
     await session.commit()
+    att_store.remove_all()  # and every chat's attachment files (M2.5)
     return {"deleted": n}
 
 
-def _export_md(threads: list[tuple[Thread, list[Message]]]) -> str:
+def _export_md(threads: list[tuple[Thread, list[Message]]], atts: dict[int, list[Any]]) -> str:
     out = ["# Switchboard chats", ""]
     for t, msgs in threads:
         out += [
@@ -200,6 +210,8 @@ def _export_md(threads: list[tuple[Thread, list[Message]]]) -> str:
             who = "You" if m.role == "user" else "Assistant"
             via = (m.meta_json or {}).get("label") if m.role == "assistant" else None
             out += [f"**{who}**" + (f" ({via})" if via else ""), "", m.content or "", ""]
+            for a in atts.get(m.id, []):
+                out += [f"_Attached: {a.name} ({a.kind}, {a.bytes:,} bytes)_", ""]
     return "\n".join(out)
 
 
@@ -207,19 +219,60 @@ def _export_md(threads: list[tuple[Thread, list[Message]]]) -> str:
 async def export_threads(
     format: Literal["json", "md"] = "json",
     include_private: bool = False,
+    include_attachments: bool = False,
     session: AsyncSession = Depends(get_session),
 ):
-    """Settings → Data → Export. Private threads only when asked for."""
+    """Settings → Data → Export. Private threads only when asked for. Attachment files only when asked for
+    (M2.5): then the answer is a .zip with the export and an `attachments/<thread id>/` folder per chat;
+    otherwise the export lists each attachment's name, type and size."""
     q = select(Thread).order_by(Thread.created_at)
     if not include_private:
         q = q.where(Thread.private.is_(False))
     threads = [(t, await service._messages(session, t.id)) for t in (await session.execute(q)).scalars()]
+    atts = await att_service.for_messages(
+        session, [m.id for _, msgs in threads for m in msgs if m.role == "user"]
+    )
     if format == "md":
-        return PlainTextResponse(_export_md(threads), media_type="text/markdown; charset=utf-8")
-    return {
-        "format": "switchboard.chats.v1",
-        "threads": [{**_thread_json(t), "messages": [_message_json(m) for m in msgs]} for t, msgs in threads],
-    }
+        body: str | bytes = _export_md(threads, atts)
+        name, media = "switchboard-chats.md", "text/markdown; charset=utf-8"
+    else:
+        body = json.dumps(
+            {
+                "format": "switchboard.chats.v1",
+                "threads": [
+                    {**_thread_json(t), "messages": [_message_json(m, atts) for m in msgs]}
+                    for t, msgs in threads
+                ],
+            },
+            default=str,
+        )
+        name, media = "switchboard-chats.json", "application/json"
+    if not include_attachments:
+        if format == "md":
+            return PlainTextResponse(body, media_type=media)
+        return Response(body, media_type=media)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(name, body)
+        used: set[str] = set()
+        for files in atts.values():
+            for a in files:
+                arc = f"attachments/{a.thread_id}/{a.name}"
+                stem, dot, ext = a.name.rpartition(".")
+                i = 1
+                while arc in used:  # two files with one name in a chat
+                    i += 1
+                    arc = f"attachments/{a.thread_id}/{stem or a.name}-{i}{dot}{ext if dot else ''}"
+                used.add(arc)
+                try:
+                    z.writestr(arc, att_service.blob_path(a).read_bytes())
+                except FileNotFoundError:
+                    continue
+    return Response(
+        buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="switchboard-chats.zip"'},
+    )
 
 
 @router.get("/chat/threads/{thread_id}")
@@ -228,7 +281,8 @@ async def get_thread(thread_id: uuid.UUID, session: AsyncSession = Depends(get_s
     if t is None:
         raise HTTPException(404, "thread not found")
     msgs = await service._messages(session, thread_id)
-    return {"thread": _thread_json(t), "messages": [_message_json(m) for m in msgs]}
+    atts = await att_service.for_messages(session, [m.id for m in msgs if m.role == "user"])
+    return {"thread": _thread_json(t), "messages": [_message_json(m, atts) for m in msgs]}
 
 
 @router.patch("/chat/threads/{thread_id}")
@@ -255,6 +309,7 @@ async def delete_thread(thread_id: uuid.UUID, session: AsyncSession = Depends(ge
         raise HTTPException(404, "thread not found")
     await session.delete(t)
     await session.commit()
+    att_store.remove_dir(att_store.thread_dir(thread_id))  # its attachments go with it (M2.5)
     return {"deleted": str(thread_id)}
 
 
@@ -266,7 +321,11 @@ async def send(
     opts = body.options()
     if opts.cloud_override:
         raise HTTPException(422, "cloud_override is only for regenerate")
-    prep = await service.prepare_turn(session, "send", body.thread_id, body.text, opts)
+    if not body.text.strip() and not body.attachment_ids:
+        raise HTTPException(422, "Type a message or attach a file.")
+    prep = await service.prepare_turn(
+        session, "send", body.thread_id, body.text, opts, attachment_ids=body.attachment_ids
+    )
     return _stream(service.run_turn(admin.client, prep, opts))
 
 
@@ -377,7 +436,9 @@ async def targets(session: AsyncSession = Depends(get_session)) -> dict[str, Any
     reg = ctx.registry
     aliases = []
     for name in dict.fromkeys(a.alias for a in reg.aliases):
-        if name == "private":  # same model as `local`; the Private switch is the way to use it
+        if name in ("private", "local-vision"):
+            # `private` is the same model as `local` (the Private switch is the way to use it); `local-vision`
+            # is picked automatically for images in a private chat (M2.5)
             continue
         deps = reg.alias(name)
         if deps and deps[0].dynamic:  # explore: chosen per request from the live catalog

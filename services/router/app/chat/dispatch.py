@@ -181,7 +181,7 @@ async def _stream_one(
     client: httpx.AsyncClient,
     cand: Candidate,
     dec: Decision,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     cancel: asyncio.Event,
     fault: Fault | None,
     call_id: str,
@@ -259,7 +259,7 @@ async def _stream_one(
 async def dispatch(
     client: httpx.AsyncClient,
     dec: Decision,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     cancel: asyncio.Event,
     cooldowns: Cooldowns,
     fault: Fault | None = None,

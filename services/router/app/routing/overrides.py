@@ -61,7 +61,7 @@ CAPABILITIES = (
 )
 PAID_POLICIES = ("never", "manual", "allowed")
 PROTECTED_RULES = ("private", "default")  # can't be removed
-LOCAL_ALIASES = ("local", "private", "local-code", "local-think")
+LOCAL_ALIASES = ("local", "private", "local-code", "local-think", "local-vision")
 
 MAX_BYTES = 64_000
 MAX_RULES = 100
@@ -373,6 +373,8 @@ def _check_when(w: Any, path: str, out: list[Problem]) -> None:
         out.append(Problem(f"{path}.quality", "Quality is normal or high."))
     if "private" in w and not isinstance(w["private"], bool):
         out.append(Problem(f"{path}.private", "`private` is true or false."))
+    if "attachment" in w and (w["attachment"] not in ("image", "long") or len(w) != 1):
+        out.append(Problem(f"{path}.attachment", "`attachment` is image or long, on its own."))
 
 
 def _check_facts(f: Any, path: str, out: list[Problem]) -> None:
