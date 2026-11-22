@@ -536,8 +536,15 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M5.5 | Content Studio (§8d): templates, voice profiles, drafts library, media pairing, export | A LinkedIn post + matching image created, versioned, exported; cost shown under "content" in Metrics |
 | M6 | Metrics dashboard | All three cost sources merged (deduped, demo excluded); breakdowns by provider/model/agent/rule/intent/project; quota burn-down; budgets with forecast; honest net savings; CSV export |
 | M6.5 | Subscription windows: usage-window awareness per subscription CLI, jobs that wait for a reset and resume, named accounts per provider (never rotated), opt-in paid overflow | Windows shown (reported or labelled estimate) on Agents, Status and Metrics; a limit-hit job resumes after the reset and survives restarts; no automatic switch between accounts (test); overflow off by default, confirmed "Paid" before running |
-| M2.5 | Attachments: files and images in chat (before M7) | Defined when planned |
+| M2.5 | Attachments + Activity log: files and images in chat (button, drag-and-drop, paste), storage outside the repo, extraction with the secret scan, vision/long-document routing, private attachments stay local, attachments in jobs; Metrics → Activity (before M7) | An image, a PDF and a code file are attached, routed ("needs vision" / "long document" / code rule) and answered; a private image never leaves the machine (test); a job gets its attachments in a git-ignored folder and never commits them; Activity lists every request with filters, search and a safe CSV; axe, Lighthouse ≥ 90, JS ≤ 200 KB per route |
+| M6.7 | Local compute optimizer: multi-GPU (NVIDIA + AMD iGPU), GPU/RAM split per loaded model, fit advisor, tuning | Defined when planned |
+| M6.8 | Providers: Connections → Add custom provider (OpenAI-compatible incl. local servers, advanced LiteLLM types, declared-not-verified privacy, test, YAML preset export/import, DB overlay; https or http-local only, metadata IPs blocked, LAN only when marked local, never private unless local); Cloudflare / NVIDIA / Ollama Cloud / Antigravity presets | Defined when planned |
+| M6.9 | Quiet beta with 5–10 users | Defined when planned |
 | M7 | OSS packaging | One-command setup on a fresh Windows+WSL machine; README with screenshots; MIT; CI lint/tests |
+
+Pre-launch order (set 2026-11-22): M6.5 → M2.5 → M4.5 → M5.5 → M5 → M6.7 → M6.8 → M6.9 → M7 (launch: re-verify
+every provider, CLI and limit; Mac/Linux install; portal login; Docker level-3 sandbox; v1.0.0; landing page; a < 60 s
+promo video; demo re-record). There is no post-launch milestone; new ideas go to the v1.1 list in docs/PROGRESS.md.
 
 ## 12. Verify before implementing (do not assume)
 

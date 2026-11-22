@@ -379,17 +379,20 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M3b** Rules UI and sidebar | Rules editor with history, dry-run tester, left sidebar, small-GPU profile |
 | ✅ | **M4a** Agents and jobs backend | Agent registry, jobs through Paperclip with approvals, worktrees and budgets; fast private chat |
 | ✅ | **M4b** Jobs page and agent fleet | Job board, live log, plan and diff review, Run as job from chat, hire and manage agents, Projects |
-| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand. First auto pack: graphify, used only for agent jobs on projects above a size threshold, installed in the job's copy only, local AST pass by default (AI pass opt-in), pinned and hashed, graph files never committed, turned off per project if Metrics shows no token savings |
-| 🔜 | **M5** Studio | Image and video generation with cost confirmation |
-| 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
 | ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
 | ✅ | **M6.5** Subscription windows | See each subscription's usage window, jobs that wait for a reset and continue, separate accounts for separate purposes, opt-in paid overflow |
-| 🔜 | **M2.5** Attachments | Files and images in chat (next, before M7) |
-| 🔜 | **M7** Packaging | One-command install, macOS and Linux, portal login, CI, a GitHub Pages site |
+| 🔜 | **M2.5** Attachments and Activity log | Attach files and images in chat (button, drag-and-drop, paste); private attachments stay on your machine; attachments in jobs; a searchable list of every request (in progress) |
+| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand. First auto pack: graphify, used only for agent jobs on projects above a size threshold, installed in the job's copy only, local AST pass by default (AI pass opt-in), pinned and hashed, graph files never committed, turned off per project if Metrics shows no token savings |
+| 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
+| 🔜 | **M5** Studio | Image and video generation with cost confirmation: local Stable Diffusion for small GPUs, Grok Imagine as a paid opt-in, honest labels |
+| 🔜 | **M6.7** Local compute optimizer | Use every GPU (NVIDIA and AMD iGPU), see how each local model splits between GPU and RAM, a fit advisor and tuning |
+| 🔜 | **M6.8** Custom providers and presets | Add any OpenAI-compatible provider, including local servers, with safety checks; presets for Cloudflare, NVIDIA, Ollama Cloud and Antigravity; YAML export and import |
+| 🔜 | **M6.9** Quiet beta | 5–10 users try real installs before launch |
+| 🔜 | **M7** Launch | One-command install on macOS and Linux, portal login, sandboxed full-auto jobs, CI, v1.0.0, a GitHub Pages site and a short promo video |
 <!-- roadmap:end -->
 
-💡 Ideas, unscheduled: more free providers as YAML (for example Cloudflare Workers AI);
-a local-compute optimizer for multi-GPU machines. Details in [PROGRESS.md](docs/PROGRESS.md#future).
+This is the full road to launch; there is no "later" bucket. 💡 Ideas that come up now go to the
+[v1.1 list](docs/PROGRESS.md#v11-list).
 
 ## FAQ
 

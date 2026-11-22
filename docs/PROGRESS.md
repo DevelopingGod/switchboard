@@ -26,8 +26,11 @@
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
-| M6.5 Subscription windows | ✅ Done (PR in review) | m65 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
-| M2.5 Attachments | ⏳ Next, before M7 | — | — | Files and images in chat; moved ahead of M7 (order M6.5 → M2.5 → M7) |
+| M6.5 Subscription windows | ✅ Merged | m65 / #15 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
+| M2.5 Attachments + Activity log | 🔜 In progress | m25 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
+| M6.7 Local compute optimizer | ⏳ | — | — | Multi-GPU (NVIDIA + AMD iGPU), GPU/RAM split, fit advisor, tuning |
+| M6.8 Providers: custom providers + presets | ⏳ | — | — | Connections → Add custom provider (OpenAI-compatible, local servers), presets, YAML export/import |
+| M6.9 Quiet beta | ⏳ | — | — | 5–10 users before launch |
 | M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
 
 **MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
@@ -705,3 +708,36 @@ Ideas and later milestones, not scheduled. Additions only.
 - **M5.5 Content Studio** (SPEC §8d).
 - **M7 launch:** one-command cross-platform install (Docker for Mac, Linux and Windows), **portal user auth before any remote access**, tag `v1.0.0`. (The README and the demo GIF were done in README v1.)
 - **GitHub Pages landing site with real interactivity (M7):** a live routing demo and a real video player, which a GitHub README can't run (it strips JS and CSS). Reuses the hero and routing SVGs and `docs/media`.
+
+## Pre-launch roadmap (set 2026-11-22)
+
+This is the order to launch. There is no "post-launch" bucket: a new idea goes to the **v1.1 list** below. The status
+table above and the README roadmap follow this order.
+
+1. **M6.5 Subscription windows** ✅
+2. **M2.5 Attachments + Activity log:** attach files and images in chat (button, drag-and-drop, paste); safe
+   storage outside the repo; PDF/text extraction with the secret scan; vision and long-document routing; private
+   attachments never leave the machine (local vision model per hardware profile, or a clear message); attachments in
+   jobs (git-ignored, never committed); Metrics → Activity, a searchable list of every request with CSV export.
+3. **M4.5 Workflow packs** (SPEC §8a), with **graphify as the first auto pack** (see Future).
+4. **M5.5 Content Studio** (SPEC §8d).
+5. **M5 Studio:** local Stable Diffusion for small GPUs, Grok Imagine as a paid opt-in, honest labels (what is local,
+   free or paid, before you press generate).
+6. **M6.7 Local compute optimizer:** multi-GPU including NVIDIA + AMD iGPU, the GPU/RAM split of each loaded model,
+   a fit advisor, tuning (see Future).
+7. **M6.8 Providers: custom providers + presets.** Connections → **Add custom provider**: OpenAI-compatible
+   (including local servers), advanced LiteLLM provider types; privacy is *declared, not verified* and labelled so;
+   **Test** before saving; YAML preset export/import; stored as a DB overlay over `providers.yaml`.
+   Safety: https, or http only for local addresses; cloud metadata IPs blocked; LAN addresses only when the provider
+   is marked local; a provider is never treated as private unless it is local. Cloudflare Workers AI, NVIDIA NIM,
+   Ollama Cloud and Antigravity ship as presets (see Future providers for their terms).
+8. **M6.9 Quiet beta:** 5–10 users, real installs, feedback fixed before launch.
+9. **M7 Launch:** re-verify every provider, CLI and free limit; Mac/Linux install; portal login; Docker level-3
+   sandbox (ADR 0010); `v1.0.0`; landing page; a < 60 s Motion Canvas promo video (the switchboard-in-your-house
+   analogy); demo re-record.
+
+## v1.1 list
+
+Ideas that arrive after this roadmap was set. Additions only; nothing here is scheduled before launch.
+
+- (empty)
