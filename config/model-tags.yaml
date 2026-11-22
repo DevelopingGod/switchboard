@@ -38,7 +38,7 @@ rules:
 
   # --- Gemini ---
   - { match: "gemini-*-flash", provider: gemini, tags: [chat, vision, long-context, fast] }
-  - { match: "gemini-*-flash-lite", provider: gemini, tags: [chat, long-context, fast, small] }
+  - { match: "gemini-*-flash-lite", provider: gemini, tags: [chat, vision, long-context, fast, small] }  # images in (M2.5, checked live)
   - { match: "gemini-*-pro*", provider: gemini, tags: [chat, code, reasoning, vision, long-context] }
   - { match: "gemini-flash-latest", provider: gemini, tags: [chat, vision, long-context, fast] }
   - { match: "gemini-*image*", provider: gemini, tags: [image] }
@@ -54,6 +54,11 @@ rules:
   - { match: "llama3.2:3b", provider: ollama, tags: [chat, fast, small] }
   - { match: "qwen2.5-coder:3b", provider: ollama, tags: [chat, code, small] }
   - { match: "*arch-router*", provider: ollama, tags: [small] }
+  # M2.5: local models that can read images (the `vision` slot in local-models.yaml). Others that Ollama
+  # reports as vision-capable (/api/show) are tagged from that, without an entry here.
+  - { match: "qwen3-vl:2b", provider: ollama, tags: [chat, vision, small] }
+  - { match: "gemma3:4b", provider: ollama, tags: [chat, vision, small] }
+  - { match: "qwen2.5vl:*", provider: ollama, tags: [chat, vision] }
 
 deprecated:
   # model ids (exact) the provider still lists but we should not route to.

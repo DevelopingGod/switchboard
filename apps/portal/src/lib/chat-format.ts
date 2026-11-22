@@ -33,10 +33,15 @@ export function targetName(target: string, t: TargetsResponse | null): string | 
 }
 
 /** One plain sentence for Simple mode's "Why this?": no rule names, scores or alias words. */
-export function plainReason(r: RouteInfo): "private" | "sensitive" | "manual" | "slash" | "busy" | "code" | "writing" | "research" | "quick" | "everyday" {
+export function plainReason(
+  r: RouteInfo,
+): "private" | "sensitive" | "manual" | "slash" | "busy" | "code" | "writing" | "research" | "quick" | "everyday" | "vision" | "longDocument" {
   if (r.sensitive || r.matched_by === "auto_private" || r.matched_by === "secret") return "sensitive";
   if (r.matched_by === "private" || r.private) return "private";
   if (r.matched_by === "manual") return "manual";
+  // M2.5: "needs vision" / "long document", in plain words
+  if (r.attachments?.vision) return "vision";
+  if (r.matched_by === "attachment" && r.attachments?.long_document) return "longDocument";
   if (r.matched_by === "slash") return "slash";
   if (r.skipped.some((s) => /cool|rate|quota|limit|busy|timeout/i.test(`${s.code} ${s.reason}`))) return "busy";
   if (r.intent === "code" || r.intent === "writing" || r.intent === "research") return r.intent;

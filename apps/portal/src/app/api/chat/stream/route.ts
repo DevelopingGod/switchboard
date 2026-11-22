@@ -1,13 +1,12 @@
 import { routerChatStream } from "@/lib/server/router";
+import { forbidden, sameOriginWrite } from "@/lib/server/guard";
 
 export const dynamic = "force-dynamic";
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TARGET = /^(auto|model:[\w.:/@-]{1,200})$/;
 const MAX_TEXT = 32_000;
 
-const forbidden = () => new Response("Forbidden", { status: 403 });
 const bad = (error: string) => Response.json({ error }, { status: 400 });
 
 /**
@@ -19,18 +18,7 @@ const bad = (error: string) => Response.json({ error }, { status: 400 });
  *  - the body must be JSON (no form posts) and is validated again before it reaches the router.
  */
 export async function POST(req: Request) {
-  const hostHeader = req.headers.get("host") ?? "";
-  const host = hostHeader.replace(/:\d+$/, "");
-  const origin = req.headers.get("origin");
-  const site = req.headers.get("sec-fetch-site");
-  if (!LOCAL_HOSTS.has(host) || !origin || (site !== null && site !== "same-origin")) return forbidden();
-  let o: URL;
-  try {
-    o = new URL(origin);
-  } catch {
-    return forbidden();
-  }
-  if (!LOCAL_HOSTS.has(o.hostname === "::1" ? "[::1]" : o.hostname) || o.host !== hostHeader) return forbidden();
+  if (!sameOriginWrite(req)) return forbidden();
   if (!(req.headers.get("content-type") ?? "").startsWith("application/json")) {
     return new Response("Unsupported Media Type", { status: 415 });
   }
@@ -44,13 +32,20 @@ export async function POST(req: Request) {
   if (mode !== "send" && mode !== "regenerate" && mode !== "edit") return bad("invalid mode");
   if (threadId !== null && (typeof threadId !== "string" || !UUID.test(threadId))) return bad("invalid thread");
   if (mode !== "send" && threadId === null) return bad("thread required");
-  if (mode !== "regenerate" && (!text || text.length > MAX_TEXT)) return bad("message must be 1–32000 characters");
+  // M2.5: uploaded files (send only); a message may be just files.
+  const ids = Array.isArray(b.attachment_ids) ? (b.attachment_ids as unknown[]) : [];
+  if (ids.length > 20 || !ids.every((i) => typeof i === "string" && UUID.test(i))) return bad("invalid attachments");
+  if (mode === "send" ? (!text && ids.length === 0) || text.length > MAX_TEXT : mode === "edit" && (!text || text.length > MAX_TEXT)) {
+    return bad("message must be 1–32000 characters");
+  }
   if (!TARGET.test(target)) return bad("invalid target");
   const temperature = typeof b.temperature === "number" && b.temperature >= 0 && b.temperature <= 2 ? b.temperature : null;
   const autonomy = Number.isInteger(b.autonomy) && (b.autonomy as number) >= 0 && (b.autonomy as number) <= 3 ? (b.autonomy as number) : null;
   const opts = { target, private: b.private === true, temperature, autonomy, think: b.think === true };
 
-  if (mode === "send") return routerChatStream("/chat/send", { ...opts, thread_id: threadId, text }, req.signal);
+  if (mode === "send") {
+    return routerChatStream("/chat/send", { ...opts, thread_id: threadId, text, attachment_ids: ids }, req.signal);
+  }
   if (mode === "edit") return routerChatStream(`/chat/threads/${threadId}/edit-last`, { ...opts, text }, req.signal);
   // M3a: "Not sensitive — use cloud" re-runs the last message with normal routing (regenerate only).
   return routerChatStream(`/chat/threads/${threadId}/regenerate`, { ...opts, cloud_override: b.cloud_override === true }, req.signal);

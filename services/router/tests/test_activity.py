@@ -205,6 +205,8 @@ async def test_job_rows_link_to_the_job(client, session):
     await session.commit()
     item = (await get(client, kind=["job"]))["items"][0]
     assert item["label"] == "Fix tests" and item["job_id"] == job.id and item["value_usd"] == 0.25
+    assert item["status"] == "queued"  # the job's own state, not its request row's "running"
+    assert len((await get(client, status="queued"))["items"]) == 1
     d = (await client.get(f"/activity/{req.id}", headers=ADMIN)).json()
     assert d == {"id": req.id, "kind": "job", "job_id": job.id}
 

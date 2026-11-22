@@ -28,7 +28,20 @@ from app.metrics.queries import PRIVATE_LABEL, safe_title
 from app.metrics.ranges import Range
 
 KINDS = ("chat", "media", "job", "aux", "test")
-STATUSES = ("ok", "error", "failed", "stopped", "blocked", "unavailable", "running")
+# Requests: ok … running. Jobs show their own state (the job's request row is written once, at creation).
+STATUSES = (
+    "ok",
+    "error",
+    "failed",
+    "stopped",
+    "blocked",
+    "unavailable",
+    "running",
+    "queued",
+    "needs_approval",
+    "waiting_reset",
+    "done",
+)
 ATTEMPTED = ("rate_limited", "timeout", "error", "not_found", "credit_limit")
 CSV_MAX_ROWS = 50_000
 PAGE = 50
@@ -47,7 +60,7 @@ class Filters:
 
 # Derived columns, computed once per row in a LATERAL so filters and output agree.
 _SQL = """
-SELECT r.id, r.created_at, r.kind, r.status, r.rule_id, r.private, r.latency_ms, r.thread_id,
+SELECT r.id, r.created_at, r.kind, d.status, r.rule_id, r.private, r.latency_ms, r.thread_id,
        r.fallbacks_tried_json AS skips, r.decision_json ->> 'purpose' AS purpose,
        t.title AS thread_title, COALESCE(t.private, false) AS thread_private,
        j.id AS job_id, j.title AS job_title,
@@ -72,7 +85,8 @@ CROSS JOIN LATERAL (
                r.decision_json -> 'chip' ->> 'provider',
                NULLIF(split_part(r.model, '/', 1), r.model)
            ) AS provider,
-           COALESCE(r.model, c.model, r.target) AS model
+           COALESCE(r.model, c.model, r.target) AS model,
+           COALESCE(j.status, r.status) AS status
 ) d
 WHERE r.created_at >= :s AND r.created_at < :e
 """
@@ -95,7 +109,7 @@ def _where(f: Filters, params: dict[str, Any]) -> str:
         out.append("r.rule_id = :rule")
         params["rule"] = f.rule
     if f.status:
-        out.append("r.status = :status")
+        out.append("d.status = :status")
         params["status"] = f.status
     if f.q:
         # Titles only, and never a private chat's (trigram indexes on threads.title and jobs.title).

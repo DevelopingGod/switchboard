@@ -91,8 +91,13 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
+    # M2.5 (ADR 0016): the router runs as your user, so it and hostprobe share one 0700 data folder.
+    # scripts/setup-wsl.sh writes SWITCHBOARD_UID/GID (id -u / id -g) and creates the folder first.
+    user: "${SWITCHBOARD_UID:-10001}:${SWITCHBOARD_GID:-10001}"
     volumes:
       - ../config:/srv/config:ro
+      # Attachments (files and images in chat and jobs). Outside the repo; back it up with your other data.
+      - ${SWITCHBOARD_DATA_DIR:-${HOME}/.switchboard/data}:/srv/data
     ports:
       - "127.0.0.1:${ROUTER_PORT:-8100}:8100"
     extra_hosts:

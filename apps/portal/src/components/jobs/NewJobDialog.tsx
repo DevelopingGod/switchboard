@@ -13,6 +13,9 @@ import { useToast } from "@/components/kit/Toast";
 import { createJob, loadJobChoices, loadProposal, previewJob } from "@/app/jobs/actions";
 import type { AgentRow, AgentsResponse, JobPreview, ProjectRow } from "@/lib/router-types";
 import { jobsStrings, tJobs } from "@/i18n/jobs";
+import type { AttachmentInfo } from "@/lib/router-types";
+import { useAttachments } from "@/lib/attachments";
+import { JobFiles } from "./JobFiles";
 import { tSubs } from "@/i18n/subscriptions";
 import { usd } from "@/lib/job-format";
 import { resetTime, sourceText, windowText } from "@/lib/subscription-format";
@@ -21,6 +24,8 @@ export interface NewJobDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialPrompt?: string;
+  /** M2.5: the chat message's files ("Run as job"); more can be added here. */
+  initialFiles?: AttachmentInfo[];
   /** "Run as job" from a chat reply: the routing decision's proposal and traceability. */
   requestId?: number;
   initialProject?: number;
@@ -42,7 +47,16 @@ function agentReason(a: AgentRow, level: number): string | null {
  * a budget, then review exactly what will happen (the router's own preview, the same checks the job loop
  * makes) and confirm. Nothing starts before Confirm.
  */
-export default function NewJobDialog({ open, onOpenChange, initialPrompt, requestId, initialProject, initialAgents, initialAutonomy }: NewJobDialogProps) {
+export default function NewJobDialog({
+  open,
+  onOpenChange,
+  initialPrompt,
+  initialFiles,
+  requestId,
+  initialProject,
+  initialAgents,
+  initialAutonomy,
+}: NewJobDialogProps) {
   const router = useRouter();
   const { push } = useToast();
   const ids = React.useId();
@@ -50,6 +64,9 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
   const [isPrivate, setPrivate] = React.useState(false);
   const [loadErr, setLoadErr] = React.useState<Err | null>(null);
   const [prompt, setPrompt] = React.useState(initialPrompt ?? "");
+  // M2.5: the chat's files (kept unless removed) plus new uploads.
+  const [carried, setCarried] = React.useState<AttachmentInfo[]>(initialFiles ?? []);
+  const att = useAttachments();
   const [project, setProject] = React.useState<number | null>(initialProject ?? null);
   const [chain, setChain] = React.useState<string[]>(initialAgents ?? []);
   const [level, setLevel] = React.useState<number>(initialAutonomy ?? 1);
@@ -110,6 +127,7 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
       budget_list_usd: budget.trim() && Number.isFinite(b) ? b : undefined,
       ...(requestId ? { from_request_id: requestId } : {}),
       ...(paidBudget != null ? { paid_budget_usd: paidBudget } : {}),
+      ...(carried.length || att.ids.length ? { attachment_ids: [...carried.map((f) => f.id), ...att.ids] } : {}),
     };
   };
 
@@ -253,6 +271,8 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
               />
             </div>
 
+            <JobFiles carried={carried} onUncarry={(id) => setCarried((c) => c.filter((f) => f.id !== id))} att={att} />
+
             <div className="grid gap-1.5">
               <label htmlFor={`${ids}-project`} className="text-sm font-semibold">
                 {tJobs("run.project")}
@@ -364,7 +384,7 @@ export default function NewJobDialog({ open, onOpenChange, initialPrompt, reques
 
             {error && <p role="alert" className="text-sm text-err">{error.text}</p>}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button type="submit" size="sm" disabled={!project || !chain.length || !prompt.trim()} loading={busy === "preview"}>
+              <Button type="submit" size="sm" disabled={!project || !chain.length || !prompt.trim() || att.uploading} loading={busy === "preview"}>
                 {tJobs("run.review")}
               </Button>
             </div>

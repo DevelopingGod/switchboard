@@ -6,6 +6,7 @@ import { PlugZap } from "lucide-react";
 import { EmptyState } from "@/components/kit/EmptyState";
 import { GlassPanel } from "@/components/kit/GlassPanel";
 import { MetricsScreen } from "@/components/metrics/MetricsScreen";
+import { MetricsTabs } from "@/components/metrics/MetricsTabs";
 import { fixtureMode, routerGetAdmin } from "@/lib/server/router";
 import { RANGE_KEYS, customRangeProblem, type MetricsSummary, type RangeKey } from "@/lib/metrics-types";
 import { t } from "@/i18n/strings";
@@ -35,6 +36,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       <header className="grid gap-3">
         <h1 className="display">{tMet("title")}</h1>
         <p className="max-w-3xl text-lg text-ink-muted">{tMet("intro")}</p>
+        <MetricsTabs current="overview" />
       </header>
       {summary.ok ? (
         <MetricsScreen initial={summary.data} empty={q.get("empty") === "1"} />

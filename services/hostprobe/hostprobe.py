@@ -1631,6 +1631,10 @@ def main() -> None:
         return
     token = read_env_value(args.env_file, "HOSTPROBE_TOKEN") or ""
     port = args.port or int(read_env_value(args.env_file, "HOSTPROBE_PORT") or 8101)
+    # M2.5: the attachments folder the router container mounts (same default: ~/.switchboard/data).
+    data_dir = read_env_value(args.env_file, "SWITCHBOARD_DATA_DIR")
+    if data_dir and "SWITCHBOARD_DATA_DIR" not in os.environ:
+        os.environ["SWITCHBOARD_DATA_DIR"] = data_dir
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(Probe(token)))
     print(f"hostprobe listening on 127.0.0.1:{port}", flush=True)
     server.serve_forever()

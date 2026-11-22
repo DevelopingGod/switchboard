@@ -168,7 +168,7 @@ export interface RouteSkip {
 export interface RouteInfo {
   request_id: number | null;
   rule: string;
-  matched_by: "manual" | "slash" | "private" | "intent" | "default" | "auto_private" | "secret";
+  matched_by: "manual" | "slash" | "private" | "intent" | "default" | "auto_private" | "secret" | "attachment";
   intent: string;
   preset: string;
   private: boolean;
@@ -195,6 +195,8 @@ export interface RouteInfo {
   error?: string | null;
   /** Stable code for `error` (plain-language mapping in i18n/errors.ts). */
   error_code?: string | null;
+  /** M2.5: what the attachments asked for (an image needs vision; a long document a long context). */
+  attachments?: { vision: boolean; long_document: boolean; code: boolean; tokens: number } | null;
   notice?: "image" | "video" | "audio";
   blocked?: BlockedInfo;
   /** M3a: why a reply stayed local without the Private toggle. */
@@ -239,7 +241,46 @@ export interface ChatMessage {
   route: RouteInfo | null;
   /** M3a: a pasted secret was masked in this (user) message. */
   secret?: { kinds: string[] } | null;
+  /** M2.5: files attached to this (user) message. */
+  attachments?: AttachmentInfo[];
   created_at: string;
+}
+
+/** M2.5: one attached file, as the router describes it (never its content). */
+export interface AttachmentInfo {
+  id: string;
+  name: string;
+  kind: "image" | "pdf" | "text";
+  mime: string;
+  bytes: number;
+  code: boolean;
+  pages: number | null;
+  pages_read: number | null;
+  width: number | null;
+  height: number | null;
+  text_chars: number;
+  tokens: number;
+  truncated: boolean;
+  /** Kinds of secrets found (and masked) in the extracted text. */
+  secret: string[] | null;
+  /** e.g. "No text found: this looks like a scanned PDF…" */
+  note: string | null;
+  status: "staged" | "bound";
+}
+
+/** POST /chat/estimate: what the composer shows before sending. */
+export interface AttachmentEstimate {
+  tokens: number;
+  attachment_tokens: number;
+  /** The provider documents its image accounting (else the number is a labelled estimate). */
+  documented: boolean;
+  model: string | null;
+  provider: string | null;
+  local: boolean | null;
+  private: boolean;
+  needs_vision: boolean;
+  long_document: boolean;
+  blocked: "no_local_vision" | "no_model" | null;
 }
 
 export interface ThreadResponse {
@@ -291,6 +332,8 @@ export interface ChatStreamBody {
   cloud_override?: boolean;
   /** M4a: "Think harder" for this message (local answers use the profile's thinking model). */
   think?: boolean;
+  /** M2.5: uploaded files to send with this message (send only). */
+  attachment_ids?: string[];
 }
 
 /** Status view (GET /system/components). */
@@ -714,6 +757,8 @@ export interface JobInput {
   from_request_id?: number;
   /** M6.5: set only after the "Paid — up to $X" confirmation (ADR 0015). */
   paid_budget_usd?: number;
+  /** M2.5: files for the agent, copied into a git-ignored .switchboard/attachments/ in its worktree. */
+  attachment_ids?: string[];
 }
 
 export interface JobRun {

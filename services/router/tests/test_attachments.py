@@ -461,3 +461,21 @@ def test_to_wire_drops_private_keys():
     msgs = [{"role": "user", "content": "x", "_mid": 1, "_extra": 5}, {"role": "assistant", "content": "y"}]
     out = att_service.to_wire(msgs, {}, 1)
     assert out == [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}]
+
+
+async def test_ollama_vision_models_are_tagged_from_capabilities(mock_http):
+    """An Ollama model that reports `vision` in /api/show gets the vision tag with no config entry."""
+    import httpx
+
+    from app.catalog.fetchers import fetch_ollama
+    from app.catalog.job import metadata_tags
+    from app.registry import load_registry
+
+    mock_http.get("http://ollama.test/api/tags").respond(
+        200, json={"models": [{"name": "some-new-vl:7b", "details": {}}, {"name": "plain:3b", "details": {}}]}
+    )
+    p = load_registry().providers["ollama"]
+    async with httpx.AsyncClient() as c:
+        got = {m.model_id: m for m in await fetch_ollama(c, p, None)}
+    assert "vision" in metadata_tags(got["some-new-vl:7b"]) and "chat" in metadata_tags(got["some-new-vl:7b"])
+    assert "vision" not in metadata_tags(got["plain:3b"])

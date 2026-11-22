@@ -87,6 +87,7 @@ def data_dir(tmp_path, monkeypatch):
     from app.config import get_settings
 
     d = tmp_path / "data"
+    d.mkdir(mode=0o700)  # like scripts/setup-wsl.sh
     monkeypatch.setattr(get_settings(), "data_dir", d)
     return d
 
@@ -485,6 +486,14 @@ def ollama_fake(mock_http):
 @pytest.fixture
 def mock_http():
     with respx.mock(assert_all_called=False, assert_all_mocked=True) as mock:
+        # M2.5: the Ollama catalog asks each model for its capabilities. Names with "vl" or "vision" can read
+        # images in tests; everything else is a plain text model.
+        def show(request):
+            name = json.loads(request.content).get("model", "")
+            caps = ["completion", *(["vision"] if "vl" in name or "vision" in name else [])]
+            return httpx.Response(200, json={"capabilities": caps})
+
+        mock.post("http://ollama.test/api/show").mock(side_effect=show)
         yield mock
 
 

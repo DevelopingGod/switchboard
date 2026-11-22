@@ -245,6 +245,11 @@ def view(state: dict[str, Any], installed: list[str] | None = None) -> dict[str,
         "profiles": [p.as_dict() for p in profiles.values()],
         "installed": installed,
         "missing": missing,
+        # M2.5: the model for images in private chats; pulled only when asked (Settings → Local models)
+        "vision": act.vision,
+        "vision_installed": None
+        if installed is None or not act.vision
+        else _installed(act.vision, installed),
     }
 
 

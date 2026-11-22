@@ -32,6 +32,7 @@ profiles:
     thinker: null                # "Think harder" uses the general model (no thinking model on CPU)
     tasks: null
     coder: null
+    vision: null                 # M2.5: no local image reading on CPU only (a private image gets a clear message)
     cpu: true
     max_loaded: 1
   small:
@@ -49,6 +50,10 @@ profiles:
     # so every title fell back to the first words.
     tasks: llama3.2:3b
     coder: null
+    # M2.5: images in private chats. Measured on a 4 GB RTX 3050 (docs/m25.md): 2.3 GB, 82% on the GPU, 5/5 on
+    # the image checks, ~2 s per image once loaded; swaps with the chat model, so the first reply is slower.
+    # Pulled only when you ask (Settings → Local models), never by setup.
+    vision: qwen3-vl:2b
     classifier_options: { num_gpu: 0 }
     tasks_options: { num_gpu: 0 }
     tasks_keep_alive: 1h
@@ -61,6 +66,7 @@ profiles:
     thinker: qwen3:8b
     tasks: llama3.2:3b
     coder: null
+    vision: gemma3:4b            # 5/5 on the image checks; not measured on 8 GB (on 4 GB only 46% fits the GPU)
     max_loaded: 2
   large:
     label: 16 GB+ GPU
@@ -70,6 +76,7 @@ profiles:
     thinker: qwen3:14b
     tasks: llama3.2:3b
     coder: qwen2.5-coder:14b
+    vision: gemma3:4b            # not measured on 16 GB; a larger vision model can be set here
     max_loaded: 2
 
 # Used when detection fails (no NVIDIA GPU visible, hostprobe down) until you pick one in Settings.

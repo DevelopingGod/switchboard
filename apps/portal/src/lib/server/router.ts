@@ -40,7 +40,7 @@ async function call<T>(method: string, path: string, body: unknown, admin: boole
   if (fixtureMode()) {
     if (path.startsWith("/rules") || path === "/route/dry-run") return rulesFixtures.handle<T>(method, path, body);
     if (/^\/(jobs|agents|projects|accounts|subscriptions)(\/|\?|$)/.test(path) || path === "/settings/overflow") return jobsFixtures.handleJobs<T>(method, path, body);
-    if (path.startsWith("/metrics/") || path.startsWith("/settings/subscriptions")) return metricsFixtures.handle<T>(method, path, body);
+    if (path.startsWith("/metrics/") || path.startsWith("/activity") || path.startsWith("/settings/subscriptions")) return metricsFixtures.handle<T>(method, path, body);
     return path.startsWith("/chat/") || path.startsWith("/route/")
       ? chatFixtures.handle<T>(method, path, body)
       : fixtures.handle<T>(method, path, body);
@@ -87,6 +87,18 @@ export async function routerGetRaw(path: string): Promise<{ body: string; type: 
     const res = await fetch(routerUrl() + path, { headers: adminHeader(), cache: "no-store", signal: AbortSignal.timeout(30_000) });
     if (!res.ok) return null;
     return { body: await res.text(), type: res.headers.get("content-type") ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
+
+/** Admin GET of a binary body (M2.5: an export .zip), streamed through; null on any failure. Fixture mode builds
+ * no zip (the router's tests cover it). */
+export async function routerGetBinary(path: string): Promise<ReadableStream<Uint8Array> | null> {
+  if (fixtureMode() || !process.env.ROUTER_ADMIN_TOKEN) return null;
+  try {
+    const res = await fetch(routerUrl() + path, { headers: adminHeader(), cache: "no-store", signal: AbortSignal.timeout(120_000) });
+    return res.ok && res.body ? res.body : null;
   } catch {
     return null;
   }

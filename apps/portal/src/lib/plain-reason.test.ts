@@ -15,4 +15,9 @@ describe("plainReason (Simple mode's Why this?)", () => {
     expect(plainReason({ ...base, intent: "code", matched_by: "intent" })).toBe("code");
     expect(plainReason({ ...base, skipped: [{ target: "model:fast", label: "Groq", code: "cooldown", reason: "Rate limited (429)" }] })).toBe("busy");
   });
+  it("says an image needs vision and a long document needs a long context (M2.5)", () => {
+    expect(plainReason({ ...base, matched_by: "attachment", attachments: { vision: true, long_document: false, code: false, tokens: 800 } })).toBe("vision");
+    expect(plainReason({ ...base, matched_by: "attachment", attachments: { vision: false, long_document: true, code: false, tokens: 20000 } })).toBe("longDocument");
+    expect(plainReason({ ...base, private: true, attachments: { vision: true, long_document: false, code: false, tokens: 800 } })).toBe("private");
+  });
 });

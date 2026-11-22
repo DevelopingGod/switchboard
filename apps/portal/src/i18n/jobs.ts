@@ -160,6 +160,9 @@ export const jobsStrings = {
     notYet: "When you approve the changes they are committed on {branch}. Until then they exist only in the copy.",
   },
   run: {
+    files: "Files",
+    filesHint: "Copied into the job's folder under .switchboard/attachments/ (git-ignored, never committed). Files from a private chat, or with a secret in them, can't go to a job.",
+    addFiles: "Add files",
     title: "Run as job",
     titleNew: "New job",
     lead: "An agent does this on a copy of a project. Nothing starts until you confirm.",

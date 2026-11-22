@@ -5,6 +5,7 @@ window, output limit, modalities, prices and deprecation, which LiteLLM's listin
 Keys go in headers only — never in URLs (they would end up in access logs).
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -236,17 +237,49 @@ async def fetch_zen(client: httpx.AsyncClient, p: Provider, key: str | None) -> 
     return out
 
 
+async def _ollama_caps(client: httpx.AsyncClient, base: str, name: str) -> list[str] | None:
+    """What a local model can do, from Ollama's /api/show `capabilities` (e.g. completion, vision, tools,
+    thinking). None when Ollama doesn't say (older versions) or the call fails: the catalog then keeps the
+    curated tags only."""
+    try:
+        r = await client.post(f"{base}/api/show", json={"model": name}, timeout=5)
+        if r.status_code != 200:
+            return None
+        caps = r.json().get("capabilities")
+        return [str(c) for c in caps] if isinstance(caps, list) else None
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
 async def fetch_ollama(client: httpx.AsyncClient, p: Provider, key: str | None) -> list[FetchedModel]:
     data = await _get(client, f"{p.base_url}/api/tags", {})
+    models = data.get("models", [])[:200]
+    # M2.5: capabilities, so a local model that can read images is tagged `vision` without a code change.
+    sem = asyncio.Semaphore(4)
+
+    async def caps(name: str) -> list[str] | None:
+        async with sem:
+            return await _ollama_caps(client, p.base_url, name)
+
+    all_caps = await asyncio.gather(*(caps(m["name"]) for m in models))
     out = []
-    for m in data.get("models", []):
+    for m, c in zip(models, all_caps, strict=True):
         d = m.get("details") or {}
+        inputs, outputs = [], []
+        if c is not None:
+            inputs = ["text", *(["image"] if "vision" in c else [])]
+            outputs = ["text"] if "completion" in c else []
         out.append(
             FetchedModel(
                 model_id=m["name"],
                 display_name=m["name"],
                 free=True,
-                meta={k: d[k] for k in ("family", "parameter_size", "quantization_level") if d.get(k)},
+                input_modalities=inputs,
+                output_modalities=outputs,
+                meta={
+                    **{k: d[k] for k in ("family", "parameter_size", "quantization_level") if d.get(k)},
+                    **({"capabilities": c} if c is not None else {}),
+                },
             )
         )
     return out

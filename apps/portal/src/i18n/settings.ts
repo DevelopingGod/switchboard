@@ -106,6 +106,8 @@ export const settingsStrings = {
     json: "Download JSON",
     md: "Download Markdown",
     includePrivate: "Include private chats",
+    includeFiles: "Include attachments (.zip)",
+    filesNote: "Without this, the export lists each file's name, type and size, not the file.",
     clearTitle: "Clear all chats",
     clearLead: "Deletes every chat and reply on this machine. Settings and keys are kept.",
     clear: "Clear chats…",

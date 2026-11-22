@@ -138,3 +138,20 @@ a change to `services/router/pyproject.toml` reinstalls packages.
   downloads everything again.
 - **Check:** `docker compose -f deploy/docker-compose.yml build --progress=plain router`; after a code-only change
   the dependency step says `CACHED`.
+
+## Data folder (attachments)
+
+Attachments (files and images in chat and jobs) live in the data folder, `~/.switchboard/data` by default
+(`SWITCHBOARD_DATA_DIR` in `deploy/.env`). It is outside the repository, mode 700, and owned by you: the router
+container runs as your user (`SWITCHBOARD_UID`/`SWITCHBOARD_GID`, filled by `scripts/setup-wsl.sh`) so the router
+and hostprobe can both read and write it.
+
+- **doctor says the folder is missing:** run `scripts/setup-wsl.sh` (it creates the folder before the router
+  starts). If the router started first, Docker created the folder itself, owned by root.
+- **Owned by root or another user:** Switchboard never uses `sudo`. Stop the router, then fix the owner once
+  yourself (for example `sudo chown -R "$(id -u):$(id -g)" ~/.switchboard/data`), `chmod 700` it, and start the
+  router again.
+- **"not writable" in doctor:** `SWITCHBOARD_UID`/`SWITCHBOARD_GID` in `deploy/.env` must be your `id -u`/`id -g`,
+  then `docker compose -f deploy/docker-compose.yml up -d router`.
+- **Backups:** back the folder up with `deploy/.env`. Deleting a chat deletes its files; Settings → Data → Export
+  includes the files only when you tick "Include attachments".
