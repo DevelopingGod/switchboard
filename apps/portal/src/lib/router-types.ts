@@ -474,6 +474,9 @@ export interface LocalProfileView {
   missing: string[];
   ollama: "ok" | "down";
   pull: { status: "idle" | "running" | "done" | "error"; model: string | null; percent: number | null; error: string | null };
+  /** M2.5: the profile's model for images in private chats (null = none), and whether it is pulled. */
+  vision?: string | null;
+  vision_installed?: boolean | null;
 }
 
 // --- Rules UI (M3b) -------------------------------------------------------------------------------
@@ -645,6 +648,8 @@ export interface JobView {
   updated_at: string | null;
   events?: JobEventRow[];
   approval_expires_at?: string | null;
+  /** M2.5: files the agent got (in .switchboard/attachments/ of its worktree; never committed). */
+  attachments?: AttachmentInfo[];
   /** M6.5: the CLI account (null = default), waiting for a usage-window reset, paid overflow. */
   account?: string | null;
   resume_at?: string | null;

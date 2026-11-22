@@ -61,7 +61,8 @@ def _attachments() -> str:
         probe.write_bytes(b"ok")
         probe.unlink()
     except OSError as e:
-        return f"not writable ({type(e).__name__}): check SWITCHBOARD_DATA_DIR and SWITCHBOARD_UID/GID in deploy/.env"
+        why = type(e).__name__
+        return f"not writable ({why}): check SWITCHBOARD_DATA_DIR and SWITCHBOARD_UID/GID in deploy/.env"
     mode = os.stat(get_settings().data_dir).st_mode & 0o777
     return "ok" if mode & 0o077 == 0 else f"ok, but the folder is mode {mode:o} (should be 700)"
 

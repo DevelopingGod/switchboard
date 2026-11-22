@@ -87,6 +87,12 @@ export const settingsStrings = {
     pullStarted: "Pulling in the background. This page updates when you check again.",
     useDetected: "Use the detected profile",
     ollamaDown: "Ollama isn’t running, so models can’t be checked or pulled.",
+    vision: "Images in private chats: {model}",
+    visionNone: "This profile has no local model that can read images, so an image in a private chat can’t be answered (it is never sent to the cloud).",
+    visionReady: "Pulled. Private images are read on this computer.",
+    visionMissing: "Not pulled yet. Until it is, an image in a private chat gets a message instead of an answer.",
+    visionPull: "Pull vision model",
+    visionNote: "On a small GPU it takes turns with the chat model, so the first reply with an image is slower.",
     explain: "The profile decides which local models Switchboard uses: the intent classifier, the model for private chats, and the one that writes titles and summaries. It is picked from your GPU memory; pick another if your machine handles more or less.",
   },
   budgets: {

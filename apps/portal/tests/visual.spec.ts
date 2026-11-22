@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { atTop, inPro, ready, renderAllSections, settled, unstick, unstickComposer } from "./helpers";
+import { urls } from "../playwright.config";
 
 // Metrics fixtures are dated 21 Nov 2026; relative times ("today 11:15") need that "now" (M6).
 const METRICS_NOW = new Date("2026-11-21T12:00:00Z");
@@ -151,6 +152,8 @@ for (const scheme of ["light", "dark"] as const) {
       ["metrics", "/metrics"],
       ["metrics-today", "/metrics?range=today"],
       ["metrics-empty", "/metrics?fixture=empty"],
+      // M2.5
+      ["metrics-activity", "/metrics/activity"],
     ] as const) {
       test(name, async ({ page }) => {
         await page.clock.setFixedTime(path.startsWith("/metrics") ? METRICS_NOW : JOBS_NOW);
@@ -171,6 +174,31 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("region", { name: "Free quotas" }).getByRole("meter").first().waitFor();
       await settled(page);
       await expect(page).toHaveScreenshot(`metrics-pro-${scheme}.png`, { fullPage: true });
+    });
+
+    // M2.5: files in the composer (chips, estimate) and on a sent message (thumbnail, download chip).
+    test("chat · attachments", async ({ page }) => {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAFUlEQVR4nGPo6Oj4jwMwIEswMPj/BwCKNA5gFcwZ6AAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      await page.goto(`${urls.mutating}/chat`);
+      await ready(page);
+      const chooser = page.waitForEvent("filechooser");
+      await page.getByRole("button", { name: /Attach files/ }).click();
+      await (await chooser).setFiles([
+        { name: "chart.png", mimeType: "image/png", buffer: png },
+        { name: "q3-report.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n% q3\n") },
+      ]);
+      await expect(page.locator("[data-estimate]")).toBeVisible();
+      await page.getByLabel("Message").fill("What does this chart show?");
+      await settled(page);
+      await expect(page.locator(".chat-composer form")).toHaveScreenshot(`chat-attach-composer-${scheme}.png`);
+      await page.getByRole("button", { name: "Send" }).click();
+      await expect(page.getByRole("article", { name: "Assistant" }).last()).toContainText("Free-tier models handled");
+      await page.getByRole("img", { name: "Attached image: chart.png" }).evaluate((img: HTMLImageElement) => img.decode());
+      await settled(page);
+      await expect(page.locator("[data-message-attachments]").last()).toHaveScreenshot(`chat-attach-sent-${scheme}.png`);
     });
 
     test("job · run as job preview", async ({ page }) => {

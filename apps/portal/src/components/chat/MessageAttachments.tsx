@@ -18,7 +18,7 @@ export function FileIcon({ kind, code }: { kind?: AttachmentInfo["kind"]; code?:
 
 export function fileMeta(a: AttachmentInfo): string {
   const parts = [formatBytes(a.bytes)];
-  if (a.pages) parts.push(tChat("chat.attach.pages", { n: a.pages }));
+  if (a.pages) parts.push(a.pages === 1 ? tChat("chat.attach.page") : tChat("chat.attach.pages", { n: a.pages }));
   return parts.join(" · ");
 }
 

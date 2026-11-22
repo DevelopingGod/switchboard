@@ -34,6 +34,13 @@ const tray = (page: Page) => page.getByRole("list", { name: "Attachments" });
 const lastReply = (page: Page) => page.getByRole("article", { name: "Assistant" }).last();
 
 async function axe(page: Page) {
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await axeOnce(page);
+  }
+}
+
+async function axeOnce(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
@@ -51,6 +58,7 @@ test.describe("attachments", () => {
     await page.getByRole("button", { name: "Send" }).click();
     const reply = lastReply(page);
     await expect(reply).toContainText("The chart shows monthly requests");
+    await axe(page); // the sent message with its files
     await expect(tray(page)).toHaveCount(0); // the composer is empty again
     const img = page.getByRole("img", { name: "Attached image: chart.png" });
     await expect(img).toBeVisible();

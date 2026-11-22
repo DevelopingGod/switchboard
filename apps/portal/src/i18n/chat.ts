@@ -104,7 +104,6 @@ export const chatStrings = {
     loadFailed: "Couldn’t load chats: {reason}",
     attach: {
       label: "Attachments",
-      drop: "Drop files to attach them",
       uploading: "Uploading…",
       remove: "Remove {name}",
       tooMany: "At most {n} files per message.",
@@ -118,10 +117,10 @@ export const chatStrings = {
       noVision: "No connected model can read images. Connect one, or remove the image.",
       secret: "A secret in {name} was masked. This message stays on your computer.",
       pages: "{n} pages",
+      page: "1 page",
       open: "Open {name}",
       download: "Download {name}",
       imageAlt: "Attached image: {name}",
-      waitUpload: "Wait for the upload to finish",
     },
   },
 } as const;

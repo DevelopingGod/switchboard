@@ -216,6 +216,9 @@ function localProfile(active: string): LocalProfileView {
     missing: prof.models.filter((x) => !INSTALLED.includes(x)),
     ollama: "ok",
     pull: { status: "idle", model: null, percent: null, error: null },
+    // M2.5: the small profile's vision model, not pulled in the fixture (shows the Pull button)
+    vision: prof.name === "none" ? null : prof.name === "small" ? "qwen3-vl:2b" : "gemma3:4b",
+    vision_installed: prof.name === "none" ? null : false,
   };
 }
 

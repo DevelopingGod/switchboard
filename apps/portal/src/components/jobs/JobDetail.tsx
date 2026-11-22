@@ -20,6 +20,7 @@ import { cn } from "@/lib/cn";
 import { jobsStrings, tJobs } from "@/i18n/jobs";
 import { JobTimeline } from "./JobTimeline";
 import { JobLog } from "./JobLog";
+import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MergeHelp } from "./MergeHelp";
 import { tSubs } from "@/i18n/subscriptions";
 
@@ -374,6 +375,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
           <GlassPanel tone="strong" className="grid gap-1.5 text-sm">
             <h2 className="label">{tJobs("detail.task")}</h2>
             <p className="max-h-48 overflow-y-auto break-words whitespace-pre-wrap">{job.prompt}</p>
+            {job.attachments && job.attachments.length > 0 && <MessageAttachments files={job.attachments} />}
           </GlassPanel>
         </aside>
       </div>
