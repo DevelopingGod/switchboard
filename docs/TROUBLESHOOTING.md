@@ -123,3 +123,18 @@ docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:
 ## A saved rule edit "no longer fits rules.yaml"
 
 After you edit `config/rules.yaml` (removing or renaming a rule your saved changes touch), Routing rules shows a red notice and routing uses the plain file until you fix it. Reset your changes there, or roll back to a version that still fits.
+
+## Router image rebuild is slow or times out on PyPI
+
+The router image installs its Python packages in their own layer, before the code is copied
+(`services/router/Dockerfile`). A code-only change reuses that layer and rebuilds in seconds with no downloads; only
+a change to `services/router/pyproject.toml` reinstalls packages.
+
+- **Retries reuse downloads.** pip's cache is a BuildKit cache mount (`/root/.cache/pip`), kept between builds but
+  never put in the image. If PyPI times out halfway, run the build again: wheels already downloaded come from the
+  cache (`Using cached …` in `--progress=plain` output).
+- **Slow network:** `PIP_DEFAULT_TIMEOUT=120` and `PIP_RETRIES=10` are set in the Dockerfile.
+- **Start clean:** `docker builder prune` removes the build cache, including the pip cache mount; the next build
+  downloads everything again.
+- **Check:** `docker compose -f deploy/docker-compose.yml build --progress=plain router`; after a code-only change
+  the dependency step says `CACHED`.
