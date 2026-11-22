@@ -72,6 +72,7 @@ async def test_add_test_remove_key(client, litellm, providers_ok, hostprobe_up, 
         "private",
         "local-code",
         "local-think",  # M4a: "Think harder" (the profile's thinking model)
+        "local-vision",  # M2.5: images in private chats (the profile's vision model)
         "groq/*",  # M2: any catalog model by name (model:groq/<id>)
         "ollama/*",
     }

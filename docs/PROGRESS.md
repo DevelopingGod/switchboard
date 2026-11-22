@@ -27,7 +27,7 @@
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
 | M6.5 Subscription windows | ✅ Merged | m65 / #15 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
-| M2.5 Attachments + Activity log | 🔜 In progress | m25 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
+| M2.5 Attachments + Activity log | ✅ Done (PR in review) | m25 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
 | M6.7 Local compute optimizer | ⏳ | — | — | Multi-GPU (NVIDIA + AMD iGPU), GPU/RAM split, fit advisor, tuning |
 | M6.8 Providers: custom providers + presets | ⏳ | — | — | Connections → Add custom provider (OpenAI-compatible, local servers), presets, YAML export/import |
 | M6.9 Quiet beta | ⏳ | — | — | 5–10 users before launch |

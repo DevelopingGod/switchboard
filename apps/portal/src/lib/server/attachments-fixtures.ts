@@ -82,8 +82,9 @@ export async function upload(body: ReadableStream<Uint8Array> | null, name: stri
   const a = info(id, name.replace(/[^\w.\- ()]+/g, "_").slice(0, 120), s.kind, s.mime, bytes.length, {
     code: !!s.code,
     status: "staged",
-    width: s.kind === "image" ? 1024 : null,
-    height: s.kind === "image" ? 768 : null,
+    // A PNG's real size from its header (like the router reports); other images a 4:3 stand-in.
+    width: s.kind === "image" ? (s.mime === "image/png" && bytes.length > 24 ? new DataView(bytes.buffer, bytes.byteOffset).getUint32(16) : 1024) : null,
+    height: s.kind === "image" ? (s.mime === "image/png" && bytes.length > 24 ? new DataView(bytes.buffer, bytes.byteOffset).getUint32(20) : 768) : null,
     pages: isPdf ? 1 : null,
     text_chars: s.kind === "text" ? text.length : isPdf ? 900 : 0,
     tokens: s.kind === "image" ? 1032 : Math.max(1, Math.floor((s.kind === "text" ? text.length : 900) / 4)),

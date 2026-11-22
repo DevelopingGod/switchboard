@@ -116,7 +116,12 @@ async def test_sensitive_message_stays_local_with_a_notice_and_can_be_overridden
     assert first(ev, "route")["local"] is False
     t = (await client.get(f"/chat/threads/{tid}", headers=ADMIN)).json()["thread"]
     assert not t["private"] and t["private_source"] is None
-    reqs = (await session.execute(select(Request).order_by(Request.id))).scalars().all()
+    # chat requests only (M2.5: titles have their own `aux` rows in the Activity log)
+    reqs = (
+        (await session.execute(select(Request).where(Request.kind == "chat").order_by(Request.id)))
+        .scalars()
+        .all()
+    )
     assert reqs[0].decision_json["sensitive"]["overridden"] is True
     assert reqs[0].decision_json["classifier"]["route"] == "sensitive_health"
     assert reqs[1].decision_json["sensitive"] is None  # the re-run skipped auto-detection

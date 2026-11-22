@@ -85,6 +85,28 @@ const shots: Record<string, { path: string; clock?: Date; act?: (p: Page) => Pro
       await p.getByRole("region", { name: "Free quotas" }).evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 90));
     },
   },
+  // M2.5: an image and a PDF attached in chat (a chart drawn here, sample data), the answer from a vision model.
+  "chat-attach": {
+    path: "/chat",
+    act: async (p) => {
+      const bars = [1200, 1650, 2100, 3050, 3400].map((v, i) => `<rect x="${70 + i * 110}" y="${360 - v / 10}" width="70" height="${v / 10}" rx="6" fill="#8B8FE8"/><text x="${105 + i * 110}" y="390" font-size="20" text-anchor="middle" font-family="sans-serif" fill="#333">${["Jun", "Jul", "Aug", "Sep", "Oct"][i]}</text>`).join("");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420"><rect width="640" height="420" fill="#fff"/><text x="30" y="40" font-size="24" font-family="sans-serif" font-weight="700" fill="#222">Requests per month</text>${bars}</svg>`;
+      const png = await sharp(Buffer.from(svg)).png().toBuffer();
+      const chooser = p.waitForEvent("filechooser");
+      await p.getByRole("button", { name: /Attach files/ }).click();
+      await (await chooser).setFiles([
+        { name: "requests-chart.png", mimeType: "image/png", buffer: png },
+        { name: "q3-report.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n% sample\n") },
+      ]);
+      await p.locator("[data-estimate]").waitFor();
+      await p.getByLabel("Message").fill("What does this chart show?");
+      await p.getByRole("button", { name: "Send" }).click();
+      await p.getByRole("article", { name: "Assistant" }).last().getByText(/Free-tier models handled/).waitFor();
+      await p.getByRole("img", { name: /Attached image/ }).evaluate((img: HTMLImageElement) => img.decode());
+      await p.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  activity: { path: "/metrics/activity", clock: METRICS_NOW },
   "wizard-goals": { path: "/welcome?step=2" },
   "wizard-connect": { path: "/welcome?step=3" },
 };

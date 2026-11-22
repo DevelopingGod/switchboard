@@ -161,6 +161,10 @@ Routing chooses the **provider and the model**, not just the provider.
 3. **Classifier**: Arch-Router-1.5B on Ollama with route descriptions from `rules.yaml`. ~~Fallback: `fast` model with a JSON-schema classification prompt.~~ M3a: strong keyword signals decide first, with no model call. The fallback, when the classifier is down, reloading, slower than 1.5 s or unclear, is the keyword heuristics, including a first-person sensitive check (docs/m3a.md).
    - **Auto-private (M3a).** A message classified as sensitive (health, finance, legal, personal) goes local and makes the thread private, with a "Not sensitive — use cloud" override. Settings → Privacy can turn it off.
    - **Secrets (M3a).** A pasted secret (API key, token, private key, password, card number) always goes local, with no override, and is masked in everything stored.
+   - **Attachments (M2.5, ADR 0016).** An image needs a model tagged `vision` (every target is checked); a long
+     document (over `long_document_tokens`) prefers `best:long-context`; a code file sets the intent to code. A secret
+     in an attached file keeps the turn local like a pasted one. A private image only goes to the profile's local
+     vision model (`local-vision`), or the reply says none can read it. The quota guard counts the attachments' tokens.
 4. **Rule match** → target + fallbacks + autonomy + temperature + caps.
 5. **Health/quota check**: skip targets that are down, out of quota, cooling down after 429, or over budget.
 6. **Dispatch** and **log the decision** (inputs, matched rule, chosen target, skipped targets with reasons, latency).
@@ -240,7 +244,8 @@ dial shows level 3 but can't land on it, with the reason next to it.
 
 ## 8. Portal screens
 
-1. **Chat** — threads, streaming, file/image attach, composer with: `Auto` / manual target picker, temperature slider, autonomy selector, private toggle. Each reply shows a chip: *routed to X by rule Y* (click → decision log). "Convert to job" button.
+1. **Chat** — threads, streaming, file/image attach (**built in M2.5**, docs/m25.md: paperclip, drop, paste; chips with
+   the token estimate; thumbnails and download chips on the message; only raster images render inline), composer with: `Auto` / manual target picker, temperature slider, autonomy selector, private toggle. Each reply shows a chip: *routed to X by rule Y* (click → decision log). "Convert to job" button.
 2. **Studio** — image and video generation, gallery, prompt history, per-item cost, re-run with another provider. Cost confirmation for video.
 3. **Agents & Jobs** — list Paperclip agents with status; job board (queued / running / needs approval / done); live log stream; diff or report view; approve / reject / stop. Deep-link to Paperclip for advanced config.
    **Built in M4b** (docs/m4b.md): `/jobs` board (status tabs with counts, agent/project filters, paging), `/jobs/<id>` (timeline, live log, plan, per-file diff, approve/reject with a note, stop, cost or "cost not reported", branch and plain merge instructions; Switchboard never pushes), "Run as job" from a chat reply, `/jobs/agents` (fleet: hire from templates, edit, pause, reset, delete; ADR 0009), Settings → Projects (allowlist, copies, retention) and Settings → Jobs (approval expiry, desktop notifications).
@@ -256,6 +261,8 @@ dial shows level 3 but can't land on it, with the reason next to it.
 5. **Rules** (`/settings/rules`, M3b) — Simple mode: the presets (active one, paid policy) and the tester; Pro mode: rule table + form editor, slash commands, classifier wording, weights/quota/summary/defaults, version history with diff and rollback. The tester ("try a message") shows the decision, the classifier's answer, the order targets would be tried, the reasons, the per-factor score breakdown and the runner-up, and includes unsaved changes.
 6. **Metrics** — date range filter; tokens and cost by provider / model / agent / rule; requests, errors, 429s, latency p50/p95; quota burn-down; media spend; Paperclip budget status; top expensive requests.
    **Built in M6** (docs/m6.md, ADRs 0011/0012): `/metrics` in the viewer's time zone (Today / 7 days / 30 days). Simple: spent, value at API prices, net saved (after Settings → Subscriptions fees and spend), requests, jobs done, one-sentence insights, spend/value chart. Pro: breakdowns by provider / model / agent / rule / intent / project / kind, errors and fallbacks, latency p50/p95, quota burn-down with reset times, budgets with a straight-line forecast, 👍/👎 per model, job success per agent, most valuable requests (titles and job names only; private chats show "Private chat"), include-demo toggle. Every table exports CSV. Media spend arrives with M5.
+   **M2.5 (ADR 0017):** Metrics → **Activity** (`/metrics/activity`): every request (chats, jobs, titles and summaries,
+   model tests), keyset-paged, filters, title search (never private chats), "Why this?" per row, formula-safe CSV.
 7. **Settings** — users/roles (admin, user), budgets, data-retention, export/import config.
 
 Design: calm "dreamy sky" glass (Day sky / Dusk), keyboard-first (⌘K command palette), mobile-friendly read-only. See §8c.
@@ -481,6 +488,7 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `messages(id, thread_id, role, content, status[streaming|done|stopped|error|notice|blocked], request_id, private, feedback, meta_json, created_at)`: reasoning text is never stored; `meta_json` holds the "Why this?" data (M2)
 - `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`: M6.5 adds `account`, `rule_id`, `resume_at`, `attempt`, `waits`, `paid`, `paid_budget_usd` and the status `waiting_reset`
 - `cli_accounts(id, cli, name, label, created_at, deleted_at)` and `usage_windows(cli, account, window, used, resets_at, limited, source[reported|estimate], capacity, hours, seen_at)`; `agent_profiles.account`, `projects.accounts` (M6.5, ADRs 0013/0014)
+- `attachments(id uuid, thread_id, message_id, job_id, status[staged|bound], sha256, name, kind[image|pdf|text], mime, bytes, code, pages, pages_read, width, height, text_chars, truncated, secret_kinds, note, created_at)`: the bytes live in the data folder, never in the DB (M2.5, ADR 0016). `requests.kind` also takes `aux` (a title or summary) and `test` (a model test), with `requests.call_id` (ADR 0017)
 - `media(request_id, type, provider, file_path, cost_usd)`
 - `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)` (see §6.4)
 - `model_stats(model_id, task_type, samples, p50_ms, p95_ms, error_rate, thumbs_up, thumbs_down, score, updated_at)` (see §6.4)
