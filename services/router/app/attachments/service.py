@@ -308,3 +308,100 @@ def extra_tokens(atts: list[Attachment], with_images: bool) -> int:
     if with_images:
         n += sum(est_tokens(a) for a in atts if a.kind == "image")
     return n
+
+
+# --- jobs ------------------------------------------------------------------------------------------------
+JOB_FOLDER = ".switchboard/attachments"
+
+
+async def for_job_request(session: AsyncSession, ids: Sequence[uuid.UUID]) -> list[Attachment]:
+    """Files a new job may take: fresh uploads, or a non-private chat message's files ("Run as job").
+    Agents run on cloud models, so a file with a secret, or from a private chat, is refused."""
+    from app.models import Thread
+
+    cfg = att_config.load()
+    if len(ids) > cfg.max_files_per_message:
+        raise HTTPException(422, f"At most {cfg.max_files_per_message} files per job.")
+    if not ids:
+        return []
+    rows = {
+        a.id: a for a in (await session.execute(select(Attachment).where(Attachment.id.in_(ids)))).scalars()
+    }
+    out = []
+    for i in dict.fromkeys(ids):
+        a = rows.get(i)
+        if a is None or a.job_id is not None or a.status not in ("staged", "bound"):
+            raise HTTPException(409, "An attached file is no longer available. Attach it again.")
+        if a.thread_id is not None:
+            t = await session.get(Thread, a.thread_id)
+            if t is None or t.private:
+                raise HTTPException(
+                    400, "A file from a private chat stays on this computer: it can't go to a job"
+                )
+        if a.secret_kinds:
+            raise HTTPException(
+                400,
+                f"“{a.name}” contains a secret. Agents run on cloud models: remove it from the file first.",
+            )
+        out.append(a)
+    return out
+
+
+def _unique(name: str, used: set[str]) -> str:
+    stem, dot, ext = name.rpartition(".")
+    base, n, cand = (stem if dot else name), 1, name
+    while cand in used:
+        n += 1
+        cand = f"{base}-{n}{dot}{ext}" if dot else f"{name}-{n}"
+    used.add(cand)
+    return cand
+
+
+def attach_to_job(atts: list[Attachment], job_id: int) -> list[Attachment]:
+    """Give the job its own copy of each file (`<data>/attachments/jobs/<job id>/`). A fresh upload moves
+    there; a chat file is copied (the chat keeps its own). Returns the job's rows (the caller adds them)."""
+    used: set[str] = set()
+    out: list[Attachment] = []
+    for a in atts:
+        name = _unique(a.name, used)
+        if a.status == "staged":
+            store.move_all(store.staging_dir(a.id), store.job_dir(job_id), a.sha256)
+            a.job_id, a.status, a.name = job_id, "bound", name
+            out.append(a)
+            continue
+        store.copy_all(folder(a), store.job_dir(job_id), a.sha256)
+        out.append(
+            Attachment(
+                id=uuid.uuid4(),
+                job_id=job_id,
+                status="bound",
+                **{
+                    k: getattr(a, k)
+                    for k in (
+                        "sha256",
+                        "kind",
+                        "mime",
+                        "bytes",
+                        "code",
+                        "pages",
+                        "pages_read",
+                        "width",
+                        "height",
+                        "text_chars",
+                        "truncated",
+                        "secret_kinds",
+                        "note",
+                    )
+                },
+                name=name,
+            )
+        )
+    return out
+
+
+def job_prompt_note(atts: list[Attachment]) -> str:
+    names = ", ".join(a.name for a in atts)
+    return (
+        f"\n\nAttached files (in {JOB_FOLDER}/ in this folder, not part of the project; "
+        f"don't commit them): {names}."
+    )

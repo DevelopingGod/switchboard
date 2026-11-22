@@ -994,9 +994,13 @@ def diff_worktree(body: dict) -> dict:
     base = body.get("base")
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{7,64}", base):
         raise GitError(400, "invalid base commit")
-    stat = git(["diff", "--numstat", base, "--"], wt)
-    text = git(["diff", "--no-color", "--no-ext-diff", base, "--"], wt)
-    new = [f for f in git(["ls-files", "--others", "--exclude-standard", "-z"], wt).split("\0") if f]
+    stat = git(["diff", "--numstat", base, "--", *NOT_SWITCHBOARD], wt)
+    text = git(["diff", "--no-color", "--no-ext-diff", base, "--", *NOT_SWITCHBOARD], wt)
+    new = [
+        f
+        for f in git(["ls-files", "--others", "--exclude-standard", "-z", "--", *NOT_SWITCHBOARD], wt).split("\0")
+        if f
+    ]
     for f in new[:MAX_NEW_FILES]:
         if len(text) > MAX_DIFF_BYTES:
             break
@@ -1026,14 +1030,91 @@ def commit_worktree(body: dict) -> dict:
     message = body.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 500 or "\0" in message:
         raise GitError(400, "invalid commit message")
-    git(["add", "-A"], wt)
-    if not git(["status", "--porcelain"], wt).strip():
+    # Never the job's attachments (M2.5): `.switchboard/` is git-ignored by its own .gitignore, and excluded here too.
+    git(["add", "-A", "--", ".", *NOT_SWITCHBOARD], wt)
+    if not git(["status", "--porcelain", "--", ".", *NOT_SWITCHBOARD], wt).strip():
         return {"committed": False, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
     ident = []
     if not git(["config", "user.email"], wt, ok=(0, 1)).strip():
         ident = ["-c", "user.name=Switchboard", "-c", "user.email=switchboard@localhost"]
     git([*ident, "commit", "-q", "-m", message], wt, timeout=120)
     return {"committed": True, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
+
+
+# --- job attachments (M2.5, ADR 0016) ----------------------------------------------------------------------
+NOT_SWITCHBOARD = [":(exclude).switchboard"]  # pathspec: the job's attachments folder, never committed
+ATTACH_NAME_RE = re.compile(r"[\w\- ().]{1,160}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+MAX_ATTACH_FILES = 20
+MAX_ATTACH_BYTES = 200 * 1024 * 1024
+
+
+def data_root() -> Path:
+    """Switchboard's data folder (attachments). The router container mounts the same folder."""
+    return switchboard_dir("SWITCHBOARD_DATA_DIR", "data")
+
+
+def copy_attachments(body: dict) -> dict:
+    """Copy a job's attachments from the data folder into `<worktree>/.switchboard/attachments/`, with a
+    `.switchboard/.gitignore` of `*` so they are never committed. Only files the router stored for this job
+    (`<data>/attachments/jobs/<job id>/<sha256>`), never followed through links, never outside the worktree."""
+    _, wt, _ = _existing_worktree(body)
+    _, job_id, _, _ = _job(body.get("slug"), body.get("job_id"))
+    files = body.get("files")
+    if not isinstance(files, list) or not 0 < len(files) <= MAX_ATTACH_FILES:
+        raise GitError(400, f"files must be a list of 1 to {MAX_ATTACH_FILES}")
+    root = data_root()
+    src_dir = root / "attachments" / "jobs" / str(job_id)
+    if _is_self(root.resolve()) or wt in root.resolve().parents:
+        raise GitError(400, "the data folder must be outside any repository")
+    _no_symlinks(src_dir, root)
+    names: set[str] = set()
+    plan: list[tuple[Path, str]] = []
+    for f in files:
+        sha, name = (f or {}).get("sha256"), (f or {}).get("name")
+        if not isinstance(sha, str) or not SHA256_RE.fullmatch(sha):
+            raise GitError(400, "invalid file hash")
+        if (
+            not isinstance(name, str)
+            or not ATTACH_NAME_RE.fullmatch(name)
+            or name.startswith(".")
+            or name in names
+        ):
+            raise GitError(400, "invalid or repeated file name")
+        names.add(name)
+        plan.append((src_dir / sha, name))
+    sb = wt / ".switchboard"
+    dest = sb / "attachments"
+    for d in (sb, dest):
+        if d.is_symlink() or (d.exists() and not d.is_dir()):
+            raise GitError(409, f"{d.name} in the worktree isn't a plain folder")
+        d.mkdir(mode=0o700, exist_ok=True)
+    ignore = sb / ".gitignore"
+    if ignore.is_symlink():
+        raise GitError(409, ".switchboard/.gitignore in the worktree is a link")
+    ignore.write_text("# Switchboard job files (attachments): never committed\n*\n")
+    total = 0
+    for src, name in plan:
+        try:
+            fin = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            raise GitError(404, f"{name} is missing from the data folder") from None
+        except OSError:
+            raise GitError(400, f"{name} can't be read") from None
+        target = dest / name
+        if target.is_symlink():
+            target.unlink()
+        fout = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        try:
+            while chunk := os.read(fin, 1 << 20):
+                total += len(chunk)
+                if total > MAX_ATTACH_BYTES:
+                    raise GitError(413, "the job's attachments are too large")
+                os.write(fout, chunk)
+        finally:
+            os.close(fin)
+            os.close(fout)
+    return {"copied": len(plan), "folder": ".switchboard/attachments", "bytes": total}
 
 
 def remove_worktree(body: dict) -> dict:
@@ -1498,6 +1579,7 @@ def make_handler(probe: Probe):
                     "/git/worktrees/diff": diff_worktree,
                     "/git/worktrees/commit": commit_worktree,
                     "/git/worktrees/remove": remove_worktree,
+                    "/git/worktrees/attachments": copy_attachments,
                 }
                 small_actions = {
                     "/accounts": create_account,

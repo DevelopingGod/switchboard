@@ -1070,6 +1070,60 @@ class GitWorktreeTests(unittest.TestCase):
             hostprobe.diff_worktree(self.body(base=out["base_sha"]))
         self.assertEqual(e.exception.status, 404)
 
+    def _job_file(self, data: bytes) -> str:
+        import hashlib
+
+        sha = hashlib.sha256(data).hexdigest()
+        d = self.home / ".switchboard" / "data" / "attachments" / "jobs" / "7"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / sha).write_bytes(data)
+        return sha
+
+    def test_attachments_are_copied_ignored_and_never_committed(self):
+        """M2.5: a job's files land in .switchboard/attachments/, which git ignores and commit excludes."""
+        out = hostprobe.create_worktree(self.body())
+        wt = Path(out["path"])
+        sha = self._job_file(b"%PDF-1.4 spec")
+        r = hostprobe.copy_attachments(self.body(files=[{"sha256": sha, "name": "spec.pdf"}]))
+        self.assertEqual((r["copied"], r["folder"]), (1, ".switchboard/attachments"))
+        self.assertEqual((wt / ".switchboard" / "attachments" / "spec.pdf").read_bytes(), b"%PDF-1.4 spec")
+        self.assertEqual(sh_git(wt, "status", "--porcelain"), "")  # ignored by its own .gitignore
+        (wt / "a.py").write_text("x = 5\n")
+        d = hostprobe.diff_worktree(self.body(base=out["base_sha"]))
+        self.assertEqual({f["path"] for f in d["files"]}, {"a.py"})
+        # even if the ignore file is removed, a commit leaves the folder out
+        (wt / ".switchboard" / ".gitignore").unlink()
+        hostprobe.commit_worktree(self.body(message="job 7"))
+        tracked = sh_git(wt, "ls-files").split()
+        self.assertEqual(tracked, ["a.py"])
+        # idempotent: copying again is fine
+        hostprobe.copy_attachments(self.body(files=[{"sha256": sha, "name": "spec.pdf"}]))
+
+    def test_attachment_copy_refusals(self):
+        hostprobe.create_worktree(self.body())
+        sha = self._job_file(b"data")
+        bad = [
+            [{"sha256": "../../etc/passwd", "name": "x"}],
+            [{"sha256": sha, "name": "../escape.txt"}],
+            [{"sha256": sha, "name": ".bashrc"}],
+            [{"sha256": sha, "name": "a/b.txt"}],
+            [{"sha256": sha, "name": "x.txt"}, {"sha256": sha, "name": "x.txt"}],
+            [],
+            [{"sha256": "0" * 64, "name": "missing.txt"}],
+        ]
+        for files in bad:
+            with self.assertRaises(hostprobe.GitError, msg=files):
+                hostprobe.copy_attachments(self.body(files=files))
+        # a source file that is a link is never followed
+        src = self.home / ".switchboard" / "data" / "attachments" / "jobs" / "7"
+        link_sha = "1" * 64
+        (src / link_sha).symlink_to("/etc/hostname")
+        with self.assertRaises(hostprobe.GitError):
+            hostprobe.copy_attachments(self.body(files=[{"sha256": link_sha, "name": "h.txt"}]))
+        with self.assertRaises(hostprobe.GitError) as e:  # no worktree for this job
+            hostprobe.copy_attachments(self.body(job_id=8, files=[{"sha256": sha, "name": "x.txt"}]))
+        self.assertEqual(e.exception.status, 404)
+
     def test_listening_reads_proc_net(self):
         tcp = (
             "  sl  local_address rem_address   st\n"

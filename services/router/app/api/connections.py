@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app import credits, hostprobe_client, model_test, secrets, sync
+from app import credits, hostprobe_client, litellm_calls, model_test, secrets, sync
 from app.catalog.fetchers import FetchError, fetch
 from app.catalog.job import get_connection, record_fetch
 from app.db import get_session
@@ -395,14 +395,18 @@ async def test_model(
         deps = [d for d in registry.static_aliases() if d.alias == body.alias]
         if not deps:
             raise HTTPException(404, f"unknown alias {body.alias}")
+        call_id = litellm_calls.new_id("test")
         try:
-            served = await admin.chat(body.alias)
+            served = await admin.chat(body.alias, call_id=call_id)
             ok, error = True, None
         except LiteLLMError as e:
             served, ok, error = None, False, secrets.redact(str(e))
         ms = model_test.elapsed_ms(start)
         first = sorted(deps, key=lambda d: d.order or 0)[0]
         await model_test.record(session, first.provider, first.model, ok, ms, error)
+        await model_test.log_request(
+            session, served or f"{first.provider}/{first.model}", ok, ms, error, call_id
+        )
         return {"alias": body.alias, "ok": ok, "latency_ms": ms, "served_by": served, "error": error}
 
     p = _provider(body.provider or "", ("api_key", "local"))
@@ -418,4 +422,5 @@ async def test_model(
             ok, error = False, str(e)
     ms = model_test.elapsed_ms(start)
     await model_test.record(session, p.id, body.model_id or "", ok, ms if ok else None, error)
+    await model_test.log_request(session, f"{p.id}/{body.model_id}", ok, ms, error, None)
     return {"provider": p.id, "model_id": body.model_id, "ok": ok, "latency_ms": ms, "error": error}

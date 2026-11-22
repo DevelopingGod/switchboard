@@ -535,7 +535,9 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
         )
 
         if prep.title_pending and asst.status == "done":
-            title = await local_title(client, ctx, prep.user_text, asst.content, private=thread.private)
+            title = await local_title(
+                client, ctx, prep.user_text, asst.content, private=thread.private, thread_id=thread.id
+            )
             if title:
                 thread.title, thread.title_source = title, "local"
                 await s.commit()
@@ -855,7 +857,12 @@ async def _finalize(
 
 
 async def local_title(
-    client: httpx.AsyncClient, ctx: Context, user_text: str, answer: str, private: bool = True
+    client: httpx.AsyncClient,
+    ctx: Context,
+    user_text: str,
+    answer: str,
+    private: bool = True,
+    thread_id: uuid.UUID | None = None,
 ) -> str | None:
     """A short title from the local profile's tasks model; a free cloud model only when the profile
     has none (CPU only) and the thread isn't private. None -> keep the words title. `user_text` is the
@@ -872,5 +879,7 @@ async def local_title(
         cloud_ok=not private and local_profile.active().tasks is None,
         connected=ctx.connected,
         private=private,
+        purpose="title",
+        thread_id=thread_id,
     )
     return clean_title(text) if text else None

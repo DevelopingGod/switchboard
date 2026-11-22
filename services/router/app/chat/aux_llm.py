@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+import uuid
 
 import httpx
 
-from app import litellm_calls, local_profile, local_queue, ollama
+from app import db, litellm_calls, local_profile, local_queue, ollama
+from app.config import get_settings
 
 log = logging.getLogger("app.chat.aux")
 
@@ -31,8 +34,81 @@ async def generate(
     temperature: float = 0.2,
     private: bool = False,
     num_ctx: int | None = None,  # summaries need a longer window than Ollama's default; titles don't
+    purpose: str | None = None,  # M2.5: "title" | "summary" -> a row in the Activity log
+    thread_id: uuid.UUID | None = None,
 ) -> tuple[str | None, str | None]:
     """(text, model that wrote it) or (None, None)."""
+    t0 = time.perf_counter()
+    text, model, call_id = await _generate(
+        litellm,
+        prompt,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        cloud_ok=cloud_ok,
+        connected=connected,
+        temperature=temperature,
+        private=private,
+        num_ctx=num_ctx,
+    )
+    if purpose:
+        await record(
+            purpose,
+            thread_id,
+            private,
+            model,
+            call_id,
+            ok=bool(text),
+            ms=int((time.perf_counter() - t0) * 1000),
+        )
+    return text, model
+
+
+async def record(
+    purpose: str,
+    thread_id: uuid.UUID | None,
+    private: bool,
+    model: str | None,
+    call_id: str | None,
+    *,
+    ok: bool,
+    ms: int,
+) -> None:
+    """One `requests` row per title or summary (kind `aux`), for the Activity log. Metrics keeps counting
+    calls from their cost rows (the rollup skips `aux` requests). Best effort: never breaks a chat."""
+    from app.models import Request
+
+    tag = get_settings().router_request_tag
+    try:
+        async with db.sessionmaker()() as s:
+            s.add(
+                Request(
+                    kind="aux",
+                    status="ok" if ok else "error",
+                    private=private,
+                    thread_id=thread_id,
+                    model=model,
+                    latency_ms=ms,
+                    call_id=call_id,
+                    decision_json={"purpose": purpose, **({"tag": tag} if tag else {})},
+                )
+            )
+            await s.commit()
+    except Exception as e:  # noqa: BLE001 - logging must never fail the turn
+        log.info("could not record the %s call (%s)", purpose, type(e).__name__)
+
+
+async def _generate(
+    litellm: httpx.AsyncClient,
+    prompt: str,
+    *,
+    max_tokens: int,
+    timeout: float,
+    cloud_ok: bool,
+    connected: set[str],
+    temperature: float,
+    private: bool,
+    num_ctx: int | None,
+) -> tuple[str | None, str | None, str | None]:
     prof = local_profile.active()
     if prof.tasks and "ollama" in connected:
         try:
@@ -59,11 +135,12 @@ async def generate(
 
                     classifier.ensure_resident()
             if text:
-                return text, f"ollama/{prof.tasks}"
+                return text, f"ollama/{prof.tasks}", None
         except (ollama.OllamaError, local_queue.QueueFull, TimeoutError) as e:
             log.info("local %s failed (%s)%s", prof.tasks, e, "; trying the cloud" if cloud_ok else "")
     if not cloud_ok:
-        return None, None
+        return None, None, None
+    call_id = litellm_calls.new_id("aux")
     body = {
         "model": CLOUD_ALIAS,
         "messages": [{"role": "user", "content": prompt}],
@@ -78,14 +155,14 @@ async def generate(
             "/v1/chat/completions",
             json=body,
             timeout=timeout,
-            headers=litellm_calls.headers(litellm_calls.new_id("aux")),
+            headers=litellm_calls.headers(call_id),
         )
         if r.status_code >= 400:
-            return None, None
+            return None, CLOUD_ALIAS, call_id
         text = ollama.THINK.sub("", r.json()["choices"][0]["message"].get("content") or "").strip()
-        return (text or None), (r.headers.get("x-litellm-model-name") or CLOUD_ALIAS) if text else None
+        return (text or None), (r.headers.get("x-litellm-model-name") or CLOUD_ALIAS), call_id
     except (httpx.HTTPError, ValueError, KeyError, IndexError):
-        return None, None
+        return None, CLOUD_ALIAS, call_id
 
 
 _pending: set[asyncio.Task] = set()

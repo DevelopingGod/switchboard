@@ -205,7 +205,7 @@ async def test_router_healthy_when_hostprobe_down(client, hostprobe_down):
         "db": "ok",
         "litellm": "ok",
         "hostprobe": "down",
-        "rules": "ok (11 rules, 11 classifier routes)",
+        "rules": "ok (13 rules, 11 classifier routes)",
         "fault_injection": False,
         "quota_test_limits": None,
         "limit_test": None,

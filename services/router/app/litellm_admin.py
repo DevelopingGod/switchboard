@@ -126,7 +126,7 @@ class LiteLLMAdmin:
         if r.status_code >= 400 and not _gone(r):
             raise LiteLLMError(f"LiteLLM POST /model/delete -> {r.status_code}: {r.text[:200]}")
 
-    async def chat(self, model: str, timeout: float = 60) -> str | None:
+    async def chat(self, model: str, timeout: float = 60, call_id: str | None = None) -> str | None:
         """1-token call through LiteLLM; returns the deployment that served it (header), not the alias."""
         body = {"model": model, "max_tokens": 16, "messages": [{"role": "user", "content": "Reply: pong"}]}
         litellm_calls.tag_body(body)
@@ -134,7 +134,7 @@ class LiteLLMAdmin:
             "/v1/chat/completions",
             json=body,
             timeout=timeout,
-            headers=litellm_calls.headers(litellm_calls.new_id("test")),
+            headers=litellm_calls.headers(call_id or litellm_calls.new_id("test")),
         )
         if r.status_code >= 400:
             raise LiteLLMError(f"LiteLLM chat {model} -> {r.status_code}: {r.text[:200]}")

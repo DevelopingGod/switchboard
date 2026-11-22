@@ -109,6 +109,8 @@ async def summarize(
         connected=connected,
         private=thread.private,
         num_ctx=8192,
+        purpose="summary",
+        thread_id=thread.id,
     )
     if not text:
         return None

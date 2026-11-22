@@ -479,7 +479,12 @@ def test_forecast_edges():
     )
 
 
-async def test_budgets_and_quotas_endpoints(client, stack):  # noqa: F811
+async def test_budgets_and_quotas_endpoints(client, stack, mock_http):  # noqa: F811
+    # The budgets view asks hostprobe for each subscription account's plan. Answer it here, so the test
+    # doesn't depend on another test having filled accounts' one-minute status cache first.
+    mock_http.get(url__regex=r"http://hostprobe\.test/accounts/status\?.*").respond(
+        200, json={"installed": True, "logged_in": True, "plan": None}
+    )
     b = (await client.get("/metrics/budgets", headers=ADMIN)).json()
     assert b["chat"]["cap"] > 0 and b["chat"]["state"] in ("idle", "on_track", "will_reach", "reached")
     assert {a["agent"] for a in b["agents"]} >= {"claude-code"}

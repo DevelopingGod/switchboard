@@ -90,6 +90,29 @@ async def record(
         await session.commit()
 
 
+async def log_request(
+    session: AsyncSession, model: str, ok: bool, ms: int, error: str | None, call_id: str | None
+) -> None:
+    """A model test in the Activity log (M2.5): a `requests` row of kind `test`. Metrics counts the call from
+    its cost row as before (the rollup skips `test` requests)."""
+    from app.config import get_settings
+    from app.models import Request
+
+    tag = get_settings().router_request_tag
+    session.add(
+        Request(
+            kind="test",
+            status="ok" if ok else "error",
+            model=model[:255],
+            latency_ms=ms,
+            error=secrets.redact(error)[:500] if error else None,
+            call_id=call_id,
+            decision_json={"tag": tag} if tag else {},
+        )
+    )
+    await session.commit()
+
+
 def timer() -> float:
     return time.perf_counter()
 

@@ -361,6 +361,7 @@ class FakeHost:
         )
         m.post(f"{HP}/git/worktrees/commit").mock(side_effect=self._commit)
         m.post(f"{HP}/git/worktrees/remove").mock(side_effect=self._remove)
+        m.post(f"{HP}/git/worktrees/attachments").mock(side_effect=self._attachments)
         m.get(url__regex=rf"{HP}/git/worktrees\?").mock(
             side_effect=lambda r: httpx.Response(
                 200,
@@ -437,6 +438,11 @@ class FakeHost:
         return httpx.Response(
             200, json={"committed": True, "sha": "b" * 40, "branch": f"switchboard/job-{j}"}
         )
+
+    def _attachments(self, r):
+        b = json.loads(r.content)
+        self.copied = getattr(self, "copied", []) + [b]
+        return httpx.Response(200, json={"copied": len(b["files"]), "folder": ".switchboard/attachments"})
 
     def _remove(self, r):
         self.removed.append(json.loads(r.content)["job_id"])
@@ -898,3 +904,46 @@ async def test_events_stream_snapshots_logs_and_end(client, fakes, session):
         body = (await r.aread()).decode()
     events = re.findall(r"^event: (\w+)$", body, re.M)
     assert events[0] == "job" and events[-1] == "end"
+
+
+# --- M2.5: attachments in jobs ---------------------------------------------------------------------------
+async def test_job_gets_its_files_in_a_git_ignored_folder(client, fakes, session, data_dir):
+    from urllib.parse import quote
+
+    from tests.attachments_util import png
+
+    pc, host = fakes
+    up = await client.post(
+        "/attachments",
+        content=png(),
+        headers={**ADMIN, "Content-Type": "application/octet-stream", "X-Filename": quote("design.png")},
+    )
+    att = up.json()
+    job = await start(client, agent="claude-code", autonomy=1, attachment_ids=[att["id"]])
+    jid = job["id"]
+    j = await get(session, jid)
+    assert ".switchboard/attachments/" in j.prompt and "design.png" in j.prompt and "don't commit" in j.prompt
+    assert (data_dir / "attachments" / "jobs" / str(jid)).is_dir()
+    await step(jid)
+    assert host.copied[-1]["job_id"] == jid and host.copied[-1]["files"][0]["name"] == "design.png"
+    detail = (await client.get(f"/jobs/{jid}", headers=ADMIN)).json()
+    assert detail["attachments"][0]["name"] == "design.png"
+    assert "attachments_copied" in [e["kind"] for e in detail["events"]]
+
+
+async def test_job_refuses_private_or_secret_files(client, fakes, session):
+    from urllib.parse import quote
+
+    key = "sk-proj-" + "Q1w2E3r4" * 6  # gitleaks:allow
+    up = await client.post(
+        "/attachments",
+        content=f"token={key}".encode(),
+        headers={**ADMIN, "Content-Type": "application/octet-stream", "X-Filename": quote("env.txt")},
+    )
+    pid = await add_project(client)
+    r = await client.post(
+        "/jobs",
+        json={"prompt": "use this", "project_id": pid, "attachment_ids": [up.json()["id"]]},
+        headers=ADMIN,
+    )
+    assert r.status_code == 400 and "contains a secret" in r.json()["detail"]

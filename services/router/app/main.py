@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db, fleet, jobs, local_profile, secrets, sync
+from app.api import activity as activity_api
 from app.api import agents, catalog, chat, connections, health, onboarding, projects, rules, settings, system
 from app.api import attachments as attachments_api
 from app.api import jobs as jobs_api
@@ -86,6 +87,7 @@ app.include_router(catalog.router)
 app.include_router(onboarding.router)
 app.include_router(chat.router)
 app.include_router(attachments_api.router)
+app.include_router(activity_api.router)
 app.include_router(system.router)
 app.include_router(settings.router)
 app.include_router(rules.router)
