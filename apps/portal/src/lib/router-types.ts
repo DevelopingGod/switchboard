@@ -1,3 +1,4 @@
+import type { FlowStep, JobPacks, SetupEdit } from "./packs-types";
 /** Shapes returned by the Router API (services/router). Safe to import from client code: types only. */
 
 export type Privacy = "no-training" | "may-train" | "local" | "varies";
@@ -606,7 +607,7 @@ export interface DryRunResult {
 // --- M4b: jobs, the agent fleet, projects -------------------------------------------------------------
 export type JobStatus = "queued" | "running" | "needs_approval" | "waiting_reset" | "done" | "failed" | "stopped";
 /** M6.5: `limit` = the usage-limit reset is far away, so the job asks before waiting (ADR 0014). */
-export type JobGate = "plan" | "diff" | "result" | "limit";
+export type JobGate = "plan" | "step" | "diff" | "result" | "limit";
 
 export interface JobEventRow {
   id: number;
@@ -657,6 +658,10 @@ export interface JobView {
   waits?: number;
   paid?: boolean;
   paid_budget_usd?: number | null;
+  /** M4.5a: a pack workflow, its current step, and what the job's packs did. */
+  flow?: string | null;
+  flow_step?: FlowStep | null;
+  packs?: JobPacks | null;
 }
 
 export interface JobsPage {
@@ -764,6 +769,8 @@ export interface JobInput {
   paid_budget_usd?: number;
   /** M2.5: files for the agent, copied into a git-ignored .switchboard/attachments/ in its worktree. */
   attachment_ids?: string[];
+  /** M4.5a: a pack workflow ("openspec.change"). */
+  flow?: string;
 }
 
 export interface JobRun {
@@ -793,6 +800,9 @@ export interface JobDiff {
   files: { path: string; added: number | null; removed: number | null; new?: boolean }[];
   diff: string;
   truncated: boolean;
+  /** M4.5a: changes a pack's setup made (left out of the commit unless ticked), and their diff. */
+  setup_edits?: SetupEdit[];
+  setup_diff?: string;
 }
 
 export interface AgentRow {

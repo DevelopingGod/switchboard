@@ -18,6 +18,8 @@ import { badgeOf, budgetPct, costSummary, duration, isActive, usd } from "@/lib/
 import type { JobDiff, JobView } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { jobsStrings, tJobs } from "@/i18n/jobs";
+import { tPacks } from "@/i18n/packs";
+import { JobPacksPanel } from "@/components/packs/JobPacksPanel";
 import { JobTimeline } from "./JobTimeline";
 import { JobLog } from "./JobLog";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
@@ -73,7 +75,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
     j.status === "waiting_reset" || j.gate === "limit"
       ? "timeline"
       : j.status === "needs_approval"
-        ? j.gate === "diff"
+        ? j.gate === "diff" || j.gate === "step"
           ? "diff"
           : j.gate === "plan"
             ? "plan"
@@ -87,6 +89,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
   const [error, setError] = React.useState<{ code?: string; detail?: string | null; text?: string } | null>(null);
   const [note, setNote] = React.useState("");
   const [again, setAgain] = React.useState(false);
+  const [ticked, setTicked] = React.useState<string[]>([]); // M4.5a: setup edits you chose to commit
   const ids = React.useId();
 
   // The server's view (with the timeline) wins whenever a refresh brings a new one.
@@ -104,7 +107,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
     if (snap.status && s !== stamp.current) {
       stamp.current = s;
       // The job now waits for you: show what to decide on (unless you picked a tab yourself).
-      if (snap.status === "needs_approval" && snap.gate && snap.gate !== "limit" && !picked.current) setTab(snap.gate === "diff" ? "diff" : snap.gate === "plan" ? "plan" : "result");
+      if (snap.status === "needs_approval" && snap.gate && snap.gate !== "limit" && !picked.current) setTab(snap.gate === "diff" || snap.gate === "step" ? "diff" : snap.gate === "plan" ? "plan" : "result");
       router.refresh(); // fresh timeline and approval deadline from the server
     }
   });
@@ -112,26 +115,27 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
   const act = async (kind: "approve" | "reject" | "stop") => {
     setBusy(kind);
     setError(null);
-    const r = kind === "approve" ? await approveJob(job.id, note) : kind === "reject" ? await rejectJob(job.id, note) : await stopJob(job.id);
+    const r = kind === "approve" ? await approveJob(job.id, note, job.gate === "diff" ? ticked : undefined) : kind === "reject" ? await rejectJob(job.id, note) : await stopJob(job.id);
     setBusy(null);
     setConfirmStop(false);
     if (!r.ok) return setError({ code: r.code ?? "error", detail: r.detail ?? r.error, text: r.error });
     setNote("");
     setJob((j) => ({ ...r.data, project: r.data.project ?? j.project, events: j.events }));
     push({ tone: kind === "approve" ? "success" : "info", title: kind === "approve" ? tJobs("decide.approved") : kind === "reject" ? tJobs("decide.rejected") : tJobs("status.stopped") });
-    if (kind === "approve" && job.gate === "plan") setTab("log");
+    if (kind === "approve" && (job.gate === "plan" || job.gate === "step")) setTab("log");
     router.refresh();
   };
 
   const cost = costSummary(job);
   const pct = budgetPct(job);
   const level = jobsStrings.autonomy.names[job.autonomy] ?? String(job.autonomy);
-  const hasDiff = !!job.worktree && (job.gate === "diff" || job.status === "done" || (job.status === "running" && job.phase === "edit"));
+  const hasDiff = !!job.worktree && (job.gate === "diff" || job.gate === "step" || job.status === "done" || (job.status === "running" && job.phase === "edit"));
+  const setupEdits = Object.values(job.packs?.packs ?? {}).reduce((n, p) => n + p.edits.length, 0);
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: "timeline", label: tJobs("detail.tabs.timeline"), show: true },
     { id: "log", label: tJobs("detail.tabs.log"), show: true },
     { id: "plan", label: tJobs("detail.tabs.plan"), show: !!job.plan },
-    { id: "diff", label: tJobs("detail.tabs.diff"), show: hasDiff || job.gate === "diff" },
+    { id: "diff", label: tJobs("detail.tabs.diff"), show: hasDiff || job.gate === "diff" || job.gate === "step" },
     { id: "result", label: tJobs("detail.tabs.result"), show: !!job.result && job.status !== "needs_approval" },
   ];
   const visible = tabs.filter((t) => t.show);
@@ -212,10 +216,13 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
               <p className="text-sm text-ink-muted">
                 {job.gate === "plan"
                   ? tJobs("decide.planLead", { agent: job.agent_label })
+                  : job.gate === "step" && job.flow_step
+                    ? tJobs("decide.stepLead", { agent: job.agent_label, step: job.flow_step.step, n: job.flow_step.index + 1, count: job.flow_step.count })
                   : job.gate === "diff"
                     ? tJobs("decide.diffLead", { branch: job.branch ?? "" })
                     : tJobs("decide.resultLead", { agent: job.agent_label })}
               </p>
+              {job.gate === "diff" && setupEdits > 0 && <p className="text-sm">{tPacks("diff.summary", { n: setupEdits })}</p>}
               {job.approval_expires_at && (
                 <p className="text-[0.8125rem] text-ink-muted" suppressHydrationWarning>
                   {tJobs("detail.expires", { time: timeFmt.format(new Date(job.approval_expires_at)) })}
@@ -236,7 +243,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
               <div className="flex flex-wrap gap-2">
                 <Button type="button" size="sm" loading={busy === "approve"} disabled={!!busy} onClick={() => act("approve")}>
                   <Check aria-hidden className="size-4" />
-                  {job.gate === "plan" ? tJobs("decide.approvePlan") : job.gate === "diff" ? tJobs("decide.approveDiff") : tJobs("decide.approveResult")}
+                  {job.gate === "plan" ? tJobs("decide.approvePlan") : job.gate === "step" ? tJobs("decide.approveStep") : job.gate === "diff" ? tJobs("decide.approveDiff") : tJobs("decide.approveResult")}
                 </Button>
                 <Button type="button" size="sm" variant="danger" loading={busy === "reject"} disabled={!!busy} onClick={() => act("reject")}>
                   <X aria-hidden className="size-4" /> {tJobs("decide.reject")}
@@ -285,7 +292,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
               )}
               {current === "diff" &&
                 (job.worktree ? (
-                  <DiffView jobId={job.id} initial={initialDiff} />
+                  <DiffView jobId={job.id} initial={initialDiff} setup={{ editable: job.status === "needs_approval" && job.gate === "diff", ticked, onChange: setTicked }} />
                 ) : (
                   <GlassPanel tone="strong">
                     <p className="text-sm text-ink-muted">{tJobs("detail.noWorktree", { branch: job.branch ?? "" })}</p>
@@ -377,6 +384,7 @@ export function JobDetail({ initial, paperclipUi, initialDiff = null }: { initia
             <p className="max-h-48 overflow-y-auto break-words whitespace-pre-wrap">{job.prompt}</p>
             {job.attachments && job.attachments.length > 0 && <MessageAttachments files={job.attachments} />}
           </GlassPanel>
+          {(job.packs || job.flow_step) && <JobPacksPanel packs={job.packs ?? null} step={job.flow_step ?? null} />}
         </aside>
       </div>
       {again && job.project && (

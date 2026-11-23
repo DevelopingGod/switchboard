@@ -157,6 +157,28 @@ export const SUBSCRIPTIONS = (): SubscriptionView[] => [
 
 const NOT_VERIFIED = (label: string) => ({ "0": `${label} isn't set up to run jobs yet`, "1": `${label} isn't set up to run jobs yet`, "2": `${label} isn't set up to run jobs yet`, "3": `${label} isn't set up to run jobs yet` });
 
+// M4.5a: an OpenSpec workflow and what its packs did in the job's copy.
+const FLOW_STEP = (index: number) => ({ pack: "OpenSpec", label: "OpenSpec: propose → apply → archive", index, count: 3, step: ["Propose", "Apply", "Archive"][index], steps: ["Propose", "Apply", "Archive"] });
+const JOB_PACKS: NonNullable<JobView["packs"]> = {
+  state: "ready",
+  graphify: { eligible: true, used: true, control: false, reason: "graph used", build_ms: 4200, nodes: 1284 },
+  refused: [],
+  packs: {
+    openspec: { name: "OpenSpec", version: "2.1.1", owned: [".agents/skills/openspec-propose", ".claude/skills/openspec-propose"], artifacts: ["openspec/config.yaml"], edits: [] },
+    graphify: { name: "graphify", version: "0.9.115", owned: ["graphify-out", ".claude/skills/graphify", ".claude/settings.json"], artifacts: [], edits: [{ path: "AGENTS.md", kind: "modified" }], graph_stats: { nodes: 1284 } },
+  },
+};
+const SETUP_DIFF = `diff --git a/AGENTS.md b/AGENTS.md
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1 +1,5 @@
+ # Notes for agents
++
++## graphify
++
++This project has a knowledge graph at graphify-out/.
+`;
+
 function job(id: number, status: JobStatus, over: Partial<JobView> = {}): JobView {
   const title = over.title ?? "Add a function multiply(a, b) with tests";
   return {
@@ -285,7 +307,22 @@ function seed(): JobsStore {
     }),
     job(30, "needs_approval", { title: "Add a function multiply(a, b) with tests", phase: "read_only", gate: "plan", plan: PLAN, list_price_usd: 0.052, turns: 4, approval_expires_at: at(30 + 24 * 60) }),
     job(29, "queued", { title: "Explain how the cache layer expires entries", agent: "codex", agent_label: "Codex", agent_chain: ["codex"], autonomy: 0, cost_reported: false, started_at: null, worktree: null, branch: null, project_id: 2, project: { id: 2, name: "notes-app", path: "/home/you/code/notes-app" } }),
-    job(28, "needs_approval", { title: "Rename the settings module to config", agent: "opencode", agent_label: "OpenCode", agent_chain: ["opencode"], autonomy: 2, phase: "edit", gate: "diff", list_price_usd: 0, turns: 11, approval_expires_at: at(28 + 24 * 60) }),
+    job(28, "needs_approval", {
+      title: "Rename the settings module to config",
+      agent: "opencode",
+      agent_label: "OpenCode",
+      agent_chain: ["opencode"],
+      autonomy: 2,
+      phase: "edit",
+      gate: "diff",
+      list_price_usd: 0,
+      turns: 11,
+      approval_expires_at: at(28 + 24 * 60),
+      // M4.5a: an OpenSpec workflow job, at its last review; graphify set up too.
+      flow: "openspec.change",
+      flow_step: FLOW_STEP(2),
+      packs: JOB_PACKS,
+    }),
     job(27, "running", { title: "Add input validation to the CSV importer", phase: "edit", run_id: "run-27-1", plan: PLAN, list_price_usd: 0.088, turns: 6, project_id: 2, project: { id: 2, name: "notes-app", path: "/home/you/code/notes-app" } }),
     job(26, "done", { title: "Add a function subtract(a, b) with tests", agent: "codex", agent_label: "Codex", agent_chain: ["codex"], cost_reported: false, plan: PLAN, result: "Added subtract(a, b) and test_subtract; 2 tests pass.", turns: 14, finished_at: at(29), worktree: "/home/you/.switchboard/worktrees/mathutils/job-26" }),
     job(25, "done", { title: "Add a function divide(a, b) with tests", plan: PLAN, result: "Added divide(a, b) with a ZeroDivisionError test; 3 tests pass.", list_price_usd: 0.134, turns: 13, finished_at: at(28) }),
@@ -563,6 +600,10 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
       branch: null,
       updated_at: new Date().toISOString(),
     });
+    if (typeof b.flow === "string" && b.flow) {
+      // M4.5a (fixture): a workflow job lands at its first review, as after the Propose step.
+      Object.assign(j, { flow: b.flow, flow_step: FLOW_STEP(0), status: "needs_approval", gate: "step", phase: "edit", started_at: j.created_at, worktree: `/home/you/.switchboard/worktrees/${pr.name}/job-${j.id}`, branch: `switchboard/job-${j.id}`, packs: { ...JOB_PACKS, graphify: { eligible: false, used: false, reason: "the project is below the Auto threshold" } } });
+    }
     if (j.prompt.includes("[fixture:limit]")) {
       // Test trigger (fixture data only): the far-reset question, as when a reset is more than 12 h away.
       Object.assign(j, { status: "needs_approval", gate: "limit", phase: "edit", attempt: 1, waits: 1, resume_at: at(3 * 1440), started_at: j.created_at, approval_expires_at: at(1440) });
@@ -587,6 +628,10 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
     if (j.status !== "needs_approval") return fail(409, `Job ${j.id} isn't waiting for approval (it is ${j.status})`);
     if (m[2] === "reject") Object.assign(j, { status: "stopped", error: `You rejected the ${j.gate}${note ? `: ${note}` : ""}`, gate: null, finished_at: new Date().toISOString(), worktree: null });
     else if (j.gate === "plan") Object.assign(j, { status: "running", gate: null, phase: "edit", run_id: `run-${j.id}-1` });
+    else if (j.gate === "step") {
+      const next = (j.flow_step?.index ?? 0) + 1;
+      Object.assign(j, next >= 2 ? { gate: "diff", flow_step: FLOW_STEP(2) } : { flow_step: FLOW_STEP(next) });
+    }
     else Object.assign(j, { status: "done", finished_at: new Date().toISOString(), result: j.result ?? "Approved." });
     j.updated_at = new Date().toISOString();
     return ok(j);
@@ -605,6 +650,12 @@ export function handleJobs<T>(method: string, path: string, body: unknown): Resu
       ],
       diff: DIFF,
       truncated: false,
+      ...(j.flow
+        ? {
+            setup_edits: [{ path: "AGENTS.md", kind: "modified" as const, pack: "graphify", pack_name: "graphify", agent_changed: false, both: false }],
+            setup_diff: SETUP_DIFF,
+          }
+        : {}),
     };
     return ok(diff);
   }

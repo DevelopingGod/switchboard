@@ -4,6 +4,7 @@ import * as chatFixtures from "./chat-fixtures";
 import * as rulesFixtures from "./rules-fixtures";
 import * as jobsFixtures from "./jobs-fixtures";
 import * as metricsFixtures from "./metrics-fixtures";
+import * as packsFixtures from "./packs-fixtures";
 
 /**
  * The only module that knows the Router URL and ROUTER_ADMIN_TOKEN. Server components read with
@@ -39,6 +40,7 @@ function failureOf(body: unknown, fallback: string): { error: string; code?: str
 async function call<T>(method: string, path: string, body: unknown, admin: boolean, timeoutMs: number): Promise<Result<T>> {
   if (fixtureMode()) {
     if (path.startsWith("/rules") || path === "/route/dry-run") return rulesFixtures.handle<T>(method, path, body);
+    if (/^\/packs(\/|\?|$)/.test(path) || /^\/projects\/\d+\/packs$/.test(path) || path.startsWith("/metrics/packs")) return packsFixtures.handle<T>(method, path, body);
     if (/^\/(jobs|agents|projects|accounts|subscriptions)(\/|\?|$)/.test(path) || path === "/settings/overflow") return jobsFixtures.handleJobs<T>(method, path, body);
     if (path.startsWith("/metrics/") || path.startsWith("/activity") || path.startsWith("/settings/subscriptions")) return metricsFixtures.handle<T>(method, path, body);
     return path.startsWith("/chat/") || path.startsWith("/route/")
@@ -143,7 +145,7 @@ export async function routerChatStream(path: string, body: unknown, signal: Abor
 /** Server-sent events from an install or agent job, passed through unchanged. `lastEventId` resumes an
  * agent job's log where the browser's EventSource stopped (the router reads it from Last-Event-ID). */
 export async function routerStream(path: string, signal: AbortSignal, lastEventId?: string | null): Promise<Response> {
-  if (fixtureMode()) return path.startsWith("/jobs/") ? jobsFixtures.streamJob(path, lastEventId ?? null) : fixtures.stream(path);
+  if (fixtureMode()) return path.startsWith("/jobs/") ? jobsFixtures.streamJob(path, lastEventId ?? null) : path.startsWith("/packs/") ? packsFixtures.stream(path) : fixtures.stream(path);
   const token = process.env.ROUTER_ADMIN_TOKEN;
   if (!token) return new Response("ROUTER_ADMIN_TOKEN is not set", { status: 500 });
   try {

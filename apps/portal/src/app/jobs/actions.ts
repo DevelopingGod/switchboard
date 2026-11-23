@@ -19,6 +19,7 @@ import type {
   ProjectWorktrees,
   OverflowSettings,
 } from "@/lib/router-types";
+import type { PackLibrary, ProjectPacks } from "@/lib/packs-types";
 
 /**
  * Jobs, the agent fleet and projects (M4b). Every call goes to the router from the server with the admin
@@ -55,6 +56,10 @@ function jobBody(input: JobInput): Record<string, unknown> | string {
   const ids = input.attachment_ids ?? [];
   if (ids.length > 5 || !ids.every((i) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(i))) return "At most 5 files per job.";
   if (ids.length) out.attachment_ids = ids;
+  if (input.flow) {
+    if (!/^[a-z0-9-]{1,41}\.[a-z0-9-]{1,20}$/.test(input.flow)) return "Unknown workflow.";
+    out.flow = input.flow;
+  }
   return out;
 }
 
@@ -94,16 +99,17 @@ export async function loadJobsPage(q: { status?: string; agent?: string; project
   return res(await routerGetAdmin<JobsPage>(`/jobs?${sp}`));
 }
 
-async function decide(id: number, action: "approve" | "reject" | "stop", note?: string): Promise<ActionResult<JobView>> {
+async function decide(id: number, action: "approve" | "reject" | "stop", note?: string, setupEdits?: string[]): Promise<ActionResult<JobView>> {
   if (!Number.isInteger(id) || id < 1) return { ok: false, error: "Invalid job." };
-  const body = action === "stop" ? undefined : { note: note?.trim() ? note.trim().slice(0, 2000) : null };
+  const edits = (setupEdits ?? []).filter((p) => typeof p === "string" && p.length > 0 && p.length <= 1000).slice(0, 200);
+  const body = action === "stop" ? undefined : { note: note?.trim() ? note.trim().slice(0, 2000) : null, ...(edits.length ? { include_setup_edits: edits } : {}) };
   const r = await routerSend<JobView>("POST", `/jobs/${id}/${action}`, body, 60_000);
   revalidatePath("/jobs");
   revalidatePath(`/jobs/${id}`);
   return res(r);
 }
 
-export const approveJob = async (id: number, note?: string) => decide(id, "approve", note);
+export const approveJob = async (id: number, note?: string, setupEdits?: string[]) => decide(id, "approve", note, setupEdits);
 export const rejectJob = async (id: number, note?: string) => decide(id, "reject", note);
 export const stopJob = async (id: number) => decide(id, "stop");
 
@@ -248,3 +254,48 @@ export async function cleanupProject(id: number): Promise<ActionResult<ProjectWo
   revalidatePath("/settings/projects");
   return res(r);
 }
+
+// --- M4.5a: workflow packs per project ------------------------------------------------------------------------
+const PACK_ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
+const HOSTS = new Set(["claude-code", "codex", "opencode", "gemini-cli", "grok-build", "hermes"]);
+
+export async function loadProjectPacks(projectId: number): Promise<ActionResult<ProjectPacks>> {
+  if (!Number.isInteger(projectId) || projectId < 1) return { ok: false, error: "Invalid project." };
+  return res(await routerGetAdmin<ProjectPacks>(`/projects/${projectId}/packs`));
+}
+
+export async function setProjectPacks(projectId: number, packs: Record<string, { enabled?: boolean; mode?: string; hosts?: string[]; turn_back_on?: boolean }>): Promise<ActionResult<ProjectPacks>> {
+  if (!Number.isInteger(projectId) || projectId < 1) return { ok: false, error: "Invalid project." };
+  const body: Record<string, Record<string, unknown>> = {};
+  for (const [id, c] of Object.entries(packs ?? {})) {
+    if (!PACK_ID.test(id) || typeof c !== "object" || c === null) return { ok: false, error: "Invalid pack." };
+    const e: Record<string, unknown> = {};
+    if (typeof c.enabled === "boolean") e.enabled = c.enabled;
+    if (c.mode !== undefined) {
+      if (!["auto", "always", "off"].includes(String(c.mode))) return { ok: false, error: "Invalid mode." };
+      e.mode = c.mode;
+    }
+    if (c.hosts !== undefined) {
+      if (!Array.isArray(c.hosts) || !c.hosts.every((h) => HOSTS.has(h))) return { ok: false, error: "Invalid agents." };
+      e.hosts = c.hosts;
+    }
+    if (c.turn_back_on === true) e.turn_back_on = true;
+    body[id] = e;
+  }
+  const r = await routerSend<ProjectPacks>("PUT", `/projects/${projectId}/packs`, { packs: body });
+  revalidatePath("/settings/projects");
+  return res(r);
+}
+
+/** The workflows a project can run (New job): installed packs turned on there, with their agents. */
+export async function loadProjectFlows(projectId: number): Promise<ActionResult<{ id: string; label: string; steps: string[]; hosts: string[] }[]>> {
+  if (!Number.isInteger(projectId) || projectId < 1) return { ok: false, error: "Invalid project." };
+  const [lib, st] = await Promise.all([routerGetAdmin<PackLibrary>("/packs"), routerGetAdmin<ProjectPacks>(`/projects/${projectId}/packs`)]);
+  if (!lib.ok) return res(lib);
+  if (!st.ok) return res(st);
+  const flows = lib.data.packs.flatMap((p) =>
+    p.installed && st.data.packs[p.id]?.enabled ? p.flows.map((f) => ({ id: f.id, label: f.label, steps: f.steps, hosts: st.data.packs[p.id].hosts })) : [],
+  );
+  return { ok: true, data: flows };
+}
+

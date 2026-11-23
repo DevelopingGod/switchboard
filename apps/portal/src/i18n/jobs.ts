@@ -16,7 +16,7 @@ export const jobsStrings = {
     failed: "Failed",
     stopped: "Stopped",
   },
-  gate: { plan: "Approve the plan", diff: "Review the changes", result: "Review the report", limit: "Wait for the reset?" },
+  gate: { plan: "Approve the plan", step: "Review this step", diff: "Review the changes", result: "Review the report", limit: "Wait for the reset?" },
   filters: {
     label: "Filter jobs",
     status: "Status",
@@ -89,6 +89,7 @@ export const jobsStrings = {
   decide: {
     approve: "Approve",
     approvePlan: "Approve plan",
+    approveStep: "Approve and go on",
     approveDiff: "Approve and commit",
     approveResult: "Accept report",
     reject: "Reject",
@@ -97,6 +98,7 @@ export const jobsStrings = {
     approved: "Approved",
     rejected: "Rejected",
     planLead: "{agent} wrote this plan without changing anything. Approve it to let {agent} make the changes in the copy.",
+    stepLead: "{agent} finished {step} (step {n} of {count}). Check what it wrote in Changes, then approve to start the next step.",
     diffLead: "These are the changes in the copy. Approving commits them on {branch}; your own branch isn’t touched.",
     resultLead: "{agent} answered without changing anything.",
   },

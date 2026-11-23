@@ -4,6 +4,7 @@ import { GlassPanel } from "@/components/kit/GlassPanel";
 import { t, type StringKey } from "@/i18n/strings";
 import { ProviderCardFor } from "./ProviderCards";
 import { RouterDown } from "./RouterDown";
+import { PacksSection } from "@/components/packs/PacksSection";
 
 function Section({ id, title, hint, children, notice }: { id: string; title: StringKey; hint: StringKey; children: React.ReactNode; notice?: React.ReactNode }) {
   return (
@@ -50,6 +51,7 @@ export async function ConnectionsScreen() {
       <Section id="sec-local" title="connections.sectionLocal" hint="connections.sectionLocalHint">
         {of("local").map(card)}
       </Section>
+      <PacksSection />
     </div>
   );
 }

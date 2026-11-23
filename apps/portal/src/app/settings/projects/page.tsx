@@ -7,6 +7,7 @@ import { GlassPanel } from "@/components/kit/GlassPanel";
 import { ProjectsScreen } from "@/components/jobs/ProjectsScreen";
 import { routerGet, routerGetAdmin } from "@/lib/server/router";
 import type { AccountsResponse, ProjectRow, ProjectWorktrees, SettingsView } from "@/lib/router-types";
+import type { PackLibrary, ProjectPacks } from "@/lib/packs-types";
 import { t } from "@/i18n/strings";
 import { tJobs } from "@/i18n/jobs";
 
@@ -14,10 +15,11 @@ export const metadata: Metadata = { title: tJobs("projects.title") };
 
 export default async function Page() {
   await connection();
-  const [projects, settings, accounts] = await Promise.all([
+  const [projects, settings, accounts, library] = await Promise.all([
     routerGetAdmin<{ projects: ProjectRow[] }>("/projects"),
     routerGet<SettingsView>("/settings"),
     routerGetAdmin<AccountsResponse>("/accounts"),
+    routerGetAdmin<PackLibrary>("/packs"),
   ]);
   // Each project's copies and disk use come with the page, so nothing shifts when they arrive. The list is
   // the allowlist (a handful of folders); a project hostprobe can't read shows "unknown" instead.
@@ -27,6 +29,17 @@ export default async function Page() {
           projects.data.projects.map(async (p) => {
             const w = await routerGetAdmin<ProjectWorktrees>(`/projects/${p.id}/worktrees`);
             return [p.id, w.ok ? w.data : null] as const;
+          }),
+        ),
+      )
+    : {};
+  // M4.5a: each project's pack settings come with the page too.
+  const projectPacks = projects.ok && library.ok
+    ? Object.fromEntries(
+        await Promise.all(
+          projects.data.projects.map(async (p) => {
+            const r = await routerGetAdmin<ProjectPacks>(`/projects/${p.id}/packs`);
+            return [p.id, r.ok ? r.data.packs : null] as const;
           }),
         ),
       )
@@ -49,6 +62,8 @@ export default async function Page() {
           keep={settings.ok ? settings.data.keep_worktrees_per_project : null}
           keepDefault={settings.ok ? settings.data.defaults.keep_worktrees_per_project : null}
           accounts={accounts.ok ? accounts.data.clis : []}
+          library={library.ok ? library.data.packs : null}
+          projectPacks={projectPacks}
         />
       ) : (
         <GlassPanel as="section" tone="strong">

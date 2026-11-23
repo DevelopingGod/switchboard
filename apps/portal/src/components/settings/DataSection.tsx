@@ -1,10 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Download, Trash2 } from "lucide-react";
+import { AlertTriangle, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/kit/Toast";
 import { clearChats } from "@/app/settings/actions";
 import { tSet } from "@/i18n/settings";
@@ -24,7 +29,11 @@ export default function DataSection() {
   const q = (priv ? "&private=1" : "") + (files ? "&files=1" : "");
   const ok = word.trim().toLowerCase() === tSet("data.confirmWord");
   return (
-    <Section id="data" title={tSet("section.data")} explain={tSet("data.explain")}>
+    <Section
+      id="data"
+      title={tSet("section.data")}
+      explain={tSet("data.explain")}
+    >
       <div className="grid gap-3">
         <h3 className="text-sm font-semibold">{tSet("data.exportTitle")}</h3>
         <p className="text-sm text-ink-muted">{tSet("data.exportLead")}</p>
@@ -36,31 +45,65 @@ export default function DataSection() {
             <Download aria-hidden className="size-4" /> {tSet("data.md")}
           </a>
           <span className="flex items-center gap-2 pl-1 text-sm">
-            <Switch checked={priv} onCheckedChange={setPriv} aria-labelledby="exp-priv" />
+            <Switch
+              checked={priv}
+              onCheckedChange={setPriv}
+              aria-labelledby="exp-priv"
+            />
             <span id="exp-priv">{tSet("data.includePrivate")}</span>
           </span>
           <span className="flex items-center gap-2 pl-1 text-sm">
-            <Switch checked={files} onCheckedChange={setFiles} aria-labelledby="exp-files" aria-describedby="exp-files-note" />
+            <Switch
+              checked={files}
+              onCheckedChange={setFiles}
+              aria-labelledby="exp-files"
+              aria-describedby="exp-files-note"
+            />
             <span id="exp-files">{tSet("data.includeFiles")}</span>
           </span>
         </div>
-        <p id="exp-files-note" className="text-xs text-ink-muted">
-          {tSet("data.filesNote")}
-        </p>
+        <div>
+          <p id="exp-files-note" className="text-xs text-ink-muted">
+            {tSet("data.filesNote")}
+          </p>
+          {/* M2.5 carry-over: the region stays in the page (no height while empty) so the warning is announced. */}
+          <div role="status" aria-live="polite">
+            {priv && files && (
+              <p
+                className="mt-3 flex items-start gap-1.5 rounded-control border border-warn p-3 text-sm"
+                data-testid="export-secrets-warning"
+              >
+                <AlertTriangle
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-warn"
+                />
+                <span>{tSet("data.secretsWarning")}</span>
+              </p>
+            )}
+          </div>
+        </div>
       </div>
       <div className="grid gap-3 border-t border-hairline pt-4">
         <h3 className="text-sm font-semibold">{tSet("data.clearTitle")}</h3>
         <p className="text-sm text-ink-muted">{tSet("data.clearLead")}</p>
         <div>
-          <Button size="sm" variant="danger" onClick={() => (setWord(""), setError(null), setOpen(true))}>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => (setWord(""), setError(null), setOpen(true))}
+          >
             <Trash2 aria-hidden className="size-4" /> {tSet("data.clear")}
           </Button>
         </div>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[min(94vw,28rem)]">
-          <DialogTitle className="font-display text-xl font-bold tracking-tight">{tSet("data.confirmTitle")}</DialogTitle>
-          <DialogDescription className="text-sm text-ink-muted">{tSet("data.confirmBody")}</DialogDescription>
+          <DialogTitle className="font-display text-xl font-bold tracking-tight">
+            {tSet("data.confirmTitle")}
+          </DialogTitle>
+          <DialogDescription className="text-sm text-ink-muted">
+            {tSet("data.confirmBody")}
+          </DialogDescription>
           <form
             className="grid gap-3"
             onSubmit={async (e) => {
@@ -90,10 +133,21 @@ export default function DataSection() {
               </p>
             )}
             <div className="flex justify-end gap-2">
-              <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setOpen(false)}
+              >
                 {tSet("cancel")}
               </Button>
-              <Button type="submit" size="sm" variant="danger" disabled={!ok} loading={busy}>
+              <Button
+                type="submit"
+                size="sm"
+                variant="danger"
+                disabled={!ok}
+                loading={busy}
+              >
                 {tSet("data.confirmYes")}
               </Button>
             </div>
