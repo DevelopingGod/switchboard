@@ -3,7 +3,7 @@ import { routerGetAdmin } from "@/lib/server/router";
 export const dynamic = "force-dynamic";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const VIEWS = new Set(["summary", "breakdown", "quotas", "budgets", "top-requests"]);
+const VIEWS = new Set(["summary", "breakdown", "quotas", "budgets", "top-requests", "packs"]); // packs: M4.5a graphify
 // Only these parameters reach the router, each checked for shape.
 const PARAMS: Record<string, RegExp> = {
   range: /^(today|7d|30d|custom)$/,

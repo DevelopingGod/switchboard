@@ -76,7 +76,7 @@ case "$cmd" in
       -e "OLLAMA_API_BASE=${OLLAMA_API_BASE:-http://host.docker.internal:11434}" \
       -e "PAPERCLIP_URL=http://host.docker.internal:${PAPERCLIP_PORT:-3100}" \
       -e 'CORS_ORIGINS=["http://127.0.0.1:'"$PORTAL_PORT"'","http://localhost:'"$PORTAL_PORT"'"]' \
-      -e "CONFIG_DIR=/srv/config" -v "$ROOT/config:/srv/config:ro" \
+      -e "CONFIG_DIR=/srv/config" -v "$ROOT/config:/srv/config:ro" -v "$ROOT/packs:/srv/packs:ro" \
       -e ROUTER_SYNC_ENABLED=false -e ROUTER_REQUEST_TAG=switchboard-demo \
       "$IMAGE" >/dev/null
     for _ in $(seq 1 40); do

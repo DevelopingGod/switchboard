@@ -72,7 +72,8 @@ class Acc:
     def add_cost(self, c: Cost | None) -> None:
         if c is None:
             return
-        self.tokens_in += int(c.tokens_in or 0)
+        # Input tokens include cached input (M4.5a, ADR 0019: one definition of tokens everywhere).
+        self.tokens_in += int(c.tokens_in or 0) + int(c.tokens_cached or 0)
         self.tokens_out += int(c.tokens_out or 0)
         self.cost_usd += float(c.cost_usd or 0)
         if c.list_price_usd is None:

@@ -213,6 +213,7 @@ async def test_router_healthy_when_hostprobe_down(client, hostprobe_down):
         "overflow_allow_free": False,
         "rollups": {"state": "ok", "pending_buckets": 0, "last_run_at": None},
         "attachments": "ok",
+        "packs": "ok (3 packs)",  # M4.5a: manifests and locks load
     }
     r = await client.get("/connections")
     assert r.status_code == 200 and r.json()["hostprobe"] == "down"

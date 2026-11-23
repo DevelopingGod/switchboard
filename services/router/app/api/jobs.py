@@ -41,6 +41,7 @@ from app.db import get_session
 from app.deps import require_admin
 from app.models import Job, JobEvent, Project
 from app.models import Request as RequestRow
+from app.packs import service as packs_service
 from app.paperclip import Paperclip
 from app.routing import secrets_detect
 from app.routing.context import build_context
@@ -69,6 +70,8 @@ class JobIn(BaseModel):
     # M2.5: files for the agent (fresh uploads, or the chat message's files for "Run as job"). They are copied
     # into the job's worktree under a git-ignored .switchboard/attachments/ and never committed.
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+    # M4.5a: a pack workflow, "<pack>.<flow>" (e.g. openspec.change); the project must have the pack on.
+    flow: str | None = Field(default=None, max_length=64, pattern=r"^[a-z0-9-]{1,41}\.[a-z0-9-]{1,20}$")
 
 
 class RerouteIn(BaseModel):
@@ -81,6 +84,9 @@ class PaidIn(BaseModel):
 
 class DecisionIn(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
+    # M4.5a: on the diff review, the setup edits you ticked (everything else a pack's setup changed stays
+    # out).
+    include_setup_edits: list[str] = Field(default_factory=list, max_length=200)
 
 
 def job_json(j: Job, events: list[JobEvent] | None = None, project: Project | None = None) -> dict[str, Any]:
@@ -114,6 +120,9 @@ def job_json(j: Job, events: list[JobEvent] | None = None, project: Project | No
         "waits": j.waits or 0,
         "paid": bool(j.paid),
         "paid_budget_usd": float(j.paid_budget_usd) if j.paid_budget_usd is not None else None,
+        "flow": j.flow,
+        "flow_step": _flow_step(j),
+        "packs": _packs_json(j),
         "plan": j.plan_text,
         "result": j.result_text,
         "error": j.error,
@@ -132,6 +141,43 @@ def job_json(j: Job, events: list[JobEvent] | None = None, project: Project | No
             {"id": e.id, "kind": e.kind, "at": e.created_at.isoformat(), **e.data} for e in events
         ]
     return out
+
+
+def _flow_step(j: Job) -> dict[str, Any] | None:
+    ref = packs_service.flow_ref(j.flow)
+    if ref is None:
+        return None
+    pack, flow = ref
+    i = min(j.run_index, len(flow.steps) - 1)
+    return {
+        "pack": pack.name,
+        "label": flow.label,
+        "index": i,
+        "count": len(flow.steps),
+        "step": flow.steps[i].label,
+        "steps": [s.label for s in flow.steps],
+    }
+
+
+def _packs_json(j: Job) -> dict[str, Any] | None:
+    """What the job page shows of its packs (never paths outside the worktree)."""
+    p = j.packs or {}
+    if not p:
+        return None
+    setup = p.get("setup") or {}
+    return {
+        "state": p.get("state"),
+        "error": p.get("error"),
+        "graphify": p.get("graphify"),
+        "refused": setup.get("refused") or [],
+        "packs": {
+            k: {
+                kk: v.get(kk)
+                for kk in ("name", "version", "owned", "artifacts", "edits", "graph_stats", "verify_ms")
+            }
+            for k, v in (setup.get("packs") or {}).items()
+        },
+    }
 
 
 async def _job(session: AsyncSession, job_id: int) -> Job:
@@ -234,6 +280,7 @@ async def preview_job(body: JobIn, session: AsyncSession = Depends(get_session))
             budget_list_usd=body.budget_list_usd,
             rule_id=await _rule_of(body, session, dec),
             paid_budget_usd=body.paid_budget_usd,
+            flow=body.flow,
         )
     except jobs.JobError as e:
         raise HTTPException(e.status, e.message) from e
@@ -273,6 +320,7 @@ async def create_job(body: JobIn, session: AsyncSession = Depends(get_session)) 
             rule_id=await _rule_of(body, session, dec),
             paid_budget_usd=body.paid_budget_usd,
             files=files,
+            flow=body.flow,
         )
     except jobs.JobError as e:
         await session.rollback()
@@ -465,7 +513,9 @@ async def _decide(job_id: int, approve: bool, body: DecisionIn, session: AsyncSe
     j = await _job(session, job_id)
     pc = Paperclip()
     try:
-        await jobs.decide(session, pc, j, approve, body.note, by="you")
+        await jobs.decide(
+            session, pc, j, approve, body.note, by="you", include_setup_edits=body.include_setup_edits
+        )
     except jobs.JobError as e:
         raise HTTPException(e.status, e.message) from e
     finally:

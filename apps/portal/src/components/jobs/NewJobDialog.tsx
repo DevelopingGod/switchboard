@@ -10,7 +10,8 @@ import { Dial } from "@/components/kit/Dial";
 import { ErrorNote } from "@/components/kit/ErrorNote";
 import { Skeleton } from "@/components/kit/Skeleton";
 import { useToast } from "@/components/kit/Toast";
-import { createJob, loadJobChoices, loadProposal, previewJob } from "@/app/jobs/actions";
+import { createJob, loadJobChoices, loadProjectFlows, loadProposal, previewJob } from "@/app/jobs/actions";
+import { tPacks } from "@/i18n/packs";
 import type { AgentRow, AgentsResponse, JobPreview, ProjectRow } from "@/lib/router-types";
 import { jobsStrings, tJobs } from "@/i18n/jobs";
 import type { AttachmentInfo } from "@/lib/router-types";
@@ -76,6 +77,23 @@ export default function NewJobDialog({
   const [paidBudget, setPaidBudget] = React.useState<number | null>(null);
   const [busy, setBusy] = React.useState<null | "preview" | "create">(null);
   const [error, setError] = React.useState<Err | null>(null);
+  // M4.5a: pack workflows this project can run (OpenSpec: propose → apply → archive), and the chosen one.
+  const [flows, setFlows] = React.useState<{ id: string; label: string; steps: string[]; hosts: string[] }[]>([]);
+  const [flow, setFlow] = React.useState("");
+
+  React.useEffect(() => {
+    if (!project) return;
+    let alive = true;
+    void loadProjectFlows(project).then((r) => {
+      if (!alive) return;
+      const list = r.ok ? r.data : [];
+      setFlows(list);
+      setFlow((cur) => (list.some((f) => f.id === cur) ? cur : ""));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [project]);
 
   React.useEffect(() => {
     let alive = true;
@@ -128,6 +146,7 @@ export default function NewJobDialog({
       ...(requestId ? { from_request_id: requestId } : {}),
       ...(paidBudget != null ? { paid_budget_usd: paidBudget } : {}),
       ...(carried.length || att.ids.length ? { attachment_ids: [...carried.map((f) => f.id), ...att.ids] } : {}),
+      ...(flow ? { flow } : {}),
     };
   };
 
@@ -299,6 +318,34 @@ export default function NewJobDialog({
                 </p>
               )}
             </div>
+
+            {flows.length > 0 && (
+              <div className="grid gap-1.5">
+                <label htmlFor={`${ids}-flow`} className="text-sm font-semibold">
+                  {tPacks("job.workflow")}
+                </label>
+                <select
+                  id={`${ids}-flow`}
+                  value={flow}
+                  aria-describedby={`${ids}-flow-help`}
+                  onChange={(e) => {
+                    setFlow(e.target.value);
+                    setPreview(null);
+                  }}
+                  className="min-h-(--ctl) max-w-full rounded-control border border-hairline bg-glass-strong px-3"
+                >
+                  <option value="">{tPacks("job.none")}</option>
+                  {flows.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <p id={`${ids}-flow-help`} className="text-[0.8125rem] text-ink-muted">
+                  {flow ? tPacks("job.workflowHelp", { steps: flows.find((f) => f.id === flow)?.steps.join(" → ") ?? "" }) : tPacks("job.optional")}
+                </p>
+              </div>
+            )}
 
             <fieldset className="grid gap-2">
               <legend className="text-sm font-semibold">{tJobs("run.agents")}</legend>

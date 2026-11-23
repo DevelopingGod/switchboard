@@ -13,6 +13,8 @@ import { fetchView } from "@/lib/metrics-client";
 import { WindowMeter } from "@/components/jobs/WindowMeter";
 import type { SubscriptionView } from "@/lib/router-types";
 import { tSubs } from "@/i18n/subscriptions";
+import { tPacks } from "@/i18n/packs";
+import type { PackMetrics } from "@/lib/packs-types";
 
 const BYS: BreakdownBy[] = ["provider", "model", "agent", "rule", "intent", "project", "kind"];
 
@@ -127,6 +129,7 @@ export default function MetricsPro({ summary, range, tz, demo, onDemo, empty, da
       <div className="grid gap-6">
         <Feedback base={base} range={range} />
         <JobsByAgent base={base} range={range} />
+        <GraphPacks range={range} />
       </div>
 
       <TopRequests base={base} range={range} tz={tz} />
@@ -372,6 +375,60 @@ function JobsByAgent({ base, range }: { base: Record<string, string | undefined>
           rows={rows.map((r) => [r.label, count(r.jobs_done), count(r.jobs_failed), pct(r.job_success_rate), usd(r.value_usd)])}
           csv={{ name: "jobs-by-agent", range, rows: rows.map((r) => [r.label, r.jobs_done, r.jobs_failed, r.job_success_rate, r.value_usd]) }}
         />
+      )}
+    </Panel>
+  );
+}
+
+/** M4.5a (ADR 0019): whether graphify's code graph saves tokens, per project + agent + workflow. */
+function GraphPacks({ range }: { range: string }) {
+  const { data, error } = useView<PackMetrics>("packs", {});
+  const m = data?.measure;
+  const tok = (n: number | null) => (n == null ? "—" : count(Math.round(n)));
+  return (
+    <Panel
+      id="met-graph"
+      title={tPacks("metrics.title")}
+      lead={m ? tPacks("metrics.lead", { every: m.holdout_every, n: m.min_samples, gain: Math.round(m.min_gain * 100) }) : undefined}
+    >
+      {!data ? (
+        <Loading error={error} />
+      ) : !data.rows.length ? (
+        <p className="text-sm text-ink-muted">{tPacks("metrics.empty")}</p>
+      ) : (
+        <>
+          <DataTable
+            caption={tPacks("metrics.title")}
+            header={[
+              tPacks("metrics.project"),
+              tPacks("metrics.agent"),
+              tPacks("metrics.flow"),
+              tPacks("metrics.status"),
+              tPacks("metrics.with"),
+              tPacks("metrics.without"),
+              tPacks("metrics.cachedWith"),
+              tPacks("metrics.cachedWithout"),
+              tPacks("metrics.samples"),
+            ]}
+            rows={data.rows.map((r) => [
+              r.project,
+              r.agent,
+              r.flow ?? tPacks("metrics.plain"),
+              r.status,
+              tok(r.median_with),
+              tok(r.median_without),
+              tok(r.cached_with),
+              tok(r.cached_without),
+              `${r.samples_with} / ${r.samples_without}`,
+            ])}
+            csv={{
+              name: "graphify-savings",
+              range,
+              rows: data.rows.map((r) => [r.project, r.agent, r.flow ?? "", r.status, r.median_with, r.median_without, r.cached_with, r.cached_without, r.samples_with, r.samples_without]),
+            }}
+          />
+          {data.rows.some((r) => !r.cached_known) && <p className="text-[0.8125rem] text-ink-muted">{tPacks("metrics.cachedUnknown")}</p>}
+        </>
       )}
     </Panel>
   );

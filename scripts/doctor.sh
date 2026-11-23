@@ -282,6 +282,13 @@ fi
 if h=$(http -f "$ROUTER/health" 2>/dev/null); then
   att=$(echo "$h" | json 'd.get("attachments","unknown (router older than M2.5)")')
   [[ "$att" == ok ]] && green "Router -> data folder" "writable" || yellow "Router -> data folder" "$att"
+  # M4.5a (ADR 0018): pack manifests and their locks (packs/, mounted read-only into the router).
+  pk=$(echo "$h" | json 'd.get("packs","unknown (router older than M4.5a)")')
+  case "$pk" in
+    ok*) green "Workflow packs" "${pk#ok }" ;;
+    error*) red "Workflow packs" "${pk#error: }" ;;
+    *) yellow "Workflow packs" "$pk" ;;
+  esac
 fi
 
 begin "Router DB migrations"

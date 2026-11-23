@@ -30,6 +30,11 @@ Security rules (M1a, docs/m1a.md):
   of the last `rate_limits` record in one Codex session file (by thread id); write/remove one LiteLLM key
   file (600) per agent for paid overflow. Never anything inside an account folder. Details by the code.
 
+- Workflow packs (M4.5a, ADR 0018; code in packs.py): install a pack's program into Switchboard's pack store
+  from the exact files its committed lock names (hash- and name-checked, installed offline, read-only,
+  re-hashed before every use), and set packs up inside a job's worktree. Diff and commit never include what a
+  pack's setup owns, and leave its other edits out unless the owner ticked them.
+
 Stdlib only, so it runs on the system python3 without a venv.
 """
 
@@ -55,6 +60,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import packs
 
 HOME = Path.home()
 CMD_TIMEOUT_S = 5
@@ -325,6 +332,7 @@ class Probe:
         self.cache: tuple[float, dict] | None = None
         self.lock = threading.Lock()
         self.installer = installer or Installer(on_success=self.invalidate)
+        self.packs = PackManager()
         self.hw_fn = probe_hw
         self.account_probes = TokenBucket(30, 60.0)  # M6.5: one status command per account check
         self.hw_cache: tuple[float, dict] | None = None
@@ -585,6 +593,7 @@ class Job:
         self.cond = threading.Condition()
         self.proc: subprocess.Popen | None = None
         self.cancelled = False
+        self.result: dict | None = None  # M4.5a: a pack install's final status
 
     def add(self, entry: dict) -> None:
         with self.cond:
@@ -605,6 +614,7 @@ class Job:
                 "state": self.state,
                 "exit_code": self.exit_code,
                 "lines": len(self.lines),
+                "result": self.result,
             }
 
 
@@ -989,17 +999,21 @@ def _existing_worktree(body: dict) -> tuple[Path, Path, str]:
 
 
 def diff_worktree(body: dict) -> dict:
-    """The job's changes against its base commit: tracked changes and new files, capped in size."""
+    """The job's changes against its base commit: tracked changes and new files, capped in size.
+
+    M4.5a: files a pack's setup owns are left out; the other changes a setup made (`setup_edits`) are listed
+    apart, each with whether the agent changed the file too and whether both changed the same lines."""
     _, wt, branch = _existing_worktree(body)
     base = body.get("base")
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{7,64}", base):
         raise GitError(400, "invalid base commit")
-    stat = git(["diff", "--numstat", base, "--", *NOT_SWITCHBOARD], wt)
-    text = git(["diff", "--no-color", "--no-ext-diff", base, "--", *NOT_SWITCHBOARD], wt)
+    rec = packs.read_record(wt)
+    edits = packs.setup_edits(rec)
+    spec = [*NOT_SWITCHBOARD, *packs.excludes(rec), *(f":(exclude,literal){e['path']}" for e in edits)]
+    stat = git(["diff", "--numstat", base, "--", *spec], wt)
+    text = git(["diff", "--no-color", "--no-ext-diff", base, "--", *spec], wt)
     new = [
-        f
-        for f in git(["ls-files", "--others", "--exclude-standard", "-z", "--", *NOT_SWITCHBOARD], wt).split("\0")
-        if f
+        f for f in git(["ls-files", "--others", "--exclude-standard", "-z", "--", *spec], wt).split("\0") if f
     ]
     for f in new[:MAX_NEW_FILES]:
         if len(text) > MAX_DIFF_BYTES:
@@ -1014,6 +1028,18 @@ def diff_worktree(body: dict) -> dict:
         for parts in (line.split("\t", 2) for line in stat.splitlines())
         if len(parts) == 3
     ] + [{"path": f, "added": None, "removed": None, "new": True} for f in new]
+    setup, setup_text = [], ""
+    for e in edits:
+        item = _setup_edit_state(wt, e)
+        setup.append(item)
+        if len(setup_text) < MAX_DIFF_BYTES:
+            if e["kind"] == "new":
+                if (wt / e["path"]).exists():
+                    setup_text += git(
+                        ["diff", "--no-color", "--no-index", "--", "/dev/null", e["path"]], wt, ok=(0, 1)
+                    )
+            else:
+                setup_text += git(["diff", "--no-color", "--no-ext-diff", base, "--", e["path"]], wt)
     truncated = len(text) > MAX_DIFF_BYTES or len(new) > MAX_NEW_FILES
     return {
         "branch": branch,
@@ -1021,24 +1047,109 @@ def diff_worktree(body: dict) -> dict:
         "files": files,
         "diff": text[:MAX_DIFF_BYTES],
         "truncated": truncated,
+        "setup_edits": setup,
+        "setup_diff": setup_text[:MAX_DIFF_BYTES],
+    }
+
+
+PATCH_RE = re.compile(r"[a-z0-9-]{1,41}-\d{1,4}\.patch")
+
+
+def _patch_path(wt: Path, e: dict) -> Path | None:
+    name = e.get("patch")
+    if not isinstance(name, str) or not PATCH_RE.fullmatch(name):
+        return None
+    p = wt / ".switchboard" / "packs" / name
+    return None if p.is_symlink() or not p.is_file() else p
+
+
+def _setup_edit_state(wt: Path, e: dict) -> dict:
+    """A setup edit as the review shows it: did the agent change the file too, and the same lines?"""
+    now = packs._sha(wt / e["path"])
+    agent_changed = now != e.get("post_sha")
+    both = False
+    if agent_changed:
+        if e["kind"] == "new":
+            both = True
+        else:
+            patch = _patch_path(wt, e)
+            both = patch is None or not git_ok(
+                ["apply", "--check", "-R", "--unidiff-zero", "--", str(patch)], wt
+            )
+    return {
+        "path": e["path"],
+        "kind": e["kind"],
+        "pack": e.get("pack"),
+        "pack_name": e.get("pack_name"),
+        "agent_changed": agent_changed,
+        "both": both,
     }
 
 
 def commit_worktree(body: dict) -> dict:
-    """Commit the job's changes on its own branch (after the owner approved the diff)."""
+    """Commit the job's changes on its own branch (after the owner approved the diff).
+
+    M4.5a: never what a pack's setup owns; a setup's other edits only when the owner ticked them
+    (`include_setup_edits`). An unticked edit is reverse-applied to the index only, so the agent's own changes
+    to that file are still committed; a file both changed on the same lines is left out whole unless
+    ticked."""
     _, wt, branch = _existing_worktree(body)
     message = body.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 500 or "\0" in message:
         raise GitError(400, "invalid commit message")
-    # Never the job's attachments (M2.5): `.switchboard/` is git-ignored by its own .gitignore, and excluded here too.
-    git(["add", "-A", "--", ".", *NOT_SWITCHBOARD], wt)
-    if not git(["status", "--porcelain", "--", ".", *NOT_SWITCHBOARD], wt).strip():
+    rec = packs.read_record(wt)
+    edits = packs.setup_edits(rec)
+    include = body.get("include_setup_edits") or []
+    known = {e["path"] for e in edits}
+    if not isinstance(include, list) or any(not isinstance(x, str) or x not in known for x in include):
+        raise GitError(400, "include_setup_edits must list setup edits from this job's review")
+    left_out = [e for e in edits if e["path"] not in include]
+    owned = packs.excludes(rec)
+    new_out = [f":(exclude,literal){e['path']}" for e in left_out if e["kind"] == "new"]
+    # Never the job's attachments or pack state (`.switchboard/`, git-ignored by its own .gitignore, excluded
+    # here too), never what packs own.
+    git(["add", "-A", "--", ".", *NOT_SWITCHBOARD, *owned, *new_out], wt)
+    for e in left_out:
+        if e["kind"] == "new":
+            continue
+        state = _setup_edit_state(wt, e)
+        patch = _patch_path(wt, e)
+        if e["kind"] == "modified" and not state["both"] and patch is not None:
+            try:
+                git(["apply", "--cached", "-R", "--unidiff-zero", "--", str(patch)], wt)
+                continue
+            except GitError:
+                pass
+        git(["reset", "-q", "--", e["path"]], wt)  # the whole file stays as it was
+    staged = [f for f in git(["diff", "--cached", "--name-only", "-z"], wt).split("\0") if f]
+    banned = {e["path"] for e in left_out if e["kind"] == "new"}
+    owned_paths = [
+        p
+        for x in ((rec or {}).get("packs") or {}).values()
+        for p in [*x.get("owned_dirs", []), *x.get("owned_files", [])]
+    ]
+    for f in staged:
+        if (
+            f in banned
+            or f.startswith(".switchboard/")
+            or any(f == o or f.startswith(o + "/") for o in owned_paths)
+        ):
+            git(["reset", "-q"], wt)
+            raise GitError(
+                409, f"{f} belongs to a pack's setup and was about to be committed; nothing was committed"
+            )
+    if not staged:
         return {"committed": False, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
     ident = []
     if not git(["config", "user.email"], wt, ok=(0, 1)).strip():
         ident = ["-c", "user.name=Switchboard", "-c", "user.email=switchboard@localhost"]
     git([*ident, "commit", "-q", "-m", message], wt, timeout=120)
-    return {"committed": True, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
+    return {
+        "committed": True,
+        "sha": git(["rev-parse", "HEAD"], wt).strip(),
+        "branch": branch,
+        "left_out": [e["path"] for e in left_out],
+    }
 
 
 # --- job attachments (M2.5, ADR 0016) ----------------------------------------------------------------------
@@ -1057,7 +1168,8 @@ def data_root() -> Path:
 def copy_attachments(body: dict) -> dict:
     """Copy a job's attachments from the data folder into `<worktree>/.switchboard/attachments/`, with a
     `.switchboard/.gitignore` of `*` so they are never committed. Only files the router stored for this job
-    (`<data>/attachments/jobs/<job id>/<sha256>`), never followed through links, never outside the worktree."""
+    (`<data>/attachments/jobs/<job id>/<sha256>`), never followed through links, never outside the
+    worktree."""
     _, wt, _ = _existing_worktree(body)
     _, job_id, _, _ = _job(body.get("slug"), body.get("job_id"))
     files = body.get("files")
@@ -1326,7 +1438,8 @@ def probe_account(cli: object, name: object) -> dict:
         "home": display_path(str(home)) if home is not None else f"~/{DEFAULT_HOMES[str(cli)]}",
         "exists": home is None or home.is_dir(),
         "login_command": login_command(str(cli), None if home is None else str(name)),
-        # The variable a job run sets so the vendor CLI uses this login (absolute: env values aren't expanded).
+        # The variable a job run sets so the vendor CLI uses this login (absolute: env values aren't
+        # expanded).
         "env": account_env(str(cli), name),
     }
     if exe is None:
@@ -1461,6 +1574,205 @@ def list_overflow_keys() -> dict:
     return {"agents": sorted(names)}
 
 
+# --- workflow packs (M4.5a, ADR 0018) ----------------------------------------------------------------------
+PACK_SETUP_TIMEOUT_S = 1800
+
+
+def packs_cache_root() -> Path:
+    """Per-project pack caches (graphify's graph), inside Switchboard's data folder."""
+    return data_root() / "packs"
+
+
+def service_path() -> str:
+    """The PATH Paperclip's service runs agents with (its systemd unit), so a job's run can put the pack
+    wrappers in front of it without losing the agent CLIs. Falls back to the clean Linux PATH."""
+    sc = which("systemctl", ["/usr/bin", "/bin"])
+    if sc:
+        code, out = run(
+            [sc, "--user", "show", "paperclipai.service", "--property=Environment", "--value"], linux_path()
+        )
+        m = re.search(r'(?:^|\s)"?PATH=([^\s"]+)', out or "") if code == 0 else None
+        if m:
+            return m.group(1)
+    return ":".join(linux_path())
+
+
+class PackTask:
+    def __init__(self, task_id: str, key: str):
+        self.id, self.key = task_id, key
+        self.state = "running"  # running | ok | failed
+        self.result: dict | None = None
+        self.error: str | None = None
+        self.status = 200
+        self.lines: list[str] = []
+        self.started = time.monotonic()
+
+    def snapshot(self) -> dict:
+        return {
+            "id": self.id,
+            "state": self.state,
+            "result": self.result,
+            "error": self.error,
+            "status": self.status,
+            "log": self.lines[-60:],
+            "seconds": round(time.monotonic() - self.started, 1),
+        }
+
+
+class PackManager:
+    """Pack installs (plan -> confirm -> streamed log, one at a time, never root) and per-job setup tasks."""
+
+    def __init__(self, path_fn: Callable[[], list[str]] = linux_path, fetch_fn=packs.fetch):
+        self.path_fn, self.fetch_fn = path_fn, fetch_fn
+        self.plans: dict[str, dict] = {}
+        self.jobs: dict[str, Job] = {}
+        self.tasks: dict[str, PackTask] = {}
+        self.lock = threading.Lock()
+        self.store_lock = threading.Lock()  # installs, rollbacks and removals of the store
+        self.plan_bucket = TokenBucket(12, 60.0)
+
+    # -- the library -----------------------------------------------------------------------------------
+    def library(self, check: bool = False) -> dict:
+        items = []
+        for pid in packs.list_locks():
+            try:
+                lock = packs.load_lock(pid)
+            except packs.PackError as e:
+                items.append({"id": pid, "error": e.message})
+                continue
+            st = packs.status(pid, check=check)
+            st.update(locked_version=lock["version"], package=lock["package"], kind=lock["kind"])
+            items.append(st)
+        return {
+            "packs": items,
+            "store": packs.display(packs.store_root()),
+            "network_isolated": bool(packs.netns_prefix()),
+            "service_path": service_path(),
+        }
+
+    def plan(self, pid: str) -> dict:
+        if not self.plan_bucket.take():
+            raise InstallError(429, "rate limited")
+        lock = packs.load_lock(pid)
+        plan = packs.plan(lock, self.path_fn())
+        if plan["problem"]:
+            return {**plan, "plan_id": None}
+        plan_id = secrets.token_urlsafe(24)
+        with self.lock:
+            now = time.monotonic()
+            self.plans = {k: v for k, v in self.plans.items() if v["expires"] > now}
+            self.plans[plan_id] = {"id": pid, "version": lock["version"], "expires": now + INSTALL_PLAN_TTL_S}
+        return {**plan, "plan_id": plan_id, "expires_in": INSTALL_PLAN_TTL_S}
+
+    def start(self, pid: str, plan_id: str) -> dict:
+        if os.geteuid() == 0:
+            raise InstallError(403, "refusing to install as root")
+        with self.lock:
+            stored = self.plans.pop(plan_id, None)
+            if stored is None or stored["id"] != pid or stored["expires"] <= time.monotonic():
+                raise InstallError(410, "the plan expired or was already used; review it again")
+            if any(j.state == "running" for j in self.jobs.values()):
+                self.plans[plan_id] = stored
+                raise InstallError(409, "another pack install is running")
+            lock = packs.load_lock(pid)
+            if lock["version"] != stored["version"]:
+                raise InstallError(410, "the pack's lock changed since you reviewed it; review it again")
+            job = Job(secrets.token_urlsafe(9), pid)
+            self.jobs[job.id] = job
+            if len(self.jobs) > 20:
+                for jid in [j for j, v in self.jobs.items() if v.state != "running"][:-10]:
+                    del self.jobs[jid]
+        threading.Thread(target=self._install, args=(job, lock), daemon=True).start()
+        return job.snapshot()
+
+    def _install(self, job: Job, lock: dict) -> None:
+        def log(text: str) -> None:
+            for line in str(text).splitlines() or [""]:
+                if line.strip():
+                    job.add({"t": clean_line(line), "r": False, "p": None})
+
+        try:
+            with self.store_lock:
+                st = packs.install(lock, self.path_fn(), worktree_root(), log, self.fetch_fn)
+            job.result = st
+            log(f"Installed {lock['spec']['name']} {lock['version']}")
+            job.finish("ok", 0)
+        except packs.PackError as e:
+            log(e.message)
+            job.finish("failed", 1)
+        except Exception as e:  # noqa: BLE001 - the log must say something, whatever failed
+            log(f"The install stopped ({type(e).__name__})")
+            job.finish("failed", 1)
+
+    def job(self, job_id: str) -> Job:
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise InstallError(404, "unknown job")
+        return job
+
+    def rollback(self, pid: str) -> dict:
+        packs.load_lock(pid)
+        with self.store_lock:
+            return packs.rollback(pid)
+
+    def uninstall(self, pid: str) -> dict:
+        packs._id(pid)
+        with self.store_lock:
+            return packs.uninstall(pid)
+
+    # -- per-job setup (a background task the router polls) --------------------------------------------
+    def setup(self, body: dict) -> dict:
+        _, wt, _ = _existing_worktree(body)
+        slug, job_id, _, _ = _job(body.get("slug"), body.get("job_id"))
+        reqs = body.get("packs")
+        if not isinstance(reqs, list) or not 0 < len(reqs) <= 8 or not all(isinstance(r, dict) for r in reqs):
+            raise InstallError(400, "packs must be a list of 1 to 8 requests")
+        key = f"{slug}/{job_id}"
+        rec = packs.read_record(wt)
+        if rec and rec.get("state") == "ready":
+            return {"id": None, "state": "ok", "result": rec, "error": None, "status": 200, "log": []}
+        with self.lock:
+            for t in self.tasks.values():
+                if t.key == key and t.state == "running":
+                    return t.snapshot()
+            task = PackTask(secrets.token_urlsafe(9), key)
+            self.tasks[task.id] = task
+            if len(self.tasks) > 50:
+                for tid in [k for k, v in self.tasks.items() if v.state != "running"][:-20]:
+                    del self.tasks[tid]
+        threading.Thread(target=self._setup, args=(task, wt, slug, reqs), daemon=True).start()
+        return task.snapshot()
+
+    def _setup(self, task: PackTask, wt: Path, slug: str, reqs: list[dict]) -> None:
+        try:
+            with self.store_lock:  # no install or rollback swaps a version while a job sets it up
+                task.result = packs.setup(
+                    wt,
+                    worktree_root(),
+                    reqs,
+                    git,
+                    packs_cache_root(),
+                    slug,
+                    lambda t: task.lines.append(clean_line(t)),
+                )
+            task.state = "ok"
+        except (packs.PackError, InstallError) as e:
+            task.state, task.error, task.status = "failed", e.message, e.status
+        except Exception as e:  # noqa: BLE001 - reported to the router as a plain failure
+            task.state, task.error, task.status = "failed", f"pack setup stopped ({type(e).__name__})", 500
+
+    def task(self, task_id: str) -> dict:
+        t = self.tasks.get(task_id)
+        if t is None:
+            raise InstallError(404, "unknown task (hostprobe may have restarted)")
+        return t.snapshot()
+
+
+def worktree_size(body: dict) -> dict:
+    _, wt, _ = _existing_worktree(body)
+    return packs.size(wt, git)
+
+
 def make_handler(probe: Probe):
     class Handler(BaseHTTPRequestHandler):
         server_version = "hostprobe"
@@ -1543,7 +1855,21 @@ def make_handler(probe: Probe):
                     return self._send(200, probe_account(q1.get("cli"), q1.get("name")))
                 if url.path == "/overflow-keys":
                     return self._send(200, list_overflow_keys())
-            except InstallError as e:
+                if url.path == "/packs":
+                    return self._send(200, probe.packs.library(check=q1.get("verify") == "1"))
+                m = re.fullmatch(r"/packs/tasks/([\w-]+)", url.path)
+                if m:
+                    return self._send(200, probe.packs.task(m.group(1)))
+                m = re.fullmatch(r"/packs/jobs/([\w-]+)(/events)?", url.path)
+                if m:
+                    job = probe.packs.job(m.group(1))
+                    if m.group(2):
+                        start = (query.get("from") or ["0"])[0]
+                        return self._events(job, int(start) if start.isdigit() else 0)
+                    with job.cond:
+                        tail = [x["t"] for x in job.lines[-30:]]
+                    return self._send(200, {**job.snapshot(), "tail": tail})
+            except (InstallError, packs.PackError) as e:
                 return self._send(e.status, {"error": e.message})
             m = re.fullmatch(r"/install/jobs/([\w-]+)(/events)?", url.path)
             if m:
@@ -1573,6 +1899,24 @@ def make_handler(probe: Probe):
                 m = re.fullmatch(r"/install/jobs/([\w-]+)/cancel", path)
                 if m:
                     return self._send(200, probe.installer.cancel(m.group(1)))
+                m = re.fullmatch(r"/packs/([a-z0-9-]{1,41})/(plan|run|rollback|uninstall)", path)
+                if m:
+                    pid, action = m.group(1), m.group(2)
+                    if action == "plan":
+                        return self._send(200, probe.packs.plan(pid))
+                    if action == "run":
+                        plan_id = self._body().get("plan_id")
+                        if not isinstance(plan_id, str):
+                            raise InstallError(400, "plan_id required")
+                        return self._send(202, probe.packs.start(pid, plan_id))
+                    if action == "rollback":
+                        return self._send(200, probe.packs.rollback(pid))
+                    return self._send(200, probe.packs.uninstall(pid))
+                if path == "/git/worktrees/packs":
+                    with (
+                        GIT_LOCK
+                    ):  # validating the worktree uses git; the setup itself runs in the background
+                        return self._send(200, probe.packs.setup(self._body()))
                 git_actions = {
                     "/git/inspect": lambda b: inspect_repo(b.get("path")),
                     "/git/worktrees": create_worktree,
@@ -1580,6 +1924,7 @@ def make_handler(probe: Probe):
                     "/git/worktrees/commit": commit_worktree,
                     "/git/worktrees/remove": remove_worktree,
                     "/git/worktrees/attachments": copy_attachments,
+                    "/git/worktrees/size": worktree_size,
                 }
                 small_actions = {
                     "/accounts": create_account,
@@ -1592,7 +1937,7 @@ def make_handler(probe: Probe):
                 if path in git_actions:
                     with GIT_LOCK:  # one git action at a time: worktree add/remove share the repo's lock
                         return self._send(200, git_actions[path](self._body()))
-            except InstallError as e:
+            except (InstallError, packs.PackError) as e:
                 return self._send(e.status, {"error": e.message})
             return self._send(404, {"error": "not found"})
 

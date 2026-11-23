@@ -10,6 +10,7 @@ import { languageOf, parseDiff, type FileDiff } from "@/lib/diff";
 import type { JobDiff } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { tJobs } from "@/i18n/jobs";
+import { tPacks } from "@/i18n/packs";
 
 type Highlighter = (code: string, lang: string | undefined) => string | null;
 
@@ -65,7 +66,59 @@ const firstOpen = (d: JobDiff | null): Record<string, boolean> => {
   return f.length && f.length <= 3 ? { [f[0].path]: true } : {};
 };
 
-export default function DiffView({ jobId, initial = null }: { jobId: number; initial?: JobDiff | null }) {
+interface SetupProps {
+  editable: boolean;
+  ticked: string[];
+  onChange: (paths: string[]) => void;
+}
+
+/** M4.5a: what a pack's setup changed, apart from the agent's work: unticked (left out of the commit) by default. */
+function SetupEdits({ data, setup, open, onToggle, hl }: { data: JobDiff; setup?: SetupProps; open: Record<string, boolean>; onToggle: (path: string, o: boolean) => void; hl: Highlighter | null }) {
+  const edits = data.setup_edits ?? [];
+  const files = React.useMemo(() => parseDiff(data.setup_diff ?? ""), [data.setup_diff]);
+  if (!edits.length) return null;
+  const byPack = new Map<string, typeof edits>();
+  for (const e of edits) byPack.set(e.pack_name, [...(byPack.get(e.pack_name) ?? []), e]);
+  const ticked = new Set(setup?.ticked ?? []);
+  return (
+    <>
+      {[...byPack.entries()].map(([pack, list]) => (
+        <section key={pack} aria-labelledby={`setup-${pack}`} className="grid gap-2 rounded-panel border border-warn/50 p-3">
+          <h3 id={`setup-${pack}`} className="font-display text-base font-bold tracking-tight">
+            {tPacks("diff.setupTitle", { pack })}
+          </h3>
+          <p className="text-sm text-ink-muted">{tPacks("diff.setupLead", { pack })}</p>
+          {list.map((e) => {
+            const f = files.find((x) => x.path === e.path);
+            return (
+              <div key={e.path} className="grid gap-1.5">
+                <label className="flex flex-wrap items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={ticked.has(e.path)}
+                    disabled={!setup?.editable}
+                    onChange={(ev) => setup?.onChange(ev.target.checked ? [...ticked, e.path] : [...ticked].filter((x) => x !== e.path))}
+                  />
+                  <span className="font-mono font-semibold break-all">{e.path}</span>
+                  <span className="text-[0.75rem] text-ink-muted">{tPacks(`diff.kind.${e.kind}`)}</span>
+                </label>
+                {e.both ? (
+                  <p className="text-[0.8125rem] text-warn">{tPacks("diff.both")}</p>
+                ) : e.agent_changed ? (
+                  <p className="text-[0.8125rem] text-ink-muted">{tPacks("diff.agentToo")}</p>
+                ) : null}
+                {f && <FilePanel f={f} open={!!open[`setup:${f.path}`]} hl={hl} onToggle={(o) => onToggle(`setup:${f.path}`, o)} />}
+              </div>
+            );
+          })}
+        </section>
+      ))}
+    </>
+  );
+}
+
+export default function DiffView({ jobId, initial = null, setup }: { jobId: number; initial?: JobDiff | null; setup?: SetupProps }) {
   const [data, setData] = React.useState<JobDiff | null>(initial);
   const [error, setError] = React.useState<{ code?: string; detail?: string | null; text: string } | null>(null);
   const [open, setOpen] = React.useState<Record<string, boolean>>(() => firstOpen(initial));
@@ -105,7 +158,7 @@ export default function DiffView({ jobId, initial = null }: { jobId: number; ini
         <p className="text-sm text-ink-muted">{tJobs("diff.loading")}</p>
       </GlassPanel>
     );
-  if (!files.length)
+  if (!files.length && !(data.setup_edits ?? []).length)
     return (
       <GlassPanel tone="strong">
         <p className="text-sm text-ink-muted">{tJobs("diff.empty")}</p>
@@ -133,6 +186,7 @@ export default function DiffView({ jobId, initial = null }: { jobId: number; ini
       {files.map((f) => (
         <FilePanel key={f.path} f={f} open={!!open[f.path]} hl={hl} onToggle={(o) => setOpen((cur) => (!!cur[f.path] === o ? cur : { ...cur, [f.path]: o }))} />
       ))}
+      <SetupEdits data={data} setup={setup} open={open} hl={hl} onToggle={(k, o) => setOpen((cur) => (!!cur[k] === o ? cur : { ...cur, [k]: o }))} />
     </section>
   );
 }

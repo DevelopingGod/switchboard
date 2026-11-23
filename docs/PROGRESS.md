@@ -22,12 +22,15 @@
 | M4 Jobs via Paperclip | Split into M4a + M4b | — | Opus 5.5, high | Backend first, then the page |
 | M4a Agents & Jobs backend | ✅ Merged | m4a / #12 | Opus 5.5 | Paperclip adapter (verified 2026.1106.0), agent registry, job engine, worktrees via hostprobe, live proof with Claude Code, Codex and OpenCode; fast private chat + Think harder; three load flakes fixed at the cause; see M4a outcome |
 | M4b Jobs page + agent fleet | ✅ Merged | m4b / #13 | Opus 5.5 | Job board and detail (live log, plan, per-file diff, decisions), Run as job, fleet (ADR 0009), Projects and Jobs settings, badge and toasts, level-3 decision (ADR 0010, M7), `/chat` Lighthouse 95–99; see M4b outcome |
-| M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
+| M4.5 Workflow packs | Split into M4.5a + M4.5a-2 + M4.5b | — | Opus 5.5, high | Foundation first (store, installer, per-job setup, OpenSpec, graphify), then private projects, then phase routing and the rest |
+| M4.5a Workflow packs foundation | ✅ Done (PR in review) | m45a | Opus 5.5 | Registry + locks, pack store (read-only, re-hashed before use), installer via hostprobe, per-project pack settings, worktree-only setup, OpenSpec propose → apply → archive as one job, graphify auto-pack with holdout, cached tokens, export warning; ADRs 0018/0019; see M4.5a outcome |
+| M4.5a-2 Private projects + local agent | ⏳ | — | — | Private project switch (everything local, including the agent), `opencode-local`, graphify's AI semantic pass routed through Switchboard (local only when private); split from M4.5a on 2026-11-23 |
+| M4.5b Workflow packs: routing and UI | ⏳ | — | — | Phase routing (`pack_routes`), composer chips, artifacts view, project presets, gstack, community index fetch |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
 | M6.5 Subscription windows | ✅ Merged | m65 / #15 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
-| M2.5 Attachments + Activity log | ✅ Done (PR in review) | m25 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
+| M2.5 Attachments + Activity log | ✅ Merged | m25 / #16 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
 | M6.7 Local compute optimizer | ⏳ | — | — | Multi-GPU (NVIDIA + AMD iGPU), GPU/RAM split, fit advisor, tuning |
 | M6.8 Providers: custom providers + presets | ⏳ | — | — | Connections → Add custom provider (OpenAI-compatible, local servers), presets, YAML export/import |
 | M6.9 Quiet beta | ⏳ | — | — | 5–10 users before launch |
@@ -804,3 +807,87 @@ docs, media and version 0.9.0.
 - **A job's files** are removed with its worktree; the job page then lists names without downloads.
 - Still open from earlier: see "Carry-over to M2.5 and later (from M6.5)" (second account, real limit hit, real
   paid model, CLI session resume) and "Carry-over to M7 and later (from M6)".
+
+## M4.5a outcome
+
+Branch `m45a`. Guide: [docs/m45a.md](m45a.md) (what you can do, how it works, verified facts, decisions taken without
+asking). ADRs: [0018](adr/0018-workflow-packs-store-and-worktree-setup.md) a hash-locked pack store, set up per job
+inside the worktree, never committed silently; [0019](adr/0019-graphify-auto-pack-holdout.md) graphify kept only
+where a holdout shows it saves tokens. Commits: docs first; hostprobe; router; portal; docs and media; test and lint
+fixes; outcome and version 0.10.0. Scope split on 2026-11-23: private projects, `opencode-local` and graphify's AI
+semantic pass are **M4.5a-2**; phase routing, chips, artifacts view, presets, gstack, community index stay **M4.5b**.
+
+- **Packs:** `packs/openspec` (npm `@fission-ai/openspec` 2.1.1, 66 locked packages), `packs/graphify` (PyPI
+  `graphifyy` 0.9.115; `graphify` is not on PyPI; 31 wheels for each of 16 Python/platform targets), `packs/gstack`
+  (refused: global-only). `scripts/pack-lock.py` writes and checks the committed locks.
+- **Store:** downloads only the lock's URLs, checks each hash and the name/version inside the file, installs offline
+  under `unshare --net` (npm `ci --offline --ignore-scripts` from local tarballs; `venv --without-pip` + pinned pip:
+  no uv/pipx/python3-venv/sudo), compiles Python first, writes wrappers, records every file's sha256, makes the folder
+  read-only; current + previous kept, rollback, remove. **Re-hash before each use, measured live:** OpenSpec 87 ms
+  (2,515 files), graphify 304 ms (3,445 files) on the first job, under 0.4 s (well below the 3 s line); warm scratch
+  runs 62–71 ms and 192–202 ms.
+- **Per job:** setup in the worktree through the wrappers (HOME and XDG folders → `.switchboard/home`), no network,
+  every write sorted: owned (never committed, by exact path), artifacts (`openspec/`, committed), setup edits
+  (unticked, reverse-applied to the index only). OpenSpec workflow = one job, one run per step, a `step` review after
+  each. graphify Auto/Always/Off, holdout per project + agent + flow, decision and re-check every 20 jobs.
+- **Cached input** now recorded per run (`costs.tokens_cached`; Codex's taken out of its input), counted in Metrics'
+  input tokens; Metrics Pro has the graphify panel.
+- **Live proof (2026-11-23, `~/switchboard-playground`, the real portal driven with Playwright because the Chrome
+  extension wasn't connected):**
+  - Connections → Workflow packs: installed OpenSpec (13 s) and graphify through the plan → confirm → log dialog;
+    both recorded in `pack_installs`.
+  - Settings → Projects: OpenSpec on (Claude Code), graphify Always.
+  - **Job 19** (OpenSpec workflow, Claude Code): Propose (used the `openspec` CLI through the wrapper, wrote
+    `openspec/changes/add-multiply/`), Apply (code + test, 3 tests pass), Archive (specs synced, `openspec validate`
+    passes); graph built in 1.0 s (8 nodes). The review listed code + `openspec/` and, apart and unticked, the
+    `CLAUDE.md` and `.claude/CLAUDE.md` graphify's setup created. Committed on `switchboard/job-19`: 11 files, code
+    and `openspec/` only.
+  - **Job 20** (plain job, graphify): graph rebuilt from the project cache in 0.8 s; the plan says it used the graph;
+    committed `mathutils.py` + `test_mathutils.py` only.
+  - **Nothing written outside the worktrees:** the before/after fingerprint of `~/.claude ~/.codex ~/.agents ~/.config
+    ~/.local/share ~/.cache` (path, size, mtime, hash) shows no file added, removed or changed in
+    `~/.claude/{skills,commands,hooks,settings*.json,CLAUDE.md}`, `~/.codex/{skills,prompts,config.toml,AGENTS.md}`;
+    `~/.agents`, `~/.config/openspec`, `~/.local/share/openspec`, `~/.cache/graphify` still don't exist; global npm
+    and user pip unchanged. The other differences are Claude Code's own session data (`~/.claude/projects/…job-19`,
+    `…job-20`, backups, plugin sync, `~/.cache/claude-cli-nodejs`), `~/.codex/tmp` from status checks, and two
+    mtimes (same content) in `~/.claude/skills/synced/` from Claude Code's own skill sync. OpenSpec's
+    `projects.json` and graphify's skill locks landed in each worktree's `.switchboard/home`. The playground checkout
+    stayed clean on `main`.
+  - Metrics → Pro: both groups "Measuring (0 of 5)"; job 19's 669k tokens include 599k cached input.
+- **Found live or by the tests, fixed:** YAML `[python>=3.11.5,<3.15]` is two items (the upper bound was dropped);
+  pip needs exact wheel file names; npm's cache can't be filled offline (tarballs via `file:` instead); graphify's
+  project install edits `AGENTS.md`/creates `CLAUDE.md` (shown unticked); zero-context setup patches so nearby agent
+  edits don't count as "edited by both".
+- **Checks:** hostprobe 114 unittest; router 552 pytest (+ 4 live, deselected), ruff clean (router, hostprobe,
+  pack-lock); portal tsc, eslint, vitest 117, Playwright (new `m45a.spec` 7 tests, repeat-each 3; 8 baselines
+  updated: connections, projects, job-diff, metrics-pro), JS ≤ 186.6 KB per route, Lighthouse 3 runs on
+  `/connections`, `/settings/projects`, `/jobs/28`, `/metrics`: performance 99–100, a11y and best practices 100, CLS 0;
+  `docs:check`, doctor green (new Workflow packs line).
+- **Also:** `VERSION` 0.10.0; README Jobs paragraph and feature-tour entry with two new shots (`shot-packs`,
+  `shot-job-diff` refreshed); SPEC §8a/§9/§11; TROUBLESHOOTING (Workflow packs). No demo re-record.
+- **Changes on your machine (outside the repo):**
+  - `~/.switchboard/packs/` with OpenSpec 2.1.1 and graphify 0.9.115 (read-only; remove from Connections);
+  - `~/.switchboard/data/packs/graphify/switchboard-playground/` (the playground's graph cache);
+  - migration 0012 on your router database (a `pg_dump` from before is in the session scratchpad); router image
+    rebuilt (packs/ mounted read-only); hostprobe restarted;
+  - jobs 19 and 20 in `~/switchboard-playground` (branches `switchboard/job-19`, `switchboard/job-20`; worktrees kept
+    for review per the retention setting); the playground's pack settings (OpenSpec on for Claude Code, graphify
+    Always).
+- **Deviations:** the live UI steps ran through Playwright, not the Chrome extension; graphify's semantic pass and
+  private projects moved to M4.5a-2 (your split); Spec Kit not shipped (its init downloads templates at setup).
+
+## Carry-over from M4.5a
+
+- **M4.5a-2:** private projects (everything local, including the agent; cloud agents refused with a plain reason),
+  `opencode-local`, graphify's AI semantic pass through Switchboard (local only when private).
+- **M4.5b:** phase routing (`pack_routes`), composer chips, proposal cards (artifacts view), project presets, gstack
+  (once it installs per project), Spec Kit (needs an offline-capable init), community index fetch.
+- **Claude Code and project skills:** jobs run with `--setting-sources user` (M4a guard), so project skills and
+  graphify's project hooks may not be offered to Claude; the task text names each skill's file and the agent read
+  it (job 19). Revisit if Claude Code separates skills from settings sources.
+- **graphify measuring needs volume:** 5 + 5 finished jobs per project + agent + flow before a decision; the
+  playground is far below the Auto threshold, so only Always shows it there.
+- **Re-hash time grows with pack size:** 0.3 s for graphify today; if a future pack is much bigger, consider hashing
+  only on change (mtime + size) with a periodic full check (needs your decision, per your note).
+- Still open from earlier: see "Carry-over from M2.5".
+

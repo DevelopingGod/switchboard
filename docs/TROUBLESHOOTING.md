@@ -155,3 +155,23 @@ and hostprobe can both read and write it.
   then `docker compose -f deploy/docker-compose.yml up -d router`.
 - **Backups:** back the folder up with `deploy/.env`. Deleting a chat deletes its files; Settings → Data → Export
   includes the files only when you tick "Include attachments".
+
+## Workflow packs (M4.5a)
+
+- **"… changed on disk since it was installed"** on a job or in Connections → Packs → Check files: a file in the
+  pack's installed folder (`~/.switchboard/packs/<id>/<version>/`) no longer matches what was recorded at install.
+  Reinstall it from Connections → Workflow packs (the job went on without that pack, or failed if it was the job's
+  workflow).
+- **"… uses ~/.nvm/…/node, which is gone"**: Node was upgraded or removed since an npm pack (OpenSpec) was installed.
+  Reinstall the pack.
+- **"… has no locked build for Python 3.x on …"**: the pack's lock has no wheels for this Python or platform. Use
+  Python 3.11–3.14 on Linux x86_64/aarch64 or macOS, or ask a maintainer to regenerate the lock.
+- **"… lock doesn't match its manifest"** (doctor or the library): `packs/<id>/pack.yaml` was edited without
+  regenerating its lock: `python3 scripts/pack-lock.py <id>`.
+- **"Installs can't be cut off from the network"** in the plan: `unshare --map-current-user --net` doesn't work on this
+  machine (user namespaces off). Installs still use only the hash-checked files.
+- **"an earlier pack setup in this worktree was interrupted"**: hostprobe stopped in the middle of a job's pack setup,
+  so its writes can't be sorted safely. Start the job again (Run again).
+- **Removing a pack by hand**: its folders are read-only on purpose; use Remove in Connections → Workflow packs, or
+  `chmod -R u+w ~/.switchboard/packs/<id> && rm -rf ~/.switchboard/packs/<id>`.
+

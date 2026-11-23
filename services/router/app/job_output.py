@@ -108,24 +108,31 @@ class RunOutcome:
     provider: str | None
     model: str | None
     denied: tuple[str, ...] = ()  # commands the agent wanted but wasn't allowed (Claude reports them)
+    # M4.5a (ADR 0019): cached input, apart from `tokens_in`, so input + cached + output is the run's total
+    # for every CLI. Claude (Paperclip's usageJson `cachedInputTokens`) and OpenCode
+    # (`tokens.cache.read/write`) report it apart from input; Codex counts `cached_input_tokens` inside
+    # `input_tokens`, so it is taken out.
+    tokens_cached: int | None = None
 
 
-def _codex(events: list[dict[str, Any]]) -> tuple[str, int | None, int | None]:
-    text, tin, tout = "", None, None
+def _codex(events: list[dict[str, Any]]) -> tuple[str, int | None, int | None, int | None]:
+    text, tin, tout, cached = "", None, None, None
     for ev in events:
         item = ev.get("item") or {}
         if ev.get("type") == "item.completed" and item.get("type") == "agent_message":
             text = str(item.get("text") or text)
         if ev.get("type") == "turn.completed":
             u = ev.get("usage") or {}
-            tin = (tin or 0) + int(u.get("input_tokens") or 0)
+            c = int(u.get("cached_input_tokens") or 0)
+            tin = (tin or 0) + max(0, int(u.get("input_tokens") or 0) - c)
             tout = (tout or 0) + int(u.get("output_tokens") or 0)
-    return text, tin, tout
+            cached = (cached or 0) + c
+    return text, tin, tout, cached
 
 
-def _opencode(events: list[dict[str, Any]]) -> tuple[str, int | None, int | None, float]:
+def _opencode(events: list[dict[str, Any]]) -> tuple[str, int | None, int | None, float, int]:
     texts: list[str] = []
-    tin = tout = 0
+    tin = tout = cached = 0
     cost = 0.0
     for ev in events:
         part = ev.get("part") or {}
@@ -135,9 +142,11 @@ def _opencode(events: list[dict[str, Any]]) -> tuple[str, int | None, int | None
             tok = part.get("tokens") or {}
             tin += int(tok.get("input") or 0)
             tout += int(tok.get("output") or 0)
+            cache = tok.get("cache") or {}
+            cached += int(cache.get("read") or 0) + int(cache.get("write") or 0)
             if isinstance(part.get("cost"), int | float):
                 cost += float(part["cost"])
-    return (texts[-1] if texts else ""), tin, tout, cost
+    return (texts[-1] if texts else ""), tin, tout, cost, cached
 
 
 def outcome(agent: AgentDef, run: dict[str, Any], counter: TurnCounter | None = None) -> RunOutcome:
@@ -165,14 +174,19 @@ def outcome(agent: AgentDef, run: dict[str, Any], counter: TurnCounter | None = 
             provider=usage.get("provider") or vendor,
             model=usage.get("model") or agent.model,
             denied=denied,
+            tokens_cached=usage.get("cachedInputTokens")
+            if isinstance(usage.get("cachedInputTokens"), int)
+            else None,
         )
     if counter is None:
         counter = TurnCounter(agent.permissions or "")
         counter.feed(str(rj.get("stdout") or ""))
         counter.finish()
     if agent.permissions == "codex":
-        text, tin, tout = _codex(counter.events)
-        return RunOutcome(text, counter.turns, tin, tout, None, 0.0, vendor, agent.model)
-    text, tin, tout, cost = _opencode(counter.events)
+        text, tin, tout, cached = _codex(counter.events)
+        return RunOutcome(
+            text, counter.turns, tin, tout, None, 0.0, vendor, agent.model, tokens_cached=cached
+        )
+    text, tin, tout, cost, cached = _opencode(counter.events)
     # OpenCode reports a cost per step; for its free Zen models that is $0. A paid model's cost is real money.
-    return RunOutcome(text, counter.turns, tin, tout, cost, cost, vendor, agent.model)
+    return RunOutcome(text, counter.turns, tin, tout, cost, cost, vendor, agent.model, tokens_cached=cached)

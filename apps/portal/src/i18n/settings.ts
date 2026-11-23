@@ -114,6 +114,8 @@ export const settingsStrings = {
     includePrivate: "Include private chats",
     includeFiles: "Include attachments (.zip)",
     filesNote: "Without this, the export lists each file's name, type and size, not the file.",
+    secretsWarning:
+      "Files are exported exactly as you attached them. Private chats can include files in which Switchboard found secrets (keys, passwords): those were masked in the chat, but not in the exported file.",
     clearTitle: "Clear all chats",
     clearLead: "Deletes every chat and reply on this machine. Settings and keys are kept.",
     clear: "Clear chats…",

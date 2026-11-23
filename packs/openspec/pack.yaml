@@ -1,0 +1,52 @@
+# OpenSpec (SPEC §8a, ADR 0018). Verified 2026-11-23 against 2.1.1 on Node 24 (docs/m45a.md): `openspec init
+# --scope project` writes `.agents/skills/openspec-*`, links in `.claude/skills/` and `openspec/`; it edits no
+# tracked file. Its own state (`~/.local/share/openspec`, the telemetry id) goes to the worktree's `.switchboard/home`
+# through the wrapper. Regenerate the lock after any change: python3 scripts/pack-lock.py openspec
+id: openspec
+name: OpenSpec
+summary: Agree on a spec before code — propose, apply, archive.
+trust: verified
+homepage: https://openspec.dev
+repository: https://github.com/Fission-AI/OpenSpec
+license: MIT
+source: npm:@fission-ai/openspec@2.1.1
+lookalikes: [openspec]            # npm "openspec" is an unrelated placeholder package (0.0.0)
+requires: [node>=22.20]
+scope: [project]
+hosts: { claude-code: claude, codex: codex, opencode: opencode }
+bins: { openspec: node_modules/@fission-ai/openspec/bin/openspec.js }
+env: { OPENSPEC_TELEMETRY: "0", DO_NOT_TRACK: "1", OPENSPEC_NO_UPDATE_CHECK: "1" }
+detect: [openspec, --version]
+project:
+  setup:
+    - [openspec, init, --tools, "{tool_ids}", --scope, project, --no-animation]
+owned:
+  - ".agents/skills/openspec-*/**"
+  - ".agents/skills/.openspec-target"
+  - ".claude/skills/openspec-*"
+  - ".codex/skills/openspec-*/**"
+  - ".opencode/skills/openspec-*/**"
+artifacts: ["openspec/**"]
+allow: [openspec]                 # shell commands the agent may run for this pack (levels 1-2)
+invoke: { claude-code: "/{skill}", opencode: "/{skill}", codex: "${skill}" }
+skill_file: ".agents/skills/{skill}/SKILL.md"   # told to the agent too, in case its CLI doesn't load project skills
+flows:
+  - id: change
+    label: "OpenSpec: propose → apply → archive"
+    summary: The agent writes a proposal you review, implements it after you approve, then archives the change.
+    steps:
+      - id: propose
+        label: Propose
+        skill: openspec-propose
+        task: >-
+          Write an OpenSpec change proposal for this request, then stop. Don't change any code yet.
+      - id: apply
+        label: Apply
+        skill: openspec-apply-change
+        task: >-
+          Implement the approved change you proposed in the previous step, following its tasks. Run the project's
+          tests if there are any.
+      - id: archive
+        label: Archive
+        skill: openspec-archive-change
+        task: Archive the change you just implemented, so the specs reflect it. Change nothing else.

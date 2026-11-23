@@ -135,7 +135,7 @@ if (/FastAPI\([^)]*version="\d/.test(read("services/router/app/main.py"))) fail(
 const progress = read("docs/PROGRESS.md");
 const status = new Map(); // milestone id -> shipped?
 for (const line of progress.split("\n")) {
-  const m = /^\|\s*(M[\d.]+[ab]?)\s+([^|]*)\|\s*([^|]*)\|/.exec(line);
+  const m = /^\|\s*(M[\d.]+[ab]?(?:-\d)?)\s+([^|]*)\|\s*([^|]*)\|/.exec(line);
   if (!m) continue;
   const state = m[3];
   if (/Split into/i.test(state)) continue; // parent rows of a split milestone: the leaves carry the state
@@ -147,7 +147,7 @@ if (!block) fail("README.md", "roadmap block markers (<!-- roadmap:start --> / <
 else {
   const listed = new Map();
   for (const line of block.split("\n")) {
-    const m = /^\|\s*(✅|🔜|💡)\s*\|\s*\*\*(M[\d.]+[ab]?)\*\*/.exec(line);
+    const m = /^\|\s*(✅|🔜|💡)\s*\|\s*\*\*(M[\d.]+[ab]?(?:-\d)?)\*\*/.exec(line);
     if (m) listed.set(m[2], m[1] === "✅");
   }
   for (const [id, shipped] of status) {

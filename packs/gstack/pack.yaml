@@ -1,0 +1,16 @@
+# gstack (SPEC §8a). Listed so the library can say why it isn't offered: its documented install clones into
+# ~/.claude/skills/gstack and runs ./setup there (a global install into your Claude folder). Switchboard only installs
+# packs into a job's worktree (ADR 0018), so this entry is refused until gstack supports a project-scoped install.
+id: gstack
+name: gstack
+summary: Role skills for plan reviews, code review, QA, shipping and security audits.
+trust: community
+homepage: https://github.com/garrytan/gstack
+repository: https://github.com/garrytan/gstack
+license: MIT
+source: git:https://github.com/garrytan/gstack
+scope: [global]
+hosts: { claude-code: claude, codex: codex }
+refused: >-
+  gstack installs into your home folder (~/.claude/skills), and Switchboard only installs packs inside a job's
+  copy of the project.

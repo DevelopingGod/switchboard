@@ -28,6 +28,9 @@ os.environ["BACKGROUND_JOBS"] = "false"
 os.environ.setdefault("CONFIG_DIR", str(Path(__file__).resolve().parents[3] / "config"))
 if not Path(os.environ["CONFIG_DIR"], "providers.yaml").exists():
     os.environ["CONFIG_DIR"] = "/srv/config"
+os.environ.setdefault("PACKS_DIR", str(Path(__file__).resolve().parents[3] / "packs"))
+if not Path(os.environ["PACKS_DIR"], "openspec", "pack.yaml").exists():
+    os.environ["PACKS_DIR"] = "/srv/packs"
 for k in (
     "GROQ_API_KEY",
     "GEMINI_API_KEY",
@@ -77,7 +80,7 @@ def database():
 TABLES = (
     "messages, threads, model_stats, model_catalog, connections, provider_secrets, system_meta, "
     "costs, requests, quota_usage, cooldowns, quota_headers, rules_versions, job_events, jobs, projects, "
-    "agent_profiles, metrics_15m, metrics_dirty, cli_accounts, usage_windows, attachments"
+    "agent_profiles, metrics_15m, metrics_dirty, cli_accounts, usage_windows, attachments, pack_installs"
 )
 
 

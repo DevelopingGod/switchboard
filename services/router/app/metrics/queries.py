@@ -403,7 +403,8 @@ async def top_requests(
         await session.execute(
             text(
                 f"""SELECT c.id, c.created_at, c.kind, c.provider, c.model, c.cost_usd,
-                  COALESCE(c.list_price_usd, c.cost_usd, 0) AS value, c.tokens_in, c.tokens_out,
+                  COALESCE(c.list_price_usd, c.cost_usd, 0) AS value,
+                  COALESCE(c.tokens_in, 0) + COALESCE(c.tokens_cached, 0) AS tokens_in, c.tokens_out,
                   c.request_id, r.rule_id, r.intent, t.title,
                   COALESCE(t.private, r.private, false) AS private,
                   j.id AS job_id, j.title AS job_title, j.agent

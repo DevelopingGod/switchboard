@@ -13,8 +13,24 @@ import { bytes } from "@/lib/job-format";
 import type { AccountsResponse, ProjectRow, ProjectWorktrees } from "@/lib/router-types";
 import { tJobs } from "@/i18n/jobs";
 import { tSubs } from "@/i18n/subscriptions";
+import { ProjectPacksBlock } from "@/components/packs/ProjectPacksBlock";
+import type { PackRow, ProjectPacks } from "@/lib/packs-types";
 
-function ProjectItem({ p, onRemoved, initial, accounts }: { p: ProjectRow; onRemoved: () => void; initial: ProjectWorktrees | null | undefined; accounts: AccountsResponse["clis"] }) {
+function ProjectItem({
+  p,
+  onRemoved,
+  initial,
+  accounts,
+  library,
+  packs,
+}: {
+  p: ProjectRow;
+  onRemoved: () => void;
+  initial: ProjectWorktrees | null | undefined;
+  accounts: AccountsResponse["clis"];
+  library: PackRow[] | null;
+  packs: ProjectPacks["packs"] | null | undefined;
+}) {
   const { push } = useToast();
   const [wt, setWt] = React.useState<ProjectWorktrees | null>(initial ?? null);
   const [wtError, setWtError] = React.useState(initial === null);
@@ -120,6 +136,7 @@ function ProjectItem({ p, onRemoved, initial, accounts }: { p: ProjectRow; onRem
           )}
         </div>
         <ProjectAccounts p={p} clis={accounts} onError={setError} />
+        {library && <ProjectPacksBlock projectId={p.id} library={library} initial={packs ?? null} />}
         {error && (
           <p role="alert" className="text-sm text-err">
             {error}
@@ -180,6 +197,8 @@ export function ProjectsScreen({
   keep,
   keepDefault,
   accounts = [],
+  library = null,
+  projectPacks = {},
 }: {
   initial: ProjectRow[];
   /** Per project id: its copies (null = hostprobe couldn't say). */
@@ -188,6 +207,9 @@ export function ProjectsScreen({
   keepDefault: number | null;
   /** M6.5: subscription CLIs and their accounts (a choice appears only where there is more than one). */
   accounts?: AccountsResponse["clis"];
+  /** M4.5a: the pack library and each project's pack settings. */
+  library?: PackRow[] | null;
+  projectPacks?: Record<number, ProjectPacks["packs"] | null>;
 }) {
   const router = useRouter();
   const { push } = useToast();
@@ -275,7 +297,15 @@ export function ProjectsScreen({
       ) : (
         <ul className="grid gap-4">
           {projects.map((p) => (
-            <ProjectItem key={p.id} p={p} accounts={accounts} initial={worktrees[p.id]} onRemoved={() => setProjects((cur) => cur.filter((x) => x.id !== p.id))} />
+            <ProjectItem
+              key={p.id}
+              p={p}
+              accounts={accounts}
+              initial={worktrees[p.id]}
+              library={library}
+              packs={projectPacks[p.id]}
+              onRemoved={() => setProjects((cur) => cur.filter((x) => x.id !== p.id))}
+            />
           ))}
         </ul>
       )}
