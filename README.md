@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.9.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.10.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>
@@ -182,9 +182,13 @@ pushed**: the job page gives you the branch name and the `git` commands to revie
 through [Paperclip](https://github.com/paperclipai/paperclip); a job that waits for you longer than a day (Settings →
 Jobs) is stopped. Level 3 ("Full auto") stays off until its sandbox lands (coming in M7).
 
-**Workflow packs** (Connections → Workflow packs, coming in M4.5a): with OpenSpec on for a project, a job runs
-propose → apply → archive with a review after each step; graphify builds a local code graph for agent jobs on large
-projects. Packs are pinned and hashed, set up only in the job's copy, and never committed unless you tick them.
+**Workflow packs** (Connections → Workflow packs) add a method on top: with [OpenSpec](https://openspec.dev) turned on
+for a project, a job can run **propose → apply → archive**, and you review each step before the next. A pack's
+program is installed once from a pinned, hashed lock (you read the exact package, version, hash and commands first);
+its files go only into the job's copy of your repo, never into `~/.claude` or `~/.codex`, and are never committed
+unless you tick them. [graphify](https://graphify.com) builds a local code graph for agent jobs on large projects and
+turns itself off where Metrics shows it doesn't save tokens. A different agent per phase, command chips and proposal
+cards are coming in M4.5b; private projects in M4.5a-2.
 
 <p align="center">
   <picture>
@@ -414,7 +418,7 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
 | ✅ | **M6.5** Subscription windows | See each subscription's usage window, jobs that wait for a reset and continue, separate accounts for separate purposes, opt-in paid overflow |
 | ✅ | **M2.5** Attachments and Activity log | Attach files and images in chat (button, drag-and-drop, paste); private attachments stay on your machine; attachments in jobs; a searchable list of every request |
-| 🔜 | **M4.5a** Workflow packs foundation | Install spec and review workflows on demand, from the UI: pinned and hashed, set up only inside a job's copy of the project, never committed without your say. OpenSpec runs propose → apply → archive in one job; graphify builds a local code graph for agent jobs on large projects and turns itself off where it doesn't save tokens |
+| ✅ | **M4.5a** Workflow packs foundation | Install spec and review workflows on demand, from the UI: pinned and hashed, set up only inside a job's copy of the project, never committed without your say. OpenSpec runs propose → apply → archive in one job; graphify builds a local code graph for agent jobs on large projects and turns itself off where it doesn't save tokens |
 | 🔜 | **M4.5a-2** Private projects | Mark a project private: every step, including the agent, stays on your machine; graphify's optional AI pass |
 | 🔜 | **M4.5b** Workflow packs: routing and UI | A different agent or model per workflow phase, command chips in the composer, proposal cards, project presets, more packs |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |

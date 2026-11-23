@@ -95,7 +95,8 @@ test.describe("projects", () => {
 
 test.describe("workflow jobs", () => {
   test("New job with OpenSpec: a review after each step, then the changes", async ({ page }) => {
-    await page.goto(`${M}/jobs`);
+    // Its own server: a new job waiting for review would change the "need you" count the M4b tests watch.
+    await page.goto(`${urls.settings}/jobs`);
     await ready(page);
     await page.getByRole("button", { name: "New job" }).first().click();
     const dialog = page.getByRole("dialog");
