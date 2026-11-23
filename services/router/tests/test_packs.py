@@ -41,11 +41,17 @@ def test_shipped_packs_load_with_matching_locks():
     reg = registry.load()
     assert reg.errors == {}
     os_, gr, gs = reg.get("openspec"), reg.get("graphify"), reg.get("gstack")
-    assert os_.installable and (os_.kind, os_.package, os_.version) == ("npm", "@fission-ai/openspec", "2.1.1")
+    assert os_.installable and (os_.kind, os_.package, os_.version) == (
+        "npm",
+        "@fission-ai/openspec",
+        "2.1.1",
+    )
     assert gr.installable and (gr.kind, gr.package) == ("pypi", "graphifyy") and gr.auto == "graph"
     assert "graphify" in gr.lookalikes  # the typosquat-prone name, documented
     assert [s.skill for s in os_.flow("change").steps] == [
-        "openspec-propose", "openspec-apply-change", "openspec-archive-change"
+        "openspec-propose",
+        "openspec-apply-change",
+        "openspec-archive-change",
     ]
     assert os_.invoke_for("codex", "openspec-propose") == "$openspec-propose"
     assert os_.invoke_for("claude-code", "openspec-propose") == "/openspec-propose"
@@ -93,17 +99,19 @@ def test_a_lock_that_no_longer_matches_its_manifest_blocks_install(packs_dir):
 # --- cached tokens (ADR 0019) ------------------------------------------------------------------------------
 def test_cached_input_tokens_per_cli():
     reg = load_agents()
-    claude = outcome(reg.agents["claude-code"], fx("run_get_claude_plan")["response"])
+    claude = outcome(reg.agents["claude-code"], fx("run_get_claude_plan"))
     assert (claude.tokens_in, claude.tokens_cached, claude.tokens_out) == (13917, 31815, 384)
-    codex = outcome(reg.agents["codex"], fx("run_get_codex-proc")["response"])
-    assert codex.tokens_cached == 91520 and codex.tokens_in == 100015 - 91520  # Codex counts cached inside input
-    oc = outcome(reg.agents["opencode"], fx("run_get_opencode-proc")["response"])
+    codex = outcome(reg.agents["codex"], fx("run_get_codex-proc"))
+    assert (
+        codex.tokens_cached == 91520 and codex.tokens_in == 100015 - 91520
+    )  # Codex counts cached inside input
+    oc = outcome(reg.agents["opencode"], fx("run_get_opencode-proc"))
     assert oc.tokens_cached == 11264 + 11776 * 3 + 12288 * 3 + 12800 * 2
     assert oc.tokens_in == 11848 + 735 + 361 + 520 + 704 + 398 + 590 + 671 + 420 + 547
 
 
 # --- project settings ---------------------------------------------------------------------------------------
-async def test_project_pack_settings_api(client, fakes, session):
+async def test_project_pack_settings_api(client, pfakes, session):
     pid = await add_project(client)
     r = await client.get(f"/projects/{pid}/packs", headers=ADMIN)
     st = r.json()["packs"]
@@ -112,7 +120,9 @@ async def test_project_pack_settings_api(client, fakes, session):
     assert "gstack" not in st  # refused packs have no project settings
     r = await client.put(
         f"/projects/{pid}/packs",
-        json={"packs": {"openspec": {"enabled": True, "hosts": ["claude-code"]}, "graphify": {"mode": "always"}}},
+        json={
+            "packs": {"openspec": {"enabled": True, "hosts": ["claude-code"]}, "graphify": {"mode": "always"}}
+        },
         headers=ADMIN,
     )
     assert r.status_code == 200, r.text
@@ -127,7 +137,7 @@ async def test_project_pack_settings_api(client, fakes, session):
         assert r.status_code == 400, bad
 
 
-# --- OpenSpec as one job: propose → apply → archive -----------------------------------------------------------
+# --- OpenSpec as one job: propose → apply → archive ---------------------------------------------------------
 class PackHost(FakeHost):
     """FakeHost plus hostprobe's pack routes: the setup task and its record."""
 
@@ -190,15 +200,22 @@ def pfakes(mock_http, litellm):
 
 async def _openspec_on(client, pid, hosts=("claude-code",)):
     r = await client.put(
-        f"/projects/{pid}/packs", json={"packs": {"openspec": {"enabled": True, "hosts": list(hosts)}}}, headers=ADMIN
+        f"/projects/{pid}/packs",
+        json={"packs": {"openspec": {"enabled": True, "hosts": list(hosts)}}},
+        headers=ADMIN,
     )
     assert r.status_code == 200
 
 
 async def test_flow_refusals_and_preview(client, pfakes, session):
     pid = await add_project(client)
-    body = {"prompt": "Add multiply", "project_id": pid, "agent": "claude-code", "autonomy": 1,
-            "flow": "openspec.change"}
+    body = {
+        "prompt": "Add multiply",
+        "project_id": pid,
+        "agent": "claude-code",
+        "autonomy": 1,
+        "flow": "openspec.change",
+    }
     r = await client.post("/jobs", json=body, headers=ADMIN)
     assert r.status_code == 400 and "isn't turned on for this project" in r.json()["detail"]
     await _openspec_on(client, pid, hosts=("codex",))
@@ -222,8 +239,13 @@ async def test_openspec_flow_one_job_three_steps(client, pfakes, session):
     await _openspec_on(client, pid)
     r = await client.post(
         "/jobs",
-        json={"prompt": "Add multiply(a, b)", "project_id": pid, "agent": "claude-code", "autonomy": 1,
-              "flow": "openspec.change"},
+        json={
+            "prompt": "Add multiply(a, b)",
+            "project_id": pid,
+            "agent": "claude-code",
+            "autonomy": 1,
+            "flow": "openspec.change",
+        },
         headers=ADMIN,
     )
     assert r.status_code == 201, r.text
@@ -270,7 +292,13 @@ async def test_a_flow_job_fails_plainly_when_its_pack_cant_be_set_up(client, pfa
     await _openspec_on(client, pid)
     r = await client.post(
         "/jobs",
-        json={"prompt": "x", "project_id": pid, "agent": "claude-code", "autonomy": 1, "flow": "openspec.change"},
+        json={
+            "prompt": "x",
+            "project_id": pid,
+            "agent": "claude-code",
+            "autonomy": 1,
+            "flow": "openspec.change",
+        },
         headers=ADMIN,
     )
     jid = r.json()["id"]
@@ -279,10 +307,12 @@ async def test_a_flow_job_fails_plainly_when_its_pack_cant_be_set_up(client, pfa
     assert j.status == "failed" and "changed on disk" in j.error
 
 
-# --- graphify (ADR 0019) -------------------------------------------------------------------------------------
-async def _plain_job(client, pid):
+# --- graphify (ADR 0019) ------------------------------------------------------------------------------------
+async def _plain_job(client, pid, agent="claude-code"):
     r = await client.post(
-        "/jobs", json={"prompt": "Fix it", "project_id": pid, "agent": "claude-code", "autonomy": 2}, headers=ADMIN
+        "/jobs",
+        json={"prompt": "Fix it", "project_id": pid, "agent": agent, "autonomy": 2},
+        headers=ADMIN,
     )
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -301,7 +331,7 @@ async def test_graphify_auto_threshold_always_and_off(client, pfakes, session):
     assert "Bash(graphify query:*)" in run["config"]["extraArgs"]
     # Off: no graph, no size asked
     await client.put(f"/projects/{pid}/packs", json={"packs": {"graphify": {"mode": "off"}}}, headers=ADMIN)
-    jid2 = await _plain_job(client, pid)
+    jid2 = await _plain_job(client, pid, "codex")  # another agent: Claude Code is busy with the first job
     n = len(host.setups)
     await step(jid2)
     j2 = await get(session, jid2)
@@ -309,23 +339,49 @@ async def test_graphify_auto_threshold_always_and_off(client, pfakes, session):
     # not installed: no graph
     host.packs = []
     packs.forget_installed()
-    await client.put(f"/projects/{pid}/packs", json={"packs": {"graphify": {"mode": "always"}}}, headers=ADMIN)
-    pc.finish(pc.last_run(), fixture="run_get_claude_edit")
-    jid3 = await _plain_job(client, pid)
+    await client.put(
+        f"/projects/{pid}/packs", json={"packs": {"graphify": {"mode": "always"}}}, headers=ADMIN
+    )
+    jid3 = await _plain_job(client, pid, "opencode")
     await step(jid3)
     assert "isn't installed" in (await get(session, jid3)).packs["graphify"]["reason"]
 
 
 async def _done_job(session, project, agent, used, tokens, rnd=1, flow=None, cached=0):
-    j = Job(project_id=project.id, title="t", prompt="p", agent=agent, agent_chain=[agent], autonomy=2,
-            status="done", budget_list_usd=2, flow=flow,
-            packs={"graphify": {"eligible": True, "used": used, "control": not used, "round": rnd,
-                                "group": packs.group_key(agent, flow)}})
+    j = Job(
+        project_id=project.id,
+        title="t",
+        prompt="p",
+        agent=agent,
+        agent_chain=[agent],
+        autonomy=2,
+        status="done",
+        budget_list_usd=2,
+        flow=flow,
+        packs={
+            "graphify": {
+                "eligible": True,
+                "used": used,
+                "control": not used,
+                "round": rnd,
+                "group": packs.group_key(agent, flow),
+            }
+        },
+    )
     session.add(j)
     await session.flush()
     j.finished_at = j.created_at
-    session.add(Cost(source="paperclip", tokens_in=tokens - cached, tokens_cached=cached, tokens_out=0,
-                     job_id=j.id, kind="job", external_id=f"t-{j.id}"))
+    session.add(
+        Cost(
+            source="paperclip",
+            tokens_in=tokens - cached,
+            tokens_cached=cached,
+            tokens_out=0,
+            job_id=j.id,
+            kind="job",
+            external_id=f"t-{j.id}",
+        )
+    )
     await session.commit()
     return j
 
@@ -336,7 +392,9 @@ async def test_holdout_every_fifth_then_decide_then_recheck(client, pfakes, sess
     project = await session.get(Project, pid)
     reg = load_agents()
     agent = reg.agents["claude-code"]
-    await client.put(f"/projects/{pid}/packs", json={"packs": {"graphify": {"mode": "always"}}}, headers=ADMIN)
+    await client.put(
+        f"/projects/{pid}/packs", json={"packs": {"graphify": {"mode": "always"}}}, headers=ADMIN
+    )
     await session.refresh(project)
     job = Job(project_id=pid, agent="claude-code", flow=None)
     arms = []
@@ -372,8 +430,13 @@ async def test_no_gain_turns_graphify_off_for_the_group_and_metrics_say_so(clien
     pid = await add_project(client)
     project = await session.get(Project, pid)
     group = packs.group_key("claude-code", None)
-    project.packs = {"graphify": {"mode": "always", "hosts": ["claude-code"],
-                                  "measure": {group: {"state": "measuring", "round": 1, "seen": 10, "arm": "both"}}}}
+    project.packs = {
+        "graphify": {
+            "mode": "always",
+            "hosts": ["claude-code"],
+            "measure": {group: {"state": "measuring", "round": 1, "seen": 10, "arm": "both"}},
+        }
+    }
     await session.commit()
     for _ in range(5):
         await _done_job(session, project, "claude-code", True, 9800)
@@ -386,26 +449,41 @@ async def test_no_gain_turns_graphify_off_for_the_group_and_metrics_say_so(clien
     assert row["status"] == "Off: no gain (rechecks in 20 jobs)" and row["samples_with"] == 5
     assert row["median_with"] == 9800 and row["median_without"] == 10000
     reg = load_agents()
-    d = await packs.graph_decision(session, project, reg.agents["claude-code"], Job(project_id=pid,
-                                   agent="claude-code"), None)
+    d = await packs.graph_decision(
+        session, project, reg.agents["claude-code"], Job(project_id=pid, agent="claude-code"), None
+    )
     assert not d["used"] and "no token gain" in d["reason"]
     # Turn back on: a fresh round
-    r = await client.put(f"/projects/{pid}/packs", json={"packs": {"graphify": {"turn_back_on": True}}},
-                         headers=ADMIN)
+    r = await client.put(
+        f"/projects/{pid}/packs", json={"packs": {"graphify": {"turn_back_on": True}}}, headers=ADMIN
+    )
     assert r.json()["packs"]["graphify"]["groups"] == []
 
 
-# --- the library API ------------------------------------------------------------------------------------------
+# --- the library API ----------------------------------------------------------------------------------------
 async def test_library_install_flow_and_records(client, pfakes, session, mock_http):
     pc, host = pfakes
-    plan = {"id": "openspec", "plan_id": "p" * 20, "version": "2.1.1", "source": "https://www.npmjs.com/x",
-            "commands": ["download"], "writes": ["~/.switchboard/packs/openspec/2.1.1"], "problem": None}
+    plan = {
+        "id": "openspec",
+        "plan_id": "p" * 20,
+        "version": "2.1.1",
+        "source": "https://www.npmjs.com/x",
+        "commands": ["download"],
+        "writes": ["~/.switchboard/packs/openspec/2.1.1"],
+        "problem": None,
+    }
     mock_http.post(f"{HP}/packs/openspec/plan").respond(200, json=plan)
     mock_http.post(f"{HP}/packs/openspec/run").respond(202, json={"id": "job1", "state": "running"})
-    mock_http.post(f"{HP}/packs/openspec/rollback").respond(409, json={"error": "there is no previous version"})
+    mock_http.post(f"{HP}/packs/openspec/rollback").respond(
+        409, json={"error": "there is no previous version"}
+    )
     r = await client.get("/packs", headers=ADMIN)
     lib = {p["id"]: p for p in r.json()["packs"]}
-    assert lib["openspec"]["installed"] == "2.1.1" and lib["gstack"]["refused"] and not lib["gstack"]["installable"]
+    assert (
+        lib["openspec"]["installed"] == "2.1.1"
+        and lib["gstack"]["refused"]
+        and not lib["gstack"]["installable"]
+    )
     assert lib["openspec"]["flows"][0]["id"] == "openspec.change"
     r = await client.post("/packs/gstack/install-plan", headers=ADMIN)
     assert r.status_code == 403 and "home folder" in r.json()["detail"]
@@ -414,7 +492,11 @@ async def test_library_install_flow_and_records(client, pfakes, session, mock_ht
     r = await client.post("/packs/openspec/install", json={"plan_id": "p" * 20}, headers=ADMIN)
     assert r.status_code == 200 and r.json()["id"] == "job1"
     row = (await session.scalars(select(PackInstall))).one()
-    assert (row.action, row.status, row.summary_json["source"]) == ("install", "running", "https://www.npmjs.com/x")
+    assert (row.action, row.status, row.summary_json["source"]) == (
+        "install",
+        "running",
+        "https://www.npmjs.com/x",
+    )
     r = await client.post("/packs/openspec/rollback", headers=ADMIN)
     assert r.status_code == 409 and "no previous version" in r.json()["detail"]
     rows = (await session.scalars(select(PackInstall).order_by(PackInstall.id))).all()
@@ -430,12 +512,12 @@ async def test_unverified_packs_need_an_extra_confirm(client, pfakes, packs_dir,
     mock_http.post(f"{HP}/packs/openspec/run").respond(202, json={"id": "job2", "state": "running"})
     r = await client.post("/packs/openspec/install", json={"plan_id": "q" * 20}, headers=ADMIN)
     assert r.status_code == 400 and "unverified" in r.json()["detail"]
-    r = await client.post("/packs/openspec/install", json={"plan_id": "q" * 20, "accept_unverified": True},
-                          headers=ADMIN)
+    r = await client.post(
+        "/packs/openspec/install", json={"plan_id": "q" * 20, "accept_unverified": True}, headers=ADMIN
+    )
     assert r.status_code == 200
 
 
 async def test_health_reports_packs(client, pfakes):
     r = await client.get("/health")
     assert r.json()["packs"] == "ok (3 packs)"
-

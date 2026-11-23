@@ -181,7 +181,10 @@ def test_claude_outcome_list_price_but_no_money_on_a_subscription():
 def test_codex_outcome_tokens_but_cost_not_reported():
     out = outcome(load_agents().agent("codex"), fx("run_get_codex-proc"))
     assert out.list_price_usd is None and out.cost_usd == 0
-    assert out.tokens_in == 100015 and out.tokens_out == 645 and out.turns >= 5
+    # M4.5a: Codex counts cached input inside input_tokens (100015); it is kept apart, so in + cached + out is
+    # the run's total for every CLI.
+    assert out.tokens_in == 100015 - 91520 and out.tokens_cached == 91520
+    assert out.tokens_out == 645 and out.turns >= 5
     assert "multiply" in out.text
 
 

@@ -366,7 +366,8 @@ class FakeHost:
         # M4.5a: no packs installed unless a test says so (tests/test_packs.py)
         m.get(url__regex=rf"{HP}/packs(\?.*)?$").mock(
             side_effect=lambda r: httpx.Response(
-                200, json={"packs": self.packs, "service_path": "/usr/bin:/bin", "store": "~/.switchboard/packs"}
+                200,
+                json={"packs": self.packs, "service_path": "/usr/bin:/bin", "store": "~/.switchboard/packs"},
             )
         )
         m.get(url__regex=rf"{HP}/git/worktrees\?").mock(

@@ -1,8 +1,8 @@
 """The workflow pack registry (M4.5a, SPEC §8a, ADR 0018): `packs/<id>/pack.yaml` + its committed lock.
 
 Validated like rules and agents: hand-written checks that name the field, frozen dataclasses, cached by file
-modification time. A manifest error makes that one pack unavailable (listed with the reason); the others still load.
-The lock must match its manifest (`spec`), or the pack can't be installed until a maintainer re-runs
+modification time. A manifest error makes that one pack unavailable (listed with the reason); the others still
+load. The lock must match its manifest (`spec`), or the pack can't be installed until a maintainer re-runs
 `python3 scripts/pack-lock.py <id>`.
 """
 
@@ -19,7 +19,9 @@ import yaml
 from app.config import get_settings
 
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
-NPM_SOURCE = re.compile(r"npm:((?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)@(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)")
+NPM_SOURCE = re.compile(
+    r"npm:((?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)@(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)"
+)
 PYPI_SOURCE = re.compile(r"pypi:([A-Za-z0-9][A-Za-z0-9._-]*)==(\d+(?:\.\d+){1,3}(?:[-+.]?[0-9A-Za-z.]+)?)")
 GIT_SOURCE = re.compile(r"git:https://[^\s]+")
 REQUIRES = re.compile(r"(node|python)\s*((?:>=|<=|==|>|<)\s*[\d.]+(?:\s*,\s*(?:>=|<=|==|>|<)\s*[\d.]+)*)")
@@ -29,8 +31,22 @@ ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]{0,60}")
 HOSTS = {"claude-code", "codex", "opencode", "gemini-cli", "grok-build", "hermes"}
 # Fields copied into the lock (scripts/pack-lock.py SPEC_FIELDS); the lock must match them exactly.
 SPEC_FIELDS = (
-    "id", "name", "trust", "source", "requires", "scope", "hosts", "bins", "env", "detect", "project", "owned",
-    "artifacts", "allow", "cache", "auto",
+    "id",
+    "name",
+    "trust",
+    "source",
+    "requires",
+    "scope",
+    "hosts",
+    "bins",
+    "env",
+    "detect",
+    "project",
+    "owned",
+    "artifacts",
+    "allow",
+    "cache",
+    "auto",
 )
 
 
@@ -123,10 +139,14 @@ def _argvs(raw: Any, where: str, bins: dict[str, str]) -> None:
         if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
             raise PackError(f"{where}[{i}]: a command is a list of words")
         if argv[0] not in bins:
-            raise PackError(f"{where}[{i}]: {argv[0]!r} is not one of the pack's programs ({', '.join(bins)})")
+            raise PackError(
+                f"{where}[{i}]: {argv[0]!r} is not one of the pack's programs ({', '.join(bins)})"
+            )
         for a in argv:
             if "{" in a and a not in PLACEHOLDERS:
-                raise PackError(f"{where}[{i}]: {a!r}: the only placeholders are {{tool_id}} and {{tool_ids}}")
+                raise PackError(
+                    f"{where}[{i}]: {a!r}: the only placeholders are {{tool_id}} and {{tool_ids}}"
+                )
 
 
 def parse(raw: Any, folder: str) -> Pack:
@@ -135,7 +155,9 @@ def parse(raw: Any, folder: str) -> Pack:
         raise PackError(f"{where}: a mapping is required")
     pid = _str(raw, "id", where)
     if pid != folder or not ID_RE.fullmatch(pid or ""):
-        raise PackError(f"{where}.id: must be the folder name ({folder}), lower-case letters, digits and dashes")
+        raise PackError(
+            f"{where}.id: must be the folder name ({folder}), lower-case letters, digits and dashes"
+        )
     trust = raw.get("trust", "community")
     if trust not in ("verified", "community"):
         raise PackError(f"{where}.trust: verified or community")
@@ -148,7 +170,9 @@ def parse(raw: Any, folder: str) -> Pack:
         raise PackError(f"{where}.refused: a global-only pack must say, in plain words, why it is refused")
     if "project" not in scope:
         kind, package, version = "git", None, None
-        if not (GIT_SOURCE.fullmatch(source) or NPM_SOURCE.fullmatch(source) or PYPI_SOURCE.fullmatch(source)):
+        if not (
+            GIT_SOURCE.fullmatch(source) or NPM_SOURCE.fullmatch(source) or PYPI_SOURCE.fullmatch(source)
+        ):
             raise PackError(f"{where}.source: npm:<name>@<version>, pypi:<name>==<version> or git:https://…")
     elif m := NPM_SOURCE.fullmatch(source):
         kind, package, version = "npm", m.group(1), m.group(2)
@@ -171,14 +195,23 @@ def parse(raw: Any, folder: str) -> Pack:
         raise PackError(f"{where}.hosts: a mapping of agent host -> the pack's own tool id is required")
     unknown = set(hosts) - HOSTS
     if unknown:
-        raise PackError(f"{where}.hosts: unknown host {sorted(unknown)[0]!r} (one of {', '.join(sorted(HOSTS))})")
+        raise PackError(
+            f"{where}.hosts: unknown host {sorted(unknown)[0]!r} (one of {', '.join(sorted(HOSTS))})"
+        )
     bins = raw.get("bins") or {}
     project = raw.get("project") or {}
     if "project" in scope:
         if not isinstance(bins, dict) or not bins:
-            raise PackError(f"{where}.bins: the pack's programs (name -> path inside its install) are required")
+            raise PackError(
+                f"{where}.bins: the pack's programs (name -> path inside its install) are required"
+            )
         for name, rel in bins.items():
-            if not ID_RE.fullmatch(str(name)) or not isinstance(rel, str) or rel.startswith("/") or ".." in rel:
+            if (
+                not ID_RE.fullmatch(str(name))
+                or not isinstance(rel, str)
+                or rel.startswith("/")
+                or ".." in rel
+            ):
                 raise PackError(f"{where}.bins.{name}: a relative path inside the install")
         if not isinstance(project, dict) or not set(project) <= {"setup", "prepare"}:
             raise PackError(f"{where}.project: setup and/or prepare (lists of commands)")
@@ -196,7 +229,9 @@ def parse(raw: Any, folder: str) -> Pack:
         if g.startswith("/") or ".." in g.split("/") or g.startswith(".git/") or g.startswith(".switchboard"):
             raise PackError(f"{where}: {g!r} must be a path pattern inside the project")
     invoke = raw.get("invoke") or {}
-    if not isinstance(invoke, dict) or not all(isinstance(v, str) and "{skill}" in v for v in invoke.values()):
+    if not isinstance(invoke, dict) or not all(
+        isinstance(v, str) and "{skill}" in v for v in invoke.values()
+    ):
         raise PackError(f"{where}.invoke: host -> a form containing {{skill}}")
     flows = []
     for i, f in enumerate(raw.get("flows") or []):
@@ -208,12 +243,24 @@ def parse(raw: Any, folder: str) -> Pack:
             sw = f"{fw}.steps[{j}]"
             if not isinstance(s, dict):
                 raise PackError(f"{sw}: a mapping is required")
-            steps.append(Step(_str(s, "id", sw) or "", _str(s, "label", sw) or "", _str(s, "skill", sw) or "",
-                              _str(s, "task", sw, max_len=1000) or ""))
+            steps.append(
+                Step(
+                    _str(s, "id", sw) or "",
+                    _str(s, "label", sw) or "",
+                    _str(s, "skill", sw) or "",
+                    _str(s, "task", sw, max_len=1000) or "",
+                )
+            )
         if len(steps) < 1 or len(steps) > 6:
             raise PackError(f"{fw}.steps: 1 to 6 steps")
-        flows.append(Flow(_str(f, "id", fw) or "", _str(f, "label", fw) or "", _str(f, "summary", fw) or "",
-                          tuple(steps)))
+        flows.append(
+            Flow(
+                _str(f, "id", fw) or "",
+                _str(f, "label", fw) or "",
+                _str(f, "summary", fw) or "",
+                tuple(steps),
+            )
+        )
     auto = raw.get("auto")
     if auto not in (None, "graph"):
         raise PackError(f"{where}.auto: graph (or leave it out)")
@@ -292,7 +339,13 @@ def load() -> Registry:
     root = _root()
     folders = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
     key = tuple(
-        (f.name, *(int(x.stat().st_mtime_ns) if x.exists() else 0 for x in (f / "pack.yaml", f / "pack.lock.json")))
+        (
+            f.name,
+            *(
+                int(x.stat().st_mtime_ns) if x.exists() else 0
+                for x in (f / "pack.yaml", f / "pack.lock.json")
+            ),
+        )
         for f in folders
     )
     if _cache and _cache[0] == key:

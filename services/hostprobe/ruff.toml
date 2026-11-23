@@ -2,4 +2,4 @@
 extend = "../router/pyproject.toml"
 
 [lint.per-file-ignores]
-"tests/*" = ["S105", "S106", "S310"]
+"tests/*" = ["S103", "S105", "S106", "S108", "S310", "S603"]  # fixtures: temp folders, fake programs

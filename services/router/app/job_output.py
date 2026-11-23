@@ -108,9 +108,10 @@ class RunOutcome:
     provider: str | None
     model: str | None
     denied: tuple[str, ...] = ()  # commands the agent wanted but wasn't allowed (Claude reports them)
-    # M4.5a (ADR 0019): cached input, apart from `tokens_in`, so input + cached + output is the run's total for
-    # every CLI. Claude (Paperclip's usageJson `cachedInputTokens`) and OpenCode (`tokens.cache.read/write`)
-    # report it apart from input; Codex counts `cached_input_tokens` inside `input_tokens`, so it is taken out.
+    # M4.5a (ADR 0019): cached input, apart from `tokens_in`, so input + cached + output is the run's total
+    # for every CLI. Claude (Paperclip's usageJson `cachedInputTokens`) and OpenCode
+    # (`tokens.cache.read/write`) report it apart from input; Codex counts `cached_input_tokens` inside
+    # `input_tokens`, so it is taken out.
     tokens_cached: int | None = None
 
 
@@ -173,7 +174,9 @@ def outcome(agent: AgentDef, run: dict[str, Any], counter: TurnCounter | None = 
             provider=usage.get("provider") or vendor,
             model=usage.get("model") or agent.model,
             denied=denied,
-            tokens_cached=usage.get("cachedInputTokens") if isinstance(usage.get("cachedInputTokens"), int) else None,
+            tokens_cached=usage.get("cachedInputTokens")
+            if isinstance(usage.get("cachedInputTokens"), int)
+            else None,
         )
     if counter is None:
         counter = TurnCounter(agent.permissions or "")
@@ -181,7 +184,9 @@ def outcome(agent: AgentDef, run: dict[str, Any], counter: TurnCounter | None = 
         counter.finish()
     if agent.permissions == "codex":
         text, tin, tout, cached = _codex(counter.events)
-        return RunOutcome(text, counter.turns, tin, tout, None, 0.0, vendor, agent.model, tokens_cached=cached)
+        return RunOutcome(
+            text, counter.turns, tin, tout, None, 0.0, vendor, agent.model, tokens_cached=cached
+        )
     text, tin, tout, cost, cached = _opencode(counter.events)
     # OpenCode reports a cost per step; for its free Zen models that is $0. A paid model's cost is real money.
     return RunOutcome(text, counter.turns, tin, tout, cost, cost, vendor, agent.model, tokens_cached=cached)

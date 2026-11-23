@@ -489,7 +489,8 @@ class Attachment(Base):
 
 
 class PackInstall(Base):
-    """Every pack store action (M4.5a, ADR 0018): install, rollback, uninstall, with the plan the owner read."""
+    """Every pack store action (M4.5a, ADR 0018): install, rollback, uninstall, with the plan the owner
+    read."""
 
     __tablename__ = "pack_installs"
 

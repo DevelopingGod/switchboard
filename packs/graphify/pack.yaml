@@ -12,7 +12,7 @@ repository: https://github.com/Graphify-Labs/graphify
 license: MIT
 source: pypi:graphifyy==0.9.115
 lookalikes: [graphify]            # not on PyPI: anything published under it later is not this project
-requires: [python>=3.11.5,<3.15]
+requires: ["python>=3.11.5,<3.15"]
 scope: [project]
 hosts: { claude-code: claude, codex: codex, opencode: opencode }
 bins: { graphify: venv/bin/graphify }

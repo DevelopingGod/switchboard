@@ -30,10 +30,10 @@ Security rules (M1a, docs/m1a.md):
   of the last `rate_limits` record in one Codex session file (by thread id); write/remove one LiteLLM key
   file (600) per agent for paid overflow. Never anything inside an account folder. Details by the code.
 
-- Workflow packs (M4.5a, ADR 0018; code in packs.py): install a pack's program into Switchboard's pack store from
-  the exact files its committed lock names (hash- and name-checked, installed offline, read-only, re-hashed before
-  every use), and set packs up inside a job's worktree. Diff and commit never include what a pack's setup owns, and
-  leave its other edits out unless the owner ticked them.
+- Workflow packs (M4.5a, ADR 0018; code in packs.py): install a pack's program into Switchboard's pack store
+  from the exact files its committed lock names (hash- and name-checked, installed offline, read-only,
+  re-hashed before every use), and set packs up inside a job's worktree. Diff and commit never include what a
+  pack's setup owns, and leave its other edits out unless the owner ticked them.
 
 Stdlib only, so it runs on the system python3 without a venv.
 """
@@ -1001,8 +1001,8 @@ def _existing_worktree(body: dict) -> tuple[Path, Path, str]:
 def diff_worktree(body: dict) -> dict:
     """The job's changes against its base commit: tracked changes and new files, capped in size.
 
-    M4.5a: files a pack's setup owns are left out; the other changes a setup made (`setup_edits`) are listed apart,
-    each with whether the agent changed the file too and whether both changed the same lines."""
+    M4.5a: files a pack's setup owns are left out; the other changes a setup made (`setup_edits`) are listed
+    apart, each with whether the agent changed the file too and whether both changed the same lines."""
     _, wt, branch = _existing_worktree(body)
     base = body.get("base")
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{7,64}", base):
@@ -1012,7 +1012,9 @@ def diff_worktree(body: dict) -> dict:
     spec = [*NOT_SWITCHBOARD, *packs.excludes(rec), *(f":(exclude,literal){e['path']}" for e in edits)]
     stat = git(["diff", "--numstat", base, "--", *spec], wt)
     text = git(["diff", "--no-color", "--no-ext-diff", base, "--", *spec], wt)
-    new = [f for f in git(["ls-files", "--others", "--exclude-standard", "-z", "--", *spec], wt).split("\0") if f]
+    new = [
+        f for f in git(["ls-files", "--others", "--exclude-standard", "-z", "--", *spec], wt).split("\0") if f
+    ]
     for f in new[:MAX_NEW_FILES]:
         if len(text) > MAX_DIFF_BYTES:
             break
@@ -1033,7 +1035,9 @@ def diff_worktree(body: dict) -> dict:
         if len(setup_text) < MAX_DIFF_BYTES:
             if e["kind"] == "new":
                 if (wt / e["path"]).exists():
-                    setup_text += git(["diff", "--no-color", "--no-index", "--", "/dev/null", e["path"]], wt, ok=(0, 1))
+                    setup_text += git(
+                        ["diff", "--no-color", "--no-index", "--", "/dev/null", e["path"]], wt, ok=(0, 1)
+                    )
             else:
                 setup_text += git(["diff", "--no-color", "--no-ext-diff", base, "--", e["path"]], wt)
     truncated = len(text) > MAX_DIFF_BYTES or len(new) > MAX_NEW_FILES
@@ -1069,7 +1073,9 @@ def _setup_edit_state(wt: Path, e: dict) -> dict:
             both = True
         else:
             patch = _patch_path(wt, e)
-            both = patch is None or not git_ok(["apply", "--check", "-R", "--unidiff-zero", "--", str(patch)], wt)
+            both = patch is None or not git_ok(
+                ["apply", "--check", "-R", "--unidiff-zero", "--", str(patch)], wt
+            )
     return {
         "path": e["path"],
         "kind": e["kind"],
@@ -1084,8 +1090,9 @@ def commit_worktree(body: dict) -> dict:
     """Commit the job's changes on its own branch (after the owner approved the diff).
 
     M4.5a: never what a pack's setup owns; a setup's other edits only when the owner ticked them
-    (`include_setup_edits`). An unticked edit is reverse-applied to the index only, so the agent's own changes to
-    that file are still committed; a file both changed on the same lines is left out whole unless ticked."""
+    (`include_setup_edits`). An unticked edit is reverse-applied to the index only, so the agent's own changes
+    to that file are still committed; a file both changed on the same lines is left out whole unless
+    ticked."""
     _, wt, branch = _existing_worktree(body)
     message = body.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 500 or "\0" in message:
@@ -1099,8 +1106,8 @@ def commit_worktree(body: dict) -> dict:
     left_out = [e for e in edits if e["path"] not in include]
     owned = packs.excludes(rec)
     new_out = [f":(exclude,literal){e['path']}" for e in left_out if e["kind"] == "new"]
-    # Never the job's attachments or pack state (`.switchboard/`, git-ignored by its own .gitignore, excluded here
-    # too), never what packs own.
+    # Never the job's attachments or pack state (`.switchboard/`, git-ignored by its own .gitignore, excluded
+    # here too), never what packs own.
     git(["add", "-A", "--", ".", *NOT_SWITCHBOARD, *owned, *new_out], wt)
     for e in left_out:
         if e["kind"] == "new":
@@ -1117,12 +1124,20 @@ def commit_worktree(body: dict) -> dict:
     staged = [f for f in git(["diff", "--cached", "--name-only", "-z"], wt).split("\0") if f]
     banned = {e["path"] for e in left_out if e["kind"] == "new"}
     owned_paths = [
-        p for x in ((rec or {}).get("packs") or {}).values() for p in [*x.get("owned_dirs", []), *x.get("owned_files", [])]
+        p
+        for x in ((rec or {}).get("packs") or {}).values()
+        for p in [*x.get("owned_dirs", []), *x.get("owned_files", [])]
     ]
     for f in staged:
-        if f in banned or f.startswith(".switchboard/") or any(f == o or f.startswith(o + "/") for o in owned_paths):
+        if (
+            f in banned
+            or f.startswith(".switchboard/")
+            or any(f == o or f.startswith(o + "/") for o in owned_paths)
+        ):
             git(["reset", "-q"], wt)
-            raise GitError(409, f"{f} belongs to a pack's setup and was about to be committed; nothing was committed")
+            raise GitError(
+                409, f"{f} belongs to a pack's setup and was about to be committed; nothing was committed"
+            )
     if not staged:
         return {"committed": False, "sha": git(["rev-parse", "HEAD"], wt).strip(), "branch": branch}
     ident = []
@@ -1153,7 +1168,8 @@ def data_root() -> Path:
 def copy_attachments(body: dict) -> dict:
     """Copy a job's attachments from the data folder into `<worktree>/.switchboard/attachments/`, with a
     `.switchboard/.gitignore` of `*` so they are never committed. Only files the router stored for this job
-    (`<data>/attachments/jobs/<job id>/<sha256>`), never followed through links, never outside the worktree."""
+    (`<data>/attachments/jobs/<job id>/<sha256>`), never followed through links, never outside the
+    worktree."""
     _, wt, _ = _existing_worktree(body)
     _, job_id, _, _ = _job(body.get("slug"), body.get("job_id"))
     files = body.get("files")
@@ -1422,7 +1438,8 @@ def probe_account(cli: object, name: object) -> dict:
         "home": display_path(str(home)) if home is not None else f"~/{DEFAULT_HOMES[str(cli)]}",
         "exists": home is None or home.is_dir(),
         "login_command": login_command(str(cli), None if home is None else str(name)),
-        # The variable a job run sets so the vendor CLI uses this login (absolute: env values aren't expanded).
+        # The variable a job run sets so the vendor CLI uses this login (absolute: env values aren't
+        # expanded).
         "env": account_env(str(cli), name),
     }
     if exe is None:
@@ -1567,11 +1584,13 @@ def packs_cache_root() -> Path:
 
 
 def service_path() -> str:
-    """The PATH Paperclip's service runs agents with (its systemd unit), so a job's run can put the pack wrappers
-    in front of it without losing the agent CLIs. Falls back to the clean Linux PATH."""
+    """The PATH Paperclip's service runs agents with (its systemd unit), so a job's run can put the pack
+    wrappers in front of it without losing the agent CLIs. Falls back to the clean Linux PATH."""
     sc = which("systemctl", ["/usr/bin", "/bin"])
     if sc:
-        code, out = run([sc, "--user", "show", "paperclipai.service", "--property=Environment", "--value"], linux_path())
+        code, out = run(
+            [sc, "--user", "show", "paperclipai.service", "--property=Environment", "--value"], linux_path()
+        )
         m = re.search(r'(?:^|\s)"?PATH=([^\s"]+)', out or "") if code == 0 else None
         if m:
             return m.group(1)
@@ -1728,7 +1747,13 @@ class PackManager:
         try:
             with self.store_lock:  # no install or rollback swaps a version while a job sets it up
                 task.result = packs.setup(
-                    wt, worktree_root(), reqs, git, packs_cache_root(), slug, lambda t: task.lines.append(clean_line(t))
+                    wt,
+                    worktree_root(),
+                    reqs,
+                    git,
+                    packs_cache_root(),
+                    slug,
+                    lambda t: task.lines.append(clean_line(t)),
                 )
             task.state = "ok"
         except (packs.PackError, InstallError) as e:
@@ -1888,7 +1913,9 @@ def make_handler(probe: Probe):
                         return self._send(200, probe.packs.rollback(pid))
                     return self._send(200, probe.packs.uninstall(pid))
                 if path == "/git/worktrees/packs":
-                    with GIT_LOCK:  # validating the worktree uses git; the setup itself runs in the background
+                    with (
+                        GIT_LOCK
+                    ):  # validating the worktree uses git; the setup itself runs in the background
                         return self._send(200, probe.packs.setup(self._body()))
                 git_actions = {
                     "/git/inspect": lambda b: inspect_repo(b.get("path")),

@@ -9,8 +9,8 @@
     {"requested": [...], "setup": {...hostprobe's record, trimmed...}, "refused": [...],
      "graphify": {"group", "round", "used", "control", "reason", "build_ms", "nodes"}}
 
-Packs are lazy (SPEC §8a.6): a job sets up only the pack its workflow uses, plus graphify when the graph decision
-says so. Nothing here runs a command: hostprobe does, from the pack's lock.
+Packs are lazy (SPEC §8a.6): a job sets up only the pack its workflow uses, plus graphify when the graph
+decision says so. Nothing here runs a command: hostprobe does, from the pack's lock.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from app.packs.registry import Pack, Registry, host_of, load
 GRAPH_MODES = ("auto", "always", "off")
 
 
-# --- config/packs.yaml ----------------------------------------------------------------------------------------
+# --- config/packs.yaml --------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Measure:
     holdout_every: int = 5
@@ -180,7 +180,7 @@ def update(project: Project, body: dict[str, Any], reg: Registry | None = None) 
 
 # --- flows (OpenSpec) -------------------------------------------------------------------------------------
 def flow_ref(value: str | None) -> tuple[Pack, Any] | None:
-    """"openspec.change" -> (pack, flow); None when unknown."""
+    """ "openspec.change" -> (pack, flow); None when unknown."""
     if not value or "." not in value:
         return None
     pid, fid = value.split(".", 1)
@@ -224,8 +224,12 @@ def flow_task(job: Job, agent: AgentDef) -> tuple[str, str] | None:
         f"{job.prompt}\n\n"
         f"This job follows the {pack.name} workflow ({flow.label}). Step {n} of {total}: {step.label}.\n"
         f"Use the `{step.skill}` skill (invoke it as `{invoke}`)"
-        + (f"; if it isn't offered to you, read `{pack.skill_file.replace('{skill}', step.skill)}` and follow it"
-           if pack.skill_file else "")
+        + (
+            f"; if it isn't offered to you, read "
+            f"`{pack.skill_file.replace('{skill}', step.skill)}` and follow it"
+            if pack.skill_file
+            else ""
+        )
         + f". {step.task}\n\n"
         "Work only in this folder. Don't commit, don't push. End with a short summary of what you did."
     )
@@ -301,11 +305,17 @@ async def graph_decision(
         out["used"] = m["state"] == "on"
         out["control"] = False
         if m["since"] >= cfg.measure.recheck_every:
-            m.update(state="measuring", round=int(m.get("round", 1)) + 1, since=0,
-                     arm="control" if m["state"] == "on" else "graph", seen=0)
+            m.update(
+                state="measuring",
+                round=int(m.get("round", 1)) + 1,
+                since=0,
+                arm="control" if m["state"] == "on" else "graph",
+                seen=0,
+            )
     out["round"] = m["round"]
     out["reason"] = (
-        "control job (runs without the graph to measure it)" if out["control"]
+        "control job (runs without the graph to measure it)"
+        if out["control"]
         else ("graph used" if out["used"] else "graph off for this group: no token gain")
     )
     measures[key] = m
@@ -323,6 +333,7 @@ async def job_requests(
     ref = flow_ref(job.flow)
     if ref is not None:
         reqs.append({"id": ref[0].id, "hosts": [host]})
+
     async def size_fn() -> dict[str, Any] | None:  # only asked when graphify could apply (Auto mode)
         status, res = await hostprobe_client.call("POST", "/git/worktrees/size", worktree_body)
         return res if status == 200 else None
@@ -378,7 +389,9 @@ def allowed_commands(job: Job) -> list[str]:
 def tokens_expr():
     """One definition of a job's tokens, shared with Metrics: input + cached input + output."""
     return (
-        func.coalesce(Cost.tokens_in, 0) + func.coalesce(Cost.tokens_cached, 0) + func.coalesce(Cost.tokens_out, 0)
+        func.coalesce(Cost.tokens_in, 0)
+        + func.coalesce(Cost.tokens_cached, 0)
+        + func.coalesce(Cost.tokens_out, 0)
     )
 
 
@@ -409,8 +422,14 @@ async def samples(session: AsyncSession, project_id: int, group: str) -> list[di
     )
     rows = (await session.execute(q)).all()
     return [
-        {"job": r[0], "used": r[2] == "true", "round": int(r[3] or 0), "tokens": int(r[4]),
-         "cached": int(r[5]), "has_cached": bool(r[6])}
+        {
+            "job": r[0],
+            "used": r[2] == "true",
+            "round": int(r[3] or 0),
+            "tokens": int(r[4]),
+            "cached": int(r[5]),
+            "has_cached": bool(r[6]),
+        }
         for r in rows
     ]
 
@@ -450,15 +469,28 @@ async def reconsider(session: AsyncSession, project: Project, group: str) -> dic
     mw, mo = _median(with_g), _median(without)
     gain = (1 - mw / mo) if mo else 0.0
     state = "on" if gain >= cfg.min_gain else "off"
-    m = {**m, "state": state, "since": 0, "seen": 0, "decided": int(time.time()),
-         "numbers": {"with": mw, "without": mo, "gain": round(gain, 4), "samples": cfg.min_samples, "round": rnd}}
+    m = {
+        **m,
+        "state": state,
+        "since": 0,
+        "seen": 0,
+        "decided": int(time.time()),
+        "numbers": {
+            "with": mw,
+            "without": mo,
+            "gain": round(gain, 4),
+            "samples": cfg.min_samples,
+            "round": rnd,
+        },
+    }
     measures[group] = m
     project.packs = {**(project.packs or {}), pack.id: {**st, "measure": measures}}
     return {"group": group, "state": state, "gain": round(gain, 4), "with": mw, "without": mo}
 
 
 def status_line(m: dict[str, Any] | None, counts: tuple[int, int], cfg: Measure | None = None) -> str:
-    """"Measuring (n of 5)", "Saves 23% tokens (rechecks in 12 jobs)" or "Off: no gain (rechecks in 12 jobs)"."""
+    """The status line: "Measuring (n of 5)", "Saves 23% tokens (rechecks in 12 jobs)" or
+    "Off: no gain (rechecks in 12 jobs)"."""
     cfg = cfg or config().measure
     if not m or m.get("state") == "measuring":
         arm = (m or {}).get("arm", "both")
@@ -490,23 +522,28 @@ async def metrics_rows(session: AsyncSession) -> list[dict[str, Any]]:
             with_rows = [r for r in rows if r["used"]][: cfg.min_samples]
             without_rows = [r for r in rows if not r["used"]][: cfg.min_samples]
             agent_id, _, flow = group.partition("|")
-            out.append({
-                "project_id": project.id,
-                "project": project.name,
-                "agent": agent_id,
-                "flow": None if flow == "plain" else flow,
-                "state": m.get("state", "measuring"),
-                "status": status_line(m, (sum(r["used"] for r in this), sum(not r["used"] for r in this)), cfg),
-                "round": rnd,
-                "median_with": _median([r["tokens"] for r in with_rows]),
-                "median_without": _median([r["tokens"] for r in without_rows]),
-                "cached_with": _median([r["cached"] for r in with_rows]),
-                "cached_without": _median([r["cached"] for r in without_rows]),
-                "samples_with": len([r for r in rows if r["used"]]),
-                "samples_without": len([r for r in rows if not r["used"]]),
-                "cached_known": all(r["has_cached"] for r in [*with_rows, *without_rows]) if rows else True,
-                "gain": (m.get("numbers") or {}).get("gain"),
-                "decided": m.get("decided"),
-            })
+            out.append(
+                {
+                    "project_id": project.id,
+                    "project": project.name,
+                    "agent": agent_id,
+                    "flow": None if flow == "plain" else flow,
+                    "state": m.get("state", "measuring"),
+                    "status": status_line(
+                        m, (sum(r["used"] for r in this), sum(not r["used"] for r in this)), cfg
+                    ),
+                    "round": rnd,
+                    "median_with": _median([r["tokens"] for r in with_rows]),
+                    "median_without": _median([r["tokens"] for r in without_rows]),
+                    "cached_with": _median([r["cached"] for r in with_rows]),
+                    "cached_without": _median([r["cached"] for r in without_rows]),
+                    "samples_with": len([r for r in rows if r["used"]]),
+                    "samples_without": len([r for r in rows if not r["used"]]),
+                    "cached_known": all(r["has_cached"] for r in [*with_rows, *without_rows])
+                    if rows
+                    else True,
+                    "gain": (m.get("numbers") or {}).get("gain"),
+                    "decided": m.get("decided"),
+                }
+            )
     return out
-

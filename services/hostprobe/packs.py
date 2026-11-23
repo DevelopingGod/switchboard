@@ -2,15 +2,16 @@
 
 Two halves:
 - **The pack store** (`~/.switchboard/packs/<id>/<version>/`): a pack's program, installed from the files its
-  committed lock (`packs/<id>/pack.lock.json`) names, each one hash-checked and name-checked before use, installed
-  offline (no network for the package manager), then made read-only with a manifest of every file's sha256.
-  Wrappers in `<version>/sbbin/` are the only way jobs run a pack: they keep the tool's own state inside the job's
-  worktree (`.switchboard/home`). Two versions are kept (current + previous) for rollback.
-- **Per-job setup** in a job's worktree: the lock's setup argv, run through the wrappers with a minimal environment
-  and no network. A git snapshot before and after sorts every write into owned (never committed), artifacts
-  (committed with the code) and setup edits (shown to the owner, unticked by default).
+  committed lock (`packs/<id>/pack.lock.json`) names, each one hash-checked and name-checked before use,
+  installed offline (no network for the package manager), then made read-only with a manifest of every file's
+  sha256. Wrappers in `<version>/sbbin/` are the only way jobs run a pack: they keep the tool's own state
+  inside the job's worktree (`.switchboard/home`). Two versions are kept (current + previous) for rollback.
+- **Per-job setup** in a job's worktree: the lock's setup argv, run through the wrappers with a minimal
+  environment and no network. A git snapshot before and after sorts every write into owned (never
+  committed), artifacts (committed with the code) and setup edits (shown to the owner, unticked by default).
 
-Nothing from a request reaches a command except validated pack ids and host ids that map to the lock's own values.
+Nothing from a request reaches a command except validated pack ids and host ids that map to the lock's own
+values.
 """
 
 from __future__ import annotations
@@ -95,7 +96,9 @@ def load_lock(pack_id: object) -> dict:
     if lock.get("lock_version") != 1 or spec.get("id") != pid or lock.get("kind") not in ("npm", "pypi"):
         raise PackError(500, f"{pid}'s lock is not a version-1 npm or PyPI lock")
     if spec.get("scope") != ["project"]:
-        raise PackError(403, f"{pid} only installs globally; Switchboard only installs packs inside a job's worktree")
+        raise PackError(
+            403, f"{pid} only installs globally; Switchboard only installs packs inside a job's worktree"
+        )
     if not VERSION_RE.fullmatch(str(lock.get("version", ""))):
         raise PackError(500, f"{pid}'s lock has an invalid version")
     return lock
@@ -105,7 +108,9 @@ def list_locks() -> list[str]:
     root = src_root()
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if ID_RE.fullmatch(p.name) and (p / "pack.lock.json").is_file())
+    return sorted(
+        p.name for p in root.iterdir() if ID_RE.fullmatch(p.name) and (p / "pack.lock.json").is_file()
+    )
 
 
 # --- versions and requirements ------------------------------------------------------------------------------
@@ -153,8 +158,7 @@ def _quick(argv: list[str], timeout: float = 10) -> tuple[int | None, str]:
 
 
 PY_PROBE = (
-    "import sys,platform;v=sys.version_info;"
-    "print(f'{v[0]}.{v[1]}.{v[2]}',sys.platform,platform.machine())"
+    "import sys,platform;v=sys.version_info;print(f'{v[0]}.{v[1]}.{v[2]}',sys.platform,platform.machine())"
 )
 
 
@@ -169,7 +173,11 @@ def python_facts(python: str) -> tuple[str, str] | None:
         return None
     mach = {"amd64": "x86_64", "arm64": "arm64", "aarch64": "aarch64"}.get(mach.lower(), mach.lower())
     if plat.startswith("linux"):
-        key = {"x86_64": "manylinux_x86_64", "aarch64": "manylinux_aarch64", "arm64": "manylinux_aarch64"}.get(mach)
+        key = {
+            "x86_64": "manylinux_x86_64",
+            "aarch64": "manylinux_aarch64",
+            "arm64": "manylinux_aarch64",
+        }.get(mach)
     elif plat == "darwin":
         key = {"arm64": "macos_arm64", "aarch64": "macos_arm64", "x86_64": "macos_x86_64"}.get(mach)
     else:
@@ -207,9 +215,8 @@ def runtime(lock: dict, path: list[str]) -> dict:
         out["checks"].append({"name": name, "need": need, "found": found, "ok": ok})
         if not ok:
             out["ok"] = False
-            out["problem"] = (
-                f"{lock['spec']['name']} needs {name} {need}; "
-                + (f"this machine has {found}" if found else f"{name} was not found")
+            out["problem"] = f"{lock['spec']['name']} needs {name} {need}; " + (
+                f"this machine has {found}" if found else f"{name} was not found"
             )
     py_check = next((c for c in out["checks"] if c["name"] == "python"), None)
     if out["ok"] and lock["kind"] == "pypi" and py_check is not None:
@@ -317,7 +324,8 @@ def pep503(name: str) -> str:
 
 
 def npm_inside(data: bytes) -> tuple[str, str]:
-    """(name, version) from a tarball's package.json (npm tarballs hold one top folder, usually `package/`)."""
+    """(name, version) from a tarball's package.json (npm tarballs hold one top folder, usually
+    `package/`)."""
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
             for m in tf.getmembers():
@@ -358,19 +366,28 @@ def npm_files(lock: dict) -> list[dict]:
         if not key:
             continue
         name = key.rsplit("node_modules/", 1)[-1]
-        out.append({"key": key, "name": name, "version": v["version"], "url": v["resolved"], "hash": v["integrity"]})
+        out.append(
+            {"key": key, "name": name, "version": v["version"], "url": v["resolved"], "hash": v["integrity"]}
+        )
     return out
 
 
 def pypi_files(lock: dict, target: str) -> list[dict]:
     return [
-        {"name": w["name"], "version": w["version"], "url": w["url"], "hash": w["sha256"], "filename": w["filename"]}
+        {
+            "name": w["name"],
+            "version": w["version"],
+            "url": w["url"],
+            "hash": w["sha256"],
+            "filename": w["filename"],
+        }
         for w in lock["pypi"]["targets"][target]
     ]
 
 
 def verify_download(kind: str, f: dict, data: bytes) -> None:
-    """Hash first, then the name and version written inside the file (a renamed or swapped file fails here)."""
+    """Hash first, then the name and version written inside the file (a renamed or swapped file fails
+    here)."""
     label = f"{f['name']} {f['version']}"
     check_integrity(data, f["hash"], label)
     name, version = npm_inside(data) if kind == "npm" else wheel_inside(data)
@@ -378,7 +395,8 @@ def verify_download(kind: str, f: dict, data: bytes) -> None:
     if not same or version != f["version"]:
         raise PackError(
             409,
-            f"the file for {label} says it is {name or '?'} {version or '?'} inside; refusing (wrong or swapped package)",
+            f"the file for {label} says it is {name or '?'} {version or '?'} inside; "
+            "refusing (wrong or swapped package)",
         )
 
 
@@ -476,7 +494,7 @@ def remove_tree(root: Path) -> None:
     if not root.exists():
         return
     if root.is_dir():
-        os.chmod(root, 0o755)
+        os.chmod(root, 0o755)  # noqa: S103 - our own folder, made writable again only to remove it
         set_readonly(root, writable=True)
     shutil.rmtree(root, ignore_errors=False)
 
@@ -492,23 +510,29 @@ def verify(pack_id: str, version: str | None = None) -> dict:
     try:
         m = json.loads((vdir / MANIFEST).read_text())
     except (OSError, ValueError):
-        return {"ok": False, "version": version, "ms": 0, "problem": f"{name} {version} has no install record"}
+        return {
+            "ok": False,
+            "version": version,
+            "ms": 0,
+            "problem": f"{name} {version} has no install record",
+        }
     entries = _walk(vdir)
     ms = round((time.monotonic() - t0) * 1000)
     problem = None
     if _tree(entries) != m.get("tree"):
         have = dict(entries)
         want = m.get("files") or {}
-        changed = sorted(
-            [p for p in want if have.get(p) != want[p]] + [p for p in have if p not in want]
-        )
+        changed = sorted([p for p in want if have.get(p) != want[p]] + [p for p in have if p not in want])
         problem = (
             f"{name} {version} changed on disk since it was installed ({changed[0] if changed else 'files'}"
-            f"{f' and {len(changed) - 1} more' if len(changed) > 1 else ''}) — reinstall it in Connections → Packs"
+            f"{f' and {len(changed) - 1} more' if len(changed) > 1 else ''})"
+            " — reinstall it in Connections → Packs"
         )
     for rt in m.get("runtime_paths") or []:
         if problem is None and not os.path.exists(rt):
-            problem = f"{name} {version} uses {display(rt)}, which is gone — reinstall it in Connections → Packs"
+            problem = (
+                f"{name} {version} uses {display(rt)}, which is gone — reinstall it in Connections → Packs"
+            )
     return {
         "ok": problem is None,
         "version": version,
@@ -522,7 +546,11 @@ def verify(pack_id: str, version: str | None = None) -> dict:
 def status(pack_id: str, check: bool = False) -> dict:
     cur, prev = current(pack_id), previous(pack_id)
     d = pack_dir(pack_id)
-    versions = sorted(p.name for p in d.iterdir() if p.is_dir() and VERSION_RE.fullmatch(p.name)) if d.is_dir() else []
+    versions = (
+        sorted(p.name for p in d.iterdir() if p.is_dir() and VERSION_RE.fullmatch(p.name))
+        if d.is_dir()
+        else []
+    )
     out: dict = {"id": pack_id, "current": cur, "previous": prev, "versions": versions}
     if cur:
         out["bin"] = str(version_dir(pack_id, cur) / "sbbin")
@@ -570,8 +598,8 @@ def uninstall(pack_id: str) -> dict:
 
 # --- wrappers -----------------------------------------------------------------------------------------------
 WRAPPER = """#!/bin/sh
-# Switchboard pack wrapper ({pack} {version}; ADR 0018). Runs {cli} only inside a Switchboard job's worktree, with
-# the tool's own state (HOME, XDG folders) kept in that worktree's git-ignored .switchboard/home.
+# Switchboard pack wrapper ({pack} {version}; ADR 0018). Runs {cli} only inside a Switchboard job's
+# worktree, with the tool's own state (HOME, XDG folders) kept in its git-ignored .switchboard/home.
 root={root}
 d=$(pwd -P)
 while [ ! -f "$d/.switchboard/{marker}" ] && [ "$d" != / ]; do d=$(dirname "$d"); done
@@ -579,7 +607,9 @@ case "$d/" in
   "$root"/*) ;;
   *) echo "{cli}: Switchboard runs this only inside a job's worktree" >&2; exit 126 ;;
 esac
-[ -f "$d/.switchboard/{marker}" ] || {{ echo "{cli}: Switchboard runs this only inside a job's worktree" >&2; exit 126; }}
+if [ ! -f "$d/.switchboard/{marker}" ]; then
+  echo "{cli}: Switchboard runs this only inside a job's worktree" >&2; exit 126
+fi
 h="$d/.switchboard/home"
 mkdir -p "$h"
 HOME="$h"; XDG_CONFIG_HOME="$h/.config"; XDG_DATA_HOME="$h/.local/share"; XDG_CACHE_HOME="$h/.cache"
@@ -640,15 +670,18 @@ def plan(lock: dict, path: list[str]) -> dict:
         top_hash = top["hash"] if top else None
         source = f"https://pypi.org/project/{pkg}/{ver}/"
         commands = [
-            f"download {len(files)} wheels for {target or 'this machine'} from files.pythonhosted.org and pip "
+            f"download {len(files)} wheels for {target or 'this machine'} "
+            "from files.pythonhosted.org and pip "
             f"{lock['pypi']['pip']['version']}, each checked against the lock's sha256",
             f"{'(no network) ' if netns_prefix() else ''}python3 -m venv --without-pip",
-            f"{'(no network) ' if netns_prefix() else ''}pip install --no-index --require-hashes --only-binary :all:",
+            f"{'(no network) ' if netns_prefix() else ''}"
+            "pip install --no-index --require-hashes --only-binary :all:",
             "python -m compileall (before the files are recorded)",
         ]
     vdir = version_dir(spec["id"], ver)
     commands += [
-        f"write wrappers ({', '.join(spec.get('bins') or {})}) that keep the tool's state inside a job's worktree",
+        f"write wrappers ({', '.join(spec.get('bins') or {})}) "
+        "that keep the tool's state inside a job's worktree",
         "record every file's sha256, then make the folder read-only",
         " ".join(spec.get("detect") or []),
     ]
@@ -721,7 +754,9 @@ def install(
     log: Callable[[str], None],
     fetch_fn: Callable[[str], bytes] = fetch,
 ) -> dict:
-    """Download, verify, install offline, wrap, record, make read-only, point `current` at it. Raises PackError."""
+    """Download, verify, install offline, wrap, record, make read-only, point `current` at it.
+
+    Raises PackError."""
     if os.geteuid() == 0:
         raise PackError(403, "refusing to install as root")
     spec = lock["spec"]
@@ -759,7 +794,10 @@ def install(
             verify_download(kind, f, data)
             if kind == "pypi":  # pip reads a wheel's name, version and tags from its exact file name
                 fname = f["filename"]
-                if not re.fullmatch(r"[A-Za-z0-9._+-]{1,200}\.whl", fname) or fname != f["url"].rsplit("/", 1)[-1]:
+                if (
+                    not re.fullmatch(r"[A-Za-z0-9._+-]{1,200}\.whl", fname)
+                    or fname != f["url"].rsplit("/", 1)[-1]
+                ):
                     raise PackError(500, f"the lock has an invalid wheel name for {f['name']}")
             else:
                 fname = f"{i:04d}-" + re.sub(r"[^A-Za-z0-9._-]", "_", f["url"].rsplit("/", 1)[-1])[:150]
@@ -768,7 +806,12 @@ def install(
             if i % 10 == 0 or i == len(files):
                 log(f"Checked {i} of {len(files)} (hash and the name inside each file)")
         vdir.mkdir(mode=0o755)
-        tool_path = [str(shim), *([os.path.dirname(rt["node"])] if rt.get("node") else []), "/usr/bin", "/bin"]
+        tool_path = [
+            str(shim),
+            *([os.path.dirname(rt["node"])] if rt.get("node") else []),
+            "/usr/bin",
+            "/bin",
+        ]
         env = minimal_env(tool_path, str(home))
         if kind == "npm":
             lf = json.loads(json.dumps(lock["npm"]["lockfile"]))
@@ -782,7 +825,16 @@ def install(
                 raise PackError(400, "npm was not found next to node")
             log("npm ci --offline --ignore-scripts" + (" (no network)" if netns_prefix() else ""))
             code, out, _ = _run(
-                [npm, "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", str(staging / "cache")],
+                [
+                    npm,
+                    "ci",
+                    "--offline",
+                    "--ignore-scripts",
+                    "--no-audit",
+                    "--no-fund",
+                    "--cache",
+                    str(staging / "cache"),
+                ],
                 vdir,
                 env,
                 INSTALL_STEP_TIMEOUT_S,
@@ -801,16 +853,31 @@ def install(
             (staging / "requirements.txt").write_text(req)
             py = rt["python"]
             log("python3 -m venv --without-pip" + (" (no network)" if netns_prefix() else ""))
-            code, _, _ = _run([py, "-I", "-m", "venv", "--without-pip", str(vdir / "venv")], vdir, env, 120, log)
+            code, _, _ = _run(
+                [py, "-I", "-m", "venv", "--without-pip", str(vdir / "venv")], vdir, env, 120, log
+            )
             if code != 0:
                 raise PackError(500, f"couldn't create the Python environment (exit {code})")
             vpy = str(vdir / "venv" / "bin" / "python")
             log("pip install --no-index --require-hashes --only-binary :all:")
             code, _, _ = _run(
                 [
-                    vpy, "-I", str(pipwhl / "pip"), "install", "--no-index", "--find-links", str(dl),
-                    "--require-hashes", "--only-binary", ":all:", "--no-cache-dir", "--disable-pip-version-check",
-                    "--no-warn-script-location", "--quiet", "-r", str(staging / "requirements.txt"),
+                    vpy,
+                    "-I",
+                    str(pipwhl / "pip"),
+                    "install",
+                    "--no-index",
+                    "--find-links",
+                    str(dl),
+                    "--require-hashes",
+                    "--only-binary",
+                    ":all:",
+                    "--no-cache-dir",
+                    "--disable-pip-version-check",
+                    "--no-warn-script-location",
+                    "--quiet",
+                    "-r",
+                    str(staging / "requirements.txt"),
                 ],
                 vdir,
                 env,
@@ -820,7 +887,9 @@ def install(
             if code != 0:
                 raise PackError(500, f"pip install failed (exit {code})")
             log("Compiling Python files before they are recorded")
-            code, _, _ = _run([vpy, "-I", "-m", "compileall", "-q", str(vdir / "venv" / "lib")], vdir, env, 300, log)
+            code, _, _ = _run(
+                [vpy, "-I", "-m", "compileall", "-q", str(vdir / "venv" / "lib")], vdir, env, 300, log
+            )
             if code not in (0, 1):
                 raise PackError(500, f"compileall failed (exit {code})")
         clis = write_wrappers(lock, vdir, worktree_root, rt)
@@ -951,7 +1020,8 @@ GitFn = Callable[..., str]
 
 
 def snapshot(wt: Path, git: GitFn) -> dict[str, tuple[str, str]]:
-    """path -> (status code, content hash) for every changed or untracked file (`.switchboard/` is ignored)."""
+    """path -> (status code, content hash) for every changed or untracked file (`.switchboard/` is
+    ignored)."""
     out: dict[str, tuple[str, str]] = {}
     raw = git(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], wt)
     for entry in raw.split("\0"):
@@ -1039,7 +1109,8 @@ def rollback_writes(wt: Path, before: dict, after: dict, git: GitFn) -> None:
             restore.append(path)
     if restore:
         git(["checkout", "--", *restore], wt)
-    # folders the step created and that are now empty (only parents of removed files, never above the worktree)
+    # folders the step created and that are now empty (only parents of removed files, never above the
+    # worktree)
     for d in sorted(parents, key=lambda x: -len(x.parts)):
         while d != wt and wt in d.parents:
             try:
@@ -1093,7 +1164,8 @@ def setup(
 ) -> dict:
     """Set up the requested packs in a job's worktree. `requests`: [{id, hosts: [host ids], graph: bool}].
 
-    Idempotent: a finished record is returned as is; an interrupted one is refused (its writes can't be sorted)."""
+    Idempotent: a finished record is returned as is; an interrupted one is refused (its writes can't be
+    sorted)."""
     rec = read_record(wt)
     if rec and rec.get("state") == "ready":
         return rec
@@ -1204,7 +1276,9 @@ def setup(
             _copy_out(wt / spec["cache"], cache_dir / spec["cache"])
         for i, e in enumerate(sorted_["edits"]):
             if e["kind"] in ("modified", "deleted"):
-                patch = git(["diff", "-U0", "--binary", "--no-color", "--no-ext-diff", "--", e["path"]], wt)  # only its own lines
+                patch = git(
+                    ["diff", "-U0", "--binary", "--no-color", "--no-ext-diff", "--", e["path"]], wt
+                )  # only its own lines
                 name = f"{pid}-{i}.patch"
                 (edits_dir / name).write_text(patch)
                 e["patch"] = name
@@ -1229,7 +1303,9 @@ def setup(
 def _linux_extra() -> list[str]:
     import glob
 
-    return sorted(glob.glob(str(HOME / ".nvm/versions/node/*/bin")), reverse=True) + [str(HOME / ".local/bin")]
+    return sorted(glob.glob(str(HOME / ".nvm/versions/node/*/bin")), reverse=True) + [
+        str(HOME / ".local/bin")
+    ]
 
 
 def _cache_dir(root: Path, pid: str, key: str) -> Path:

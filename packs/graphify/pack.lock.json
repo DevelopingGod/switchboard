@@ -7,8 +7,7 @@
   "trust": "verified",
   "source": "pypi:graphifyy==0.9.115",
   "requires": [
-   "python>=3.11.5",
-   "<3.15"
+   "python>=3.11.5,<3.15"
   ],
   "scope": [
    "project"

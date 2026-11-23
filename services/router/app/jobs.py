@@ -552,7 +552,8 @@ async def preview(
         if ref is not None:
             fpack, fflow = ref
             steps.append(
-                f"{fpack.name} is set up inside that copy only (its files are never committed). Then {who} works "
+                f"{fpack.name} is set up inside that copy only (its files are never committed). "
+                f"Then {who} works "
                 f"through {fflow.label}, one step at a time, and you review each step before the next: "
                 + ", ".join(st.label for st in fflow.steps)
                 + "."
@@ -846,11 +847,16 @@ async def _setup_packs(session: AsyncSession, pc: Paperclip, job: Job, project: 
     rec.pop("reqs", None)
     g = dict(rec.get("graphify") or {})
     if g.get("used") and g.get("pack") not in summary["packs"]:
-        why = next((r["reason"] for r in summary["refused"] if r.get("id") == g.get("pack")), "it wasn't set up")
+        why = next(
+            (r["reason"] for r in summary["refused"] if r.get("id") == g.get("pack")), "it wasn't set up"
+        )
         g.update(used=False, eligible=False, reason=f"graph not used: {why}")
     elif g.get("used"):
         gp = summary["packs"][g["pack"]]
-        g.update(build_ms=sum(st.get("ms") or 0 for st in gp.get("steps") or []), nodes=(gp.get("graph_stats") or {}).get("nodes"))
+        g.update(
+            build_ms=sum(st.get("ms") or 0 for st in gp.get("steps") or []),
+            nodes=(gp.get("graph_stats") or {}).get("nodes"),
+        )
     rec["graphify"] = g
     job.packs = rec
     ref = packs.flow_ref(job.flow)
@@ -858,9 +864,16 @@ async def _setup_packs(session: AsyncSession, pc: Paperclip, job: Job, project: 
         session,
         job,
         "packs_ready",
-        packs={k: {"version": v["version"], "owned": len(v["owned"]), "artifacts": len(v["artifacts"]),
-                   "edits": [e["path"] for e in v["edits"]], "verify_ms": v.get("verify_ms")}
-               for k, v in summary["packs"].items()},
+        packs={
+            k: {
+                "version": v["version"],
+                "owned": len(v["owned"]),
+                "artifacts": len(v["artifacts"]),
+                "edits": [e["path"] for e in v["edits"]],
+                "verify_ms": v.get("verify_ms"),
+            }
+            for k, v in summary["packs"].items()
+        },
         refused=summary["refused"],
         graphify=g,
     )
@@ -872,7 +885,9 @@ async def _setup_packs(session: AsyncSession, pc: Paperclip, job: Job, project: 
     return True
 
 
-async def _packs_failed(session: AsyncSession, pc: Paperclip, job: Job, rec: dict[str, Any], why: str) -> bool:
+async def _packs_failed(
+    session: AsyncSession, pc: Paperclip, job: Job, rec: dict[str, Any], why: str
+) -> bool:
     """A job without a workflow goes on without its packs (graphify off); a workflow job can't."""
     rec = {**rec, "state": "ready", "error": why}
     rec.pop("reqs", None)

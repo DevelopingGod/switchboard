@@ -66,8 +66,15 @@ def pack_json(p: registry.Pack, inst: dict[str, Any] | None) -> dict[str, Any]:
         "lock_problem": p.lock_problem,
         "installable": p.installable,
         "auto": p.auto,
-        "flows": [{"id": f"{p.id}.{f.id}", "label": f.label, "summary": f.summary,
-                   "steps": [s.label for s in f.steps]} for f in p.flows],
+        "flows": [
+            {
+                "id": f"{p.id}.{f.id}",
+                "label": f.label,
+                "summary": f.summary,
+                "steps": [s.label for s in f.steps],
+            }
+            for f in p.flows
+        ],
         "installed": inst.get("current"),
         "previous": inst.get("previous"),
         "update": bool(inst.get("current") and p.version and inst.get("current") != p.version),
@@ -100,7 +107,10 @@ async def library(session: AsyncSession = Depends(get_session)) -> dict[str, Any
     reg = registry.load()
     inst = await packs.installed(fresh=True)
     return {
-        "packs": [pack_json(p, inst["packs"].get(p.id)) for p in sorted(reg.packs.values(), key=lambda x: x.name.lower())],
+        "packs": [
+            pack_json(p, inst["packs"].get(p.id))
+            for p in sorted(reg.packs.values(), key=lambda x: x.name.lower())
+        ],
         "errors": reg.errors,
         "hostprobe": inst["reachable"],
         "hostprobe_error": inst.get("error"),
@@ -152,7 +162,9 @@ async def install_plan(pack_id: str) -> dict[str, Any]:
 
 
 @router.post("/packs/{pack_id}/install")
-async def install_run(pack_id: str, body: RunIn, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+async def install_run(
+    pack_id: str, body: RunIn, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
     """Step 2: run the plan the owner confirmed (single use). Returns a hostprobe job to stream."""
     pack = _installable(pack_id)
     if pack.trust != "verified" and not body.accept_unverified:
@@ -168,10 +180,23 @@ async def install_run(pack_id: str, body: RunIn, session: AsyncSession = Depends
         action="install",
         status="running",
         hostprobe_job=str(job.get("id"))[:32],
-        summary_json={k: plan.get(k) for k in (
-            "source", "package", "version", "hash", "dependencies", "commands", "writes", "project_writes",
-            "network_isolated", "unverified", "lookalikes", "current",
-        )},
+        summary_json={
+            k: plan.get(k)
+            for k in (
+                "source",
+                "package",
+                "version",
+                "hash",
+                "dependencies",
+                "commands",
+                "writes",
+                "project_writes",
+                "network_isolated",
+                "unverified",
+                "lookalikes",
+                "current",
+            )
+        },
     )
     session.add(row)
     await session.commit()
@@ -281,7 +306,7 @@ async def project_packs_json(session: AsyncSession, p: Project) -> dict[str, Any
     """A project's pack settings, with graphify's status line per group (Settings → Projects)."""
     st = packs.settings_of(p)
     cfg = packs.config()
-    for pack_id, entry in st.items():
+    for entry in st.values():
         if "mode" not in entry:
             continue
         groups = []
@@ -290,9 +315,16 @@ async def project_packs_json(session: AsyncSession, p: Project) -> dict[str, Any
             this = [r for r in rows if r["round"] == int(m.get("round", 1))]
             counts = (sum(r["used"] for r in this), sum(not r["used"] for r in this))
             agent, _, flow = group.partition("|")
-            groups.append({"group": group, "agent": agent, "flow": None if flow == "plain" else flow,
-                           "state": m.get("state"), "status": packs.status_line(m, counts, cfg.measure),
-                           "numbers": m.get("numbers")})
+            groups.append(
+                {
+                    "group": group,
+                    "agent": agent,
+                    "flow": None if flow == "plain" else flow,
+                    "state": m.get("state"),
+                    "status": packs.status_line(m, counts, cfg.measure),
+                    "numbers": m.get("numbers"),
+                }
+            )
         entry["groups"] = groups
         entry["auto_threshold"] = {"min_files": cfg.min_files, "min_bytes": cfg.min_bytes}
         entry.pop("measure", None)
@@ -330,6 +362,10 @@ async def metrics_packs(session: AsyncSession = Depends(get_session)) -> dict[st
     cfg = packs.config().measure
     return {
         "rows": await packs.metrics_rows(session),
-        "measure": {"holdout_every": cfg.holdout_every, "min_samples": cfg.min_samples,
-                    "min_gain": cfg.min_gain, "recheck_every": cfg.recheck_every},
+        "measure": {
+            "holdout_every": cfg.holdout_every,
+            "min_samples": cfg.min_samples,
+            "min_gain": cfg.min_gain,
+            "recheck_every": cfg.recheck_every,
+        },
     }

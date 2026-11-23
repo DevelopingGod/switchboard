@@ -712,7 +712,8 @@ class AccountTests(HomeCase):
         self.assertNotIn("me@example.com", json.dumps(out))
         shown = {k: v for k, v in out.items() if k != "env"}
         self.assertNotIn(str(self.home), json.dumps(shown))  # home-relative paths for display
-        self.assertEqual(out["env"], {"CLAUDE_CONFIG_DIR": str(self.home / ".switchboard/accounts/claude/work")})
+        work = str(self.home / ".switchboard/accounts/claude/work")
+        self.assertEqual(out["env"], {"CLAUDE_CONFIG_DIR": work})
 
     def test_status_sees_the_account_home(self):
         fake_bin(

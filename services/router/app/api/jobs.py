@@ -84,7 +84,8 @@ class PaidIn(BaseModel):
 
 class DecisionIn(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
-    # M4.5a: on the diff review, the setup edits you ticked (everything else a pack's setup changed stays out).
+    # M4.5a: on the diff review, the setup edits you ticked (everything else a pack's setup changed stays
+    # out).
     include_setup_edits: list[str] = Field(default_factory=list, max_length=200)
 
 
@@ -170,7 +171,10 @@ def _packs_json(j: Job) -> dict[str, Any] | None:
         "graphify": p.get("graphify"),
         "refused": setup.get("refused") or [],
         "packs": {
-            k: {kk: v.get(kk) for kk in ("name", "version", "owned", "artifacts", "edits", "graph_stats", "verify_ms")}
+            k: {
+                kk: v.get(kk)
+                for kk in ("name", "version", "owned", "artifacts", "edits", "graph_stats", "verify_ms")
+            }
             for k, v in (setup.get("packs") or {}).items()
         },
     }

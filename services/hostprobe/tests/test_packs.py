@@ -1,8 +1,9 @@
 """Workflow pack tests (M4.5a, ADR 0018). Run: python3 -m unittest discover -s services/hostprobe/tests
 
-The pack store, the downloads' checks, wrappers, per-job setup (what a setup writes, sorted) and how diff and commit
-treat it. A fake pack (a shell script as its program) stands in for real ones; one test installs a real npm package
-from local tarballs when node/npm are present. The real OpenSpec and graphify installs are proved live (docs/m45a.md).
+The pack store, the downloads' checks, wrappers, per-job setup (what a setup writes, sorted) and how diff and
+commit treat it. A fake pack (a shell script as its program) stands in for real ones; one test installs a real
+npm package from local tarballs when node/npm are present. The real OpenSpec and graphify installs are proved
+live (docs/m45a.md).
 """
 
 import base64
@@ -22,9 +23,10 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from test_hostprobe import sh_git  # noqa: E402
+
 import hostprobe  # noqa: E402
 import packs  # noqa: E402
-from test_hostprobe import sh_git  # noqa: E402
 
 TOOL = r"""#!/bin/sh
 # a fake pack program: writes what real packs write
@@ -75,7 +77,14 @@ def fake_lock(pid="fake", setup_mode="setup", **spec):
         "artifacts": ["spec/**"],
     }
     s.update(spec)
-    return {"lock_version": 1, "kind": "pypi", "package": pid, "version": "1.0.0", "spec": s, "pypi": {"targets": {}}}
+    return {
+        "lock_version": 1,
+        "kind": "pypi",
+        "package": pid,
+        "version": "1.0.0",
+        "spec": s,
+        "pypi": {"targets": {}},
+    }
 
 
 class PackEnv(unittest.TestCase):
@@ -203,7 +212,12 @@ class LockAndDownloadTests(PackEnv):
             return "sha512-" + base64.b64encode(hashlib.sha512(b).digest()).decode()
 
         good = tgz("chalk", "6.0.1")
-        f = {"name": "chalk", "version": "6.0.1", "hash": sri(good), "url": "https://registry.npmjs.org/x.tgz"}
+        f = {
+            "name": "chalk",
+            "version": "6.0.1",
+            "hash": sri(good),
+            "url": "https://registry.npmjs.org/x.tgz",
+        }
         packs.verify_download("npm", f, good)
         with self.assertRaises(packs.PackError) as e:
             packs.verify_download("npm", f, good + b"x")
@@ -215,7 +229,9 @@ class LockAndDownloadTests(PackEnv):
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as z:
-            z.writestr("graphify-1.0.dist-info/METADATA", "Metadata-Version: 2.1\nName: graphify\nVersion: 1.0\n\n")
+            z.writestr(
+                "graphify-1.0.dist-info/METADATA", "Metadata-Version: 2.1\nName: graphify\nVersion: 1.0\n\n"
+            )
         wheel = buf.getvalue()
         w = {"name": "graphifyy", "version": "1.0", "hash": hashlib.sha256(wheel).hexdigest(), "url": "x"}
         with self.assertRaises(packs.PackError) as e:
@@ -285,7 +301,9 @@ class WrapperTests(PackEnv):
         packs.write_record(wt, {"version": 1, "state": "ready", "packs": {}})
         wrapper = vdir / "sbbin" / "faketool"
         env = {"PATH": "/usr/bin:/bin", "HOME": str(self.home)}
-        out = subprocess.run([str(wrapper), "env"], cwd=wt / ".", env=env, capture_output=True, text=True, check=True)
+        out = subprocess.run(
+            [str(wrapper), "env"], cwd=wt / ".", env=env, capture_output=True, text=True, check=True
+        )
         lines = dict(line.split("=", 1) for line in out.stdout.splitlines() if "=" in line)
         h = str(wt / ".switchboard" / "home")
         self.assertEqual(lines["HOME"], h)
@@ -312,7 +330,12 @@ class WrapperTests(PackEnv):
 class SetupTests(PackEnv):
     def setup_packs(self, wt, reqs=None):
         return packs.setup(
-            wt, self.root, reqs or [{"id": "fake", "hosts": ["claude-code"]}], hostprobe.git, self.data / "packs", "repo"
+            wt,
+            self.root,
+            reqs or [{"id": "fake", "hosts": ["claude-code"]}],
+            hostprobe.git,
+            self.data / "packs",
+            "repo",
         )
 
     def test_writes_are_sorted_and_state_stays_in_the_worktree(self):
@@ -444,12 +467,17 @@ class SetupTests(PackEnv):
         packs.ensure_sb(wt2)
         packs.write_record(wt2, {"version": 1, "state": "setting_up", "packs": {}})
         with self.assertRaises(packs.PackError) as e:
-            packs.setup(wt2, self.root, [{"id": "fake", "hosts": ["claude-code"]}], hostprobe.git, self.data, "repo")
+            packs.setup(
+                wt2, self.root, [{"id": "fake", "hosts": ["claude-code"]}], hostprobe.git, self.data, "repo"
+            )
         self.assertIn("interrupted", e.exception.message)
 
     def test_graph_build_uses_and_refreshes_the_project_cache(self):
         lock = fake_lock(
-            "graphy", owned=["out/**"], artifacts=[], cache="out",
+            "graphy",
+            owned=["out/**"],
+            artifacts=[],
+            cache="out",
             project={"prepare": [["faketool", "build"]], "setup": [["faketool", "noop"]]},
         )
         self.install_fake(lock)
@@ -466,8 +494,12 @@ class SetupTests(PackEnv):
         # the next job starts from the cache
         wt2 = Path(hostprobe.create_worktree(self.body(job_id=9))["path"])
         rec2 = packs.setup(
-            wt2, self.root, [{"id": "graphy", "hosts": ["claude-code"], "graph": True}], hostprobe.git,
-            self.data / "packs", "repo",
+            wt2,
+            self.root,
+            [{"id": "graphy", "hosts": ["claude-code"], "graph": True}],
+            hostprobe.git,
+            self.data / "packs",
+            "repo",
         )
         self.assertTrue(rec2["packs"]["graphy"]["cache_used"])
 
@@ -505,27 +537,48 @@ class NpmInstallTests(PackEnv):
             return url, "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
 
         dep_url, dep_int = pkg("sb-dep", "1.0.0", {})
-        top_url, top_int = pkg("sb-top", "2.0.0", {"sb-dep": "1.0.0"}, "#!/usr/bin/env node\nconsole.log('2.0.0')\n")
+        top_url, top_int = pkg(
+            "sb-top", "2.0.0", {"sb-dep": "1.0.0"}, "#!/usr/bin/env node\nconsole.log('2.0.0')\n"
+        )
         lock = {
             "lock_version": 1,
             "kind": "npm",
             "package": "sb-top",
             "version": "2.0.0",
             "spec": {
-                "id": "npmfake", "name": "Npm fake", "trust": "verified", "source": "npm:sb-top@2.0.0",
-                "requires": ["node>=18"], "scope": ["project"], "hosts": {"claude-code": "claude"},
-                "bins": {"faketool": "node_modules/sb-top/cli.js"}, "detect": ["faketool", "--version"],
-                "project": {"setup": []}, "owned": [], "artifacts": [],
+                "id": "npmfake",
+                "name": "Npm fake",
+                "trust": "verified",
+                "source": "npm:sb-top@2.0.0",
+                "requires": ["node>=18"],
+                "scope": ["project"],
+                "hosts": {"claude-code": "claude"},
+                "bins": {"faketool": "node_modules/sb-top/cli.js"},
+                "detect": ["faketool", "--version"],
+                "project": {"setup": []},
+                "owned": [],
+                "artifacts": [],
             },
             "npm": {
                 "package_json": {"name": "sb-pack", "private": True, "dependencies": {"sb-top": "2.0.0"}},
                 "lockfile": {
-                    "name": "sb-pack", "lockfileVersion": 3, "requires": True,
+                    "name": "sb-pack",
+                    "lockfileVersion": 3,
+                    "requires": True,
                     "packages": {
                         "": {"name": "sb-pack", "dependencies": {"sb-top": "2.0.0"}},
-                        "node_modules/sb-top": {"version": "2.0.0", "resolved": top_url, "integrity": top_int,
-                                                "dependencies": {"sb-dep": "1.0.0"}, "bin": {"faketool": "cli.js"}},
-                        "node_modules/sb-dep": {"version": "1.0.0", "resolved": dep_url, "integrity": dep_int},
+                        "node_modules/sb-top": {
+                            "version": "2.0.0",
+                            "resolved": top_url,
+                            "integrity": top_int,
+                            "dependencies": {"sb-dep": "1.0.0"},
+                            "bin": {"faketool": "cli.js"},
+                        },
+                        "node_modules/sb-dep": {
+                            "version": "1.0.0",
+                            "resolved": dep_url,
+                            "integrity": dep_int,
+                        },
                     },
                 },
                 "integrity": top_int,
@@ -540,7 +593,9 @@ class NpmInstallTests(PackEnv):
         self.assertFalse(plan["sudo"])
         logs = []
         t0 = time.monotonic()
-        st = packs.install(packs.load_lock("npmfake"), path, self.root, logs.append, fetch_fn=files.__getitem__)
+        st = packs.install(
+            packs.load_lock("npmfake"), path, self.root, logs.append, fetch_fn=files.__getitem__
+        )
         self.assertLess(time.monotonic() - t0, 120)
         self.assertEqual(st["current"], "2.0.0")
         v = packs.verify("npmfake")
