@@ -273,7 +273,7 @@ These are **not models**. They are folders of Markdown skills / slash commands t
 
 | Pack | What it adds | Install (verify) | Host agents | Notes |
 |---|---|---|---|---|
-| **OpenSpec** | Spec-first changes for existing code: propose → apply → archive (`openspec/changes/<name>/`) | `npm i -g @fission-ai/openspec@latest` → `openspec init` | Claude Code, Codex, OpenCode, Cursor, 20+ | Node ≥ 20.19. No API keys. Best default for brownfield |
+| **OpenSpec** | Spec-first changes for existing code: propose → apply → archive (`openspec/changes/<name>/`) | M4.5a: pinned 2.1.1 in the pack store → `openspec init --tools <ids> --scope project` in the job's worktree | Claude Code, Codex, OpenCode, Cursor, 20+ | Node ≥ 22.20 (2.x; was 20.19). No API keys. 2.x commands are skills (`openspec-propose`, `openspec-apply-change`, `openspec-archive-change`). Best default for brownfield |
 | **gstack** | Role skills: plan reviews, `/review`, `/qa`, `/ship`, `/cso` security, `/browse`, `/codex` second opinion | `git clone https://github.com/garrytan/gstack ~/.claude/skills/gstack && ./setup` (`--host codex` for Codex) | Claude Code first; Codex and others | Needs Bun; `/browse` builds a native binary → run in WSL |
 | **GitHub Spec Kit** | Gated pipeline: specify → plan → tasks → implement | `specify` CLI (Python/uv) | 30+ agents | Heavier; good for greenfield |
 | **Superpowers** | Enforced brainstorm → plan → TDD → review loop | Claude plugin marketplace / skills | Claude Code, Codex, Gemini CLI, more | Very popular; strict discipline |
@@ -310,25 +310,31 @@ The table above is the **starter catalog**, not a fixed list. No pack is pre-ins
 id: openspec
 name: OpenSpec
 summary: Agree on a spec before code; propose → apply → archive.
-source: npm:@fission-ai/openspec            # or git:<url>@<tag>, or skills:<url>
-requires: [node>=20.19]                      # checked by doctor before install
-scope: [project, global]
-hosts: [claude-code, codex, opencode, gemini-cli]
-install:
-  global:  ["npm i -g @fission-ai/openspec@latest"]
-  project: ["openspec init --tools {hosts}"]
-uninstall:
-  global:  ["npm rm -g @fission-ai/openspec"]
-detect: ["openspec --version"]
-commands:                                    # become composer chips
-  - { id: propose, label: Propose change, run: "/opsx:propose" }
-  - { id: apply,   label: Apply,          run: "/opsx:apply" }
-  - { id: archive, label: Archive,        run: "/opsx:archive" }
-artifacts: ["openspec/changes/**/*.md"]      # rendered as cards
+source: npm:@fission-ai/openspec@2.1.1       # exact version; or pypi:<exact name>==<version>
+requires: [node>=22.20]                      # checked before install
+scope: [project]                             # M4.5a: project only; a global-only pack is refused
+hosts: { claude-code: claude, codex: codex, opencode: opencode }   # host -> the pack's own tool id
+project:
+  setup: [[openspec, init, --tools, "{tool_ids}", --scope, project]]
+detect: [openspec, --version]
+owned: [".agents/skills/openspec-*/**", ".claude/skills/openspec-*"]   # never committed
+artifacts: ["openspec/**"]                   # the work product: reviewed and committed with the code
+flows:                                       # a job can run these steps, with a review after each
+  - { id: change, steps: [propose, apply-change, archive-change] }
 ```
 
+**Implemented in M4.5a** (ADRs 0018, 0019; docs/m45a.md): manifests plus a committed `pack.lock.json` per pack
+(every artifact's URL and hash, transitive dependencies included); the program is installed once per version into
+Switchboard's pack store (`~/.switchboard/packs`, read-only, re-hashed before every use, current + previous kept),
+never into the user's global npm/pip or agent folders; per-project files are written **only** into a job's worktree
+by the pack's setup, through wrappers that keep the tool's own state in the worktree's git-ignored `.switchboard/`.
+Files the setup wrote are never committed; the pack's artifacts (`openspec/`) are; anything else it changed is shown
+as an unticked item in the diff review. graphify (PyPI `graphifyy`) is the first automatic pack (§8a below and ADR
+0019). Not yet: phase routing, composer chips, the artifacts view, presets, gstack and the community index (M4.5b);
+private projects and graphify's AI pass (M4.5a-2).
+
 Installer service rules:
-1. Runs install commands in a **sandboxed job** inside WSL with live log streaming to the UI; never as root unless the user approves.
+1. Runs install commands in a **sandboxed job** inside WSL with live log streaming to the UI; never as root (M4.5a: never, no approval path; downloads only the lock's URLs, then installs offline).
 2. Shows the exact commands, source URL and pinned version **before** running (one-click confirm).
 3. Pins versions; supports update and rollback; records every install in the activity log.
 4. After install: run `detect`, register commands, hot-reload the portal (no restart).
@@ -489,6 +495,10 @@ Buildable by one person with Claude Code: the hard parts (agents, gateway, queue
 - `jobs(request_id, paperclip_issue_id, agent, status, approval_state)`: M6.5 adds `account`, `rule_id`, `resume_at`, `attempt`, `waits`, `paid`, `paid_budget_usd` and the status `waiting_reset`
 - `cli_accounts(id, cli, name, label, created_at, deleted_at)` and `usage_windows(cli, account, window, used, resets_at, limited, source[reported|estimate], capacity, hours, seen_at)`; `agent_profiles.account`, `projects.accounts` (M6.5, ADRs 0013/0014)
 - `attachments(id uuid, thread_id, message_id, job_id, status[staged|bound], sha256, name, kind[image|pdf|text], mime, bytes, code, pages, pages_read, width, height, text_chars, truncated, secret_kinds, note, created_at)`: the bytes live in the data folder, never in the DB (M2.5, ADR 0016). `requests.kind` also takes `aux` (a title or summary) and `test` (a model test), with `requests.call_id` (ADR 0017)
+- M4.5a (ADRs 0018/0019): `projects.packs` (per-project pack settings and graphify's measuring state), `jobs.flow`
+  (`openspec.change`), `jobs.packs` (what was set up, graph used or control), `costs.tokens_cached` (cached input
+  tokens), `pack_installs(id, pack, version, action[install|rollback|uninstall], status, summary_json, log_tail,
+  started_at, finished_at)`
 - `media(request_id, type, provider, file_path, cost_usd)`
 - `model_catalog(id, provider, model_id, tags_json, context, prices_json, privacy, status, updated_at)` (see §6.4)
 - `model_stats(model_id, task_type, samples, p50_ms, p95_ms, error_rate, thumbs_up, thumbs_down, score, updated_at)` (see §6.4)
@@ -540,6 +550,9 @@ Paperclip runs from its own install (not vendored). Ollama runs on Windows.
 | M4a | Agents & jobs backend: Paperclip adapter, agent registry, job engine, worktrees through hostprobe, budgets | Level 1 job (plan → approve → edit → diff → commit on a branch) proven live with Claude Code, Codex and OpenCode; allowlist and push refusals verified |
 | M4b | Jobs page and agent fleet: board, job detail (live log, plan, diff, decisions), Run as job, Agents (hire, pause, edit), Projects and Jobs settings, level-3 sandbox decision | A job started from a chat reply is planned, approved, reviewed and committed on its branch from the portal; axe, Lighthouse ≥ 90 (incl. `/chat`), JS ≤ 200 KB per route |
 | M4.5 | Workflow packs (§8a): library, project presets, composer chips, phase routing, artifacts view | OpenSpec propose (free model) → apply (Claude Code) → gstack review (Codex) runs on a sample repo with each phase logged |
+| M4.5a | Workflow packs foundation (§8a, ADRs 0018/0019): registry + locks, pack store and installer via hostprobe, per-project pack settings, setup in the job's worktree only (never committed silently), OpenSpec propose → apply → archive in one job, graphify auto-pack (AST pass) with a holdout, Data export warning | OpenSpec and graphify installed from the UI and used by one job each in the playground; nothing written to `~/.claude`/`~/.codex`/`~/.agents` or global npm/pip; no pack file committed |
+| M4.5a-2 | Private projects (everything local, including the agent), `opencode-local`, graphify's AI semantic pass routed through Switchboard | Defined when planned |
+| M4.5b | Phase routing, composer chips, artifacts view, project presets, gstack, community index | The M4.5 row's check |
 | M5 | Studio (image + video) | Image via free route or xAI; video via xAI with cost confirm; costs logged |
 | M5.5 | Content Studio (§8d): templates, voice profiles, drafts library, media pairing, export | A LinkedIn post + matching image created, versioned, exported; cost shown under "content" in Metrics |
 | M6 | Metrics dashboard | All three cost sources merged (deduped, demo excluded); breakdowns by provider/model/agent/rule/intent/project; quota burn-down; budgets with forecast; honest net savings; CSV export |

@@ -401,7 +401,9 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
 | ✅ | **M6.5** Subscription windows | See each subscription's usage window, jobs that wait for a reset and continue, separate accounts for separate purposes, opt-in paid overflow |
 | ✅ | **M2.5** Attachments and Activity log | Attach files and images in chat (button, drag-and-drop, paste); private attachments stay on your machine; attachments in jobs; a searchable list of every request |
-| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand. First auto pack: graphify, used only for agent jobs on projects above a size threshold, installed in the job's copy only, local AST pass by default (AI pass opt-in), pinned and hashed, graph files never committed, turned off per project if Metrics shows no token savings |
+| 🔜 | **M4.5a** Workflow packs foundation | Install spec and review workflows on demand, from the UI: pinned and hashed, set up only inside a job's copy of the project, never committed without your say. OpenSpec runs propose → apply → archive in one job; graphify builds a local code graph for agent jobs on large projects and turns itself off where it doesn't save tokens |
+| 🔜 | **M4.5a-2** Private projects | Mark a project private: every step, including the agent, stays on your machine; graphify's optional AI pass |
+| 🔜 | **M4.5b** Workflow packs: routing and UI | A different agent or model per workflow phase, command chips in the composer, proposal cards, project presets, more packs |
 | 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
 | 🔜 | **M5** Studio | Image and video generation with cost confirmation: local Stable Diffusion for small GPUs, Grok Imagine as a paid opt-in, honest labels |
 | 🔜 | **M6.7** Local compute optimizer | Use every GPU (NVIDIA and AMD iGPU), see how each local model splits between GPU and RAM, a fit advisor and tuning |

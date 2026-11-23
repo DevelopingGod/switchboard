@@ -22,12 +22,15 @@
 | M4 Jobs via Paperclip | Split into M4a + M4b | — | Opus 5.5, high | Backend first, then the page |
 | M4a Agents & Jobs backend | ✅ Merged | m4a / #12 | Opus 5.5 | Paperclip adapter (verified 2026.1106.0), agent registry, job engine, worktrees via hostprobe, live proof with Claude Code, Codex and OpenCode; fast private chat + Think harder; three load flakes fixed at the cause; see M4a outcome |
 | M4b Jobs page + agent fleet | ✅ Merged | m4b / #13 | Opus 5.5 | Job board and detail (live log, plan, per-file diff, decisions), Run as job, fleet (ADR 0009), Projects and Jobs settings, badge and toasts, level-3 decision (ADR 0010, M7), `/chat` Lighthouse 95–99; see M4b outcome |
-| M4.5 Workflow packs | ⏳ | — | Opus 5.5, high | |
+| M4.5 Workflow packs | Split into M4.5a + M4.5a-2 + M4.5b | — | Opus 5.5, high | Foundation first (store, installer, per-job setup, OpenSpec, graphify), then private projects, then phase routing and the rest |
+| M4.5a Workflow packs foundation | 🔄 In progress | m45a | Opus 5.5 | Registry + locks, pack store, installer via hostprobe, per-project pack settings, worktree-only setup, OpenSpec flow, graphify auto-pack with holdout, export warning; ADRs 0018/0019 |
+| M4.5a-2 Private projects + local agent | ⏳ | — | — | Private project switch (everything local, including the agent), `opencode-local`, graphify's AI semantic pass routed through Switchboard (local only when private); split from M4.5a on 2026-11-23 |
+| M4.5b Workflow packs: routing and UI | ⏳ | — | — | Phase routing (`pack_routes`), composer chips, artifacts view, project presets, gstack, community index fetch |
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
 | M6.5 Subscription windows | ✅ Merged | m65 / #15 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
-| M2.5 Attachments + Activity log | ✅ Done (PR in review) | m25 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
+| M2.5 Attachments + Activity log | ✅ Merged | m25 / #16 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
 | M6.7 Local compute optimizer | ⏳ | — | — | Multi-GPU (NVIDIA + AMD iGPU), GPU/RAM split, fit advisor, tuning |
 | M6.8 Providers: custom providers + presets | ⏳ | — | — | Connections → Add custom provider (OpenAI-compatible, local servers), presets, YAML export/import |
 | M6.9 Quiet beta | ⏳ | — | — | 5–10 users before launch |
