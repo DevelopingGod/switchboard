@@ -182,6 +182,10 @@ pushed**: the job page gives you the branch name and the `git` commands to revie
 through [Paperclip](https://github.com/paperclipai/paperclip); a job that waits for you longer than a day (Settings →
 Jobs) is stopped. Level 3 ("Full auto") stays off until its sandbox lands (coming in M7).
 
+**Workflow packs** (Connections → Workflow packs, coming in M4.5a): with OpenSpec on for a project, a job runs
+propose → apply → archive with a review after each step; graphify builds a local code graph for agent jobs on large
+projects. Packs are pinned and hashed, set up only in the job's copy, and never committed unless you tick them.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-run-dusk.webp">

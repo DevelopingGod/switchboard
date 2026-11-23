@@ -29,6 +29,7 @@ owned:
 artifacts: ["openspec/**"]
 allow: [openspec]                 # shell commands the agent may run for this pack (levels 1-2)
 invoke: { claude-code: "/{skill}", opencode: "/{skill}", codex: "${skill}" }
+skill_file: ".agents/skills/{skill}/SKILL.md"   # told to the agent too, in case its CLI doesn't load project skills
 flows:
   - id: change
     label: "OpenSpec: propose → apply → archive"

@@ -107,6 +107,13 @@ const shots: Record<string, { path: string; clock?: Date; act?: (p: Page) => Pro
     },
   },
   activity: { path: "/metrics/activity", clock: METRICS_NOW },
+  // M4.5a: Connections → Workflow packs (fixture library: OpenSpec installed, graphify with an update, gstack refused)
+  packs: {
+    path: "/connections",
+    act: async (p) => {
+      await p.getByRole("region", { name: "Workflow packs" }).evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 70));
+    },
+  },
   "wizard-goals": { path: "/welcome?step=2" },
   "wizard-connect": { path: "/welcome?step=3" },
 };
