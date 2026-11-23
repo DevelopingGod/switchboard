@@ -5,8 +5,8 @@ import { routerSend } from "@/lib/server/router";
 import type { ActionResult } from "@/lib/router-types";
 
 /** "Pull models" (M3a): the local-model profile's missing Ollama models, in the background. */
-export async function pullModels(): Promise<ActionResult<{ started: boolean }>> {
-  const r = await routerSend<{ started: boolean }>("POST", "/system/models/pull");
+export async function pullModels(vision = false): Promise<ActionResult<{ started: boolean }>> {
+  const r = await routerSend<{ started: boolean }>("POST", "/system/models/pull", vision ? { vision: true } : undefined);
   revalidatePath("/status");
   return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error, code: r.code, detail: r.detail };
 }

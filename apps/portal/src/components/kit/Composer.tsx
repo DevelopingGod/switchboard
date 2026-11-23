@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/cn";
 import { applySlash, slashMatches, type SlashCommand } from "@/lib/slash";
+import { ACCEPT } from "@/lib/attach-accept";
 import { strings, t, type StringKey } from "@/i18n/strings";
 
 export interface ComposerSend {
@@ -51,6 +52,13 @@ export interface ComposerProps {
   onStop?: () => void;
   /** Shorter text box (Chat, where the composer is pinned to the bottom of the screen). */
   compact?: boolean;
+  /** M2.5: files added with the paperclip, dropped on the composer or pasted (screenshots). Omit to hide
+   * attaching. `attachSlot` shows the chips; `hasFiles` lets a message be only files; `filesBusy` holds Send
+   * while an upload is still running. */
+  onFiles?: (files: File[]) => void;
+  attachSlot?: React.ReactNode;
+  hasFiles?: boolean;
+  filesBusy?: boolean;
 }
 
 /** The one large glass composer. Text sits on a near-opaque inner surface. */
@@ -75,6 +83,10 @@ export function Composer({
   streaming = false,
   onStop,
   compact = false,
+  onFiles,
+  attachSlot,
+  hasFiles = false,
+  filesBusy = false,
 }: ComposerProps) {
   const { mode } = usePrefs();
   const [inner, setInner] = React.useState(defaultValue);
@@ -97,6 +109,8 @@ export function Composer({
 
   const ids = React.useId();
   const area = React.useRef<HTMLTextAreaElement>(null);
+  const picker = React.useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = React.useState(false);
   const hintList = React.useRef<HTMLUListElement>(null);
   React.useImperativeHandle(inputRef, () => area.current as HTMLTextAreaElement, []);
 
@@ -106,8 +120,9 @@ export function Composer({
   const level = strings.autonomy.levels[autonomy];
   const hints = locked ? null : slashMatches(text);
 
+  const canAttach = !!onFiles && !locked;
   const send = () => {
-    if (!text.trim() || locked || streaming) return;
+    if ((!text.trim() && !hasFiles) || locked || streaming || filesBusy) return;
     onSend?.({ text: text.trim(), autonomy, private: priv, temperature: temp, think: priv && think });
     setThink(false);
   };
@@ -147,14 +162,47 @@ export function Composer({
     e.preventDefault();
   };
 
+  const hasFileItems = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
+  const onDragOver = (e: React.DragEvent) => {
+    if (!canAttach || !hasFileItems(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    if (!dragging) setDragging(true);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    if (!canAttach || !hasFileItems(e)) return;
+    e.preventDefault();
+    setDragging(false);
+    onFiles?.(Array.from(e.dataTransfer.files));
+  };
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (!canAttach) return;
+    const pasted = Array.from(e.clipboardData.files);
+    if (!pasted.length) return;
+    // A screenshot (or copied files): attach them. Text in the same paste still goes into the box.
+    if (!e.clipboardData.getData("text/plain")) e.preventDefault();
+    onFiles?.(pasted);
+  };
+
   return (
     <GlassPanel
       as="form"
       blur={2}
       onSubmit={submit}
+      onDragOver={onDragOver}
+      onDragLeave={(e: React.DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={onDrop}
       aria-busy={busy || undefined}
-      className={cn("grid gap-3 rounded-hero p-3 sm:p-4", className)}
+      data-dragging={dragging || undefined}
+      className={cn("relative grid gap-3 rounded-hero p-3 sm:p-4", className)}
     >
+      {dragging && (
+        <div aria-hidden className="pointer-events-none absolute inset-1 z-10 grid place-items-center rounded-hero border-2 border-dashed border-accent bg-glass-strong text-sm font-semibold">
+          {t("composer.drop")}
+        </div>
+      )}
       <div className={cn("surface-strong relative rounded-[calc(var(--radius-hero)-10px)]", compact ? "px-4 py-3" : "p-4")}>
         <label htmlFor={`${ids}-msg`} className={cn("label block", compact ? "mb-1" : "mb-2")}>
           {t("composer.label")}
@@ -172,6 +220,7 @@ export function Composer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
+          onPaste={onPaste}
           readOnly={locked}
           rows={compact ? 2 : 3}
           placeholder={t("composer.placeholder")}
@@ -200,6 +249,7 @@ export function Composer({
             ))}
           </ul>
         )}
+        {attachSlot && <div className="mt-2 border-t border-hairline pt-2">{attachSlot}</div>}
         <p id={`${ids}-note`} className={cn("text-sm", !compact && "min-h-5")}>
           {phoneReadOnly && (
             <span className="flex items-center gap-1.5 text-ink-muted sm:hidden">
@@ -225,9 +275,32 @@ export function Composer({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1">
-        <Button type="button" variant="glass" size="icon" disabled={locked} aria-label={t("composer.attach")} data-tip={t("composer.attach")}>
+        <Button
+          type="button"
+          variant="glass"
+          size="icon"
+          disabled={!canAttach}
+          aria-label={t("composer.attach")}
+          data-tip={t("composer.attach")}
+          onClick={() => picker.current?.click()}
+        >
           <Paperclip aria-hidden className="size-4" />
         </Button>
+        {onFiles && (
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            accept={ACCEPT}
+            hidden
+            tabIndex={-1}
+            aria-hidden
+            onChange={(e) => {
+              if (e.target.files?.length) onFiles(Array.from(e.target.files));
+              e.target.value = ""; // the same file can be picked again after removing it
+            }}
+          />
+        )}
 
         {targetSlot ?? (
           <span className="inline-flex min-h-9 items-center gap-1.5 rounded-chip border border-hairline bg-glass-strong px-3 text-[0.8125rem] font-semibold">
@@ -302,7 +375,13 @@ export function Composer({
             {t("composer.stop")}
           </Button>
         ) : (
-          <Button type="submit" className="ml-auto" loading={busy} disabled={disabled || (!busy && !text.trim())}>
+          <Button
+            type="submit"
+            className="ml-auto"
+            loading={busy}
+            disabled={disabled || (!busy && ((!text.trim() && !hasFiles) || filesBusy))}
+            data-tip={filesBusy ? t("composer.waitUpload") : undefined}
+          >
             {busy ? t("composer.sending") : t("composer.send")}
             {!busy && <ArrowUp aria-hidden className="size-4" />}
           </Button>

@@ -6,12 +6,13 @@ import { Brain, ChevronDown, Cpu, Pencil, RefreshCw, Square, ThumbsDown, ThumbsU
 import { CopyButton } from "@/components/kit/CopyButton";
 import { Button } from "@/components/ui/button";
 import { ms, usd } from "@/lib/chat-format";
-import type { ChatMessage, RouteInfo } from "@/lib/router-types";
+import type { AttachmentInfo, ChatMessage, RouteInfo } from "@/lib/router-types";
 import { cn } from "@/lib/cn";
 import { t } from "@/i18n/strings";
 import { tChat } from "@/i18n/chat";
 import { Markdown } from "./Markdown";
 import { WhyThis } from "./WhyThis";
+import { MessageAttachments } from "./MessageAttachments";
 
 // Rare reply states (Studio notice, budget block, job hint) and their icons load on demand.
 const JobHint = dynamic(() => import("./MessageExtras").then((m) => m.JobHint), { ssr: false });
@@ -107,6 +108,7 @@ export function MessageItem({
   busy,
   actions,
   prompt,
+  promptFiles,
 }: {
   m: UiMessage;
   last: boolean;
@@ -114,6 +116,8 @@ export function MessageItem({
   actions: MessageActions;
   /** The user message this reply answers ("Run as job" starts from it). */
   prompt?: string;
+  /** M2.5: that message's files (Run as job takes them along). */
+  promptFiles?: AttachmentInfo[];
 }) {
   if (m.role === "user") return <UserMessage m={m} editable={last && !busy} onEdit={actions.onEdit} />;
   const r = m.route;
@@ -150,7 +154,7 @@ export function MessageItem({
           <Square aria-hidden className="size-3.5" /> {tChat("chat.stopped")}
         </p>
       )}
-      {r?.job_suggested && m.status !== "streaming" && <JobHint id={m.id} requestId={r.request_id} prompt={prompt ?? ""} isPrivate={r.private} />}
+      {r?.job_suggested && m.status !== "streaming" && <JobHint id={m.id} requestId={r.request_id} prompt={prompt ?? ""} files={promptFiles} isPrivate={r.private} />}
       {!streaming && r && <Footer m={m} last={last} busy={busy} actions={actions} />}
     </article>
   );
@@ -243,10 +247,13 @@ function UserMessage({ m, editable, onEdit }: { m: UiMessage; editable: boolean;
   }
   return (
     <div className="group ml-auto grid max-w-[85%] justify-items-end gap-1">
-      <p className="rounded-panel bg-accent-soft px-4 py-2.5 whitespace-pre-wrap text-ink">
-        <span className="sr-only">{tChat("chat.you")}: </span>
-        {m.content}
-      </p>
+      {m.attachments && m.attachments.length > 0 && <MessageAttachments files={m.attachments} />}
+      {(m.content || !m.attachments?.length) && (
+        <p className="rounded-panel bg-accent-soft px-4 py-2.5 whitespace-pre-wrap text-ink">
+          <span className="sr-only">{tChat("chat.you")}: </span>
+          {m.content}
+        </p>
+      )}
       {m.secret && m.secret.kinds.length > 0 && <SecretNote kinds={m.secret.kinds} />}
       {editable && onEdit && (
         <Button type="button" size="sm" variant="ghost" onClick={() => (setDraft(m.content), setEditing(true))}>

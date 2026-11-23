@@ -16,11 +16,12 @@ const link =
 export default function DataSection() {
   const { push } = useToast();
   const [priv, setPriv] = React.useState(false);
+  const [files, setFiles] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [word, setWord] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const q = priv ? "&private=1" : "";
+  const q = (priv ? "&private=1" : "") + (files ? "&files=1" : "");
   const ok = word.trim().toLowerCase() === tSet("data.confirmWord");
   return (
     <Section id="data" title={tSet("section.data")} explain={tSet("data.explain")}>
@@ -38,7 +39,14 @@ export default function DataSection() {
             <Switch checked={priv} onCheckedChange={setPriv} aria-labelledby="exp-priv" />
             <span id="exp-priv">{tSet("data.includePrivate")}</span>
           </span>
+          <span className="flex items-center gap-2 pl-1 text-sm">
+            <Switch checked={files} onCheckedChange={setFiles} aria-labelledby="exp-files" aria-describedby="exp-files-note" />
+            <span id="exp-files">{tSet("data.includeFiles")}</span>
+          </span>
         </div>
+        <p id="exp-files-note" className="text-xs text-ink-muted">
+          {tSet("data.filesNote")}
+        </p>
       </div>
       <div className="grid gap-3 border-t border-hairline pt-4">
         <h3 className="text-sm font-semibold">{tSet("data.clearTitle")}</h3>

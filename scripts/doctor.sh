@@ -266,6 +266,24 @@ if h=$(http -f "$ROUTER/health" 2>/dev/null); then
   esac
 else red "Router API" "no answer on $ROUTER$(why_failed) — docker compose -f deploy/docker-compose.yml up -d router"; fi
 
+begin "Data folder (M2.5)"
+DATA_DIR="${SWITCHBOARD_DATA_DIR:-$HOME/.switchboard/data}"; DATA_DIR="${DATA_DIR/#\~/$HOME}"
+if [[ ! -d "$DATA_DIR" ]]; then
+  red "Data folder (M2.5)" "$DATA_DIR is missing — run scripts/setup-wsl.sh (it creates it, mode 700)"
+else
+  dmode=$(stat -c %a "$DATA_DIR"); downer=$(stat -c %u "$DATA_DIR")
+  case "$(realpath "$DATA_DIR")/" in
+    "$(realpath "$ROOT")/"*) red "Data folder (M2.5)" "$DATA_DIR is inside the repository: move it and set SWITCHBOARD_DATA_DIR" ;;
+    *) if [[ "$downer" != "$(id -u)" ]]; then red "Data folder (M2.5)" "$DATA_DIR is owned by uid $downer, not you — see docs/TROUBLESHOOTING.md (Data folder)"
+       elif [[ "$dmode" != 700 ]]; then yellow "Data folder (M2.5)" "$DATA_DIR is mode $dmode — chmod 700 \"$DATA_DIR\""
+       else green "Data folder (M2.5)" "$DATA_DIR (mode 700, yours)"; fi ;;
+  esac
+fi
+if h=$(http -f "$ROUTER/health" 2>/dev/null); then
+  att=$(echo "$h" | json 'd.get("attachments","unknown (router older than M2.5)")')
+  [[ "$att" == ok ]] && green "Router -> data folder" "writable" || yellow "Router -> data folder" "$att"
+fi
+
 begin "Router DB migrations"
 status=$(http -f "$ROUTER/system/status" 2>/dev/null)
 head_rev=$(dc exec -T router alembic heads 2>/dev/null | awk '{print $1}')

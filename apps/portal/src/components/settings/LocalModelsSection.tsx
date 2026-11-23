@@ -116,6 +116,37 @@ export default function LocalModelsSection({ view }: { view: LocalProfileView })
           <p className="text-ink-muted">{tSet("local.allPulled")}</p>
         )}
       </div>
+      {view.ollama === "ok" && view.vision !== undefined && (
+        <div className="grid gap-1 border-t border-hairline pt-3 text-sm" data-vision>
+          {view.vision ? (
+            <>
+              <p className="font-semibold">{tSet("local.vision", { model: view.vision })}</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="min-w-0 flex-1 text-ink-muted">{view.vision_installed ? tSet("local.visionReady") : tSet("local.visionMissing")}</p>
+                {view.vision_installed === false && view.pull.status !== "running" && (
+                  <Button
+                    size="sm"
+                    variant="glass"
+                    loading={busy === "vision"}
+                    onClick={async () => {
+                      setBusy("vision");
+                      const r = await pullModels(true);
+                      setBusy(null);
+                      push(r.ok ? { tone: "success", title: tSet("local.pullStarted") } : { tone: "error", title: r.error });
+                      router.refresh();
+                    }}
+                  >
+                    <Download aria-hidden className="size-4" /> {tSet("local.visionPull")}
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-ink-muted">{tSet("local.visionNote")}</p>
+            </>
+          ) : (
+            <p className="text-ink-muted">{tSet("local.visionNone")}</p>
+          )}
+        </div>
+      )}
     </Section>
   );
 }

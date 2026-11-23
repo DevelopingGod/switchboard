@@ -271,6 +271,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
   const p = url.pathname;
   const range = q.get("range") ?? "7d";
   const ok = (data: unknown): Result<T> => ({ ok: true, data: data as T });
+  if (p.startsWith("/activity")) return activity<T>(p, q);
   if (p === "/settings/subscriptions") {
     if (method === "PUT") subs = ((body as { items?: SubscriptionItem[] }) ?? {}).items ?? [];
     return ok({ items: subs });
@@ -298,4 +299,89 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
     return ok(top(Number(q.get("limit") ?? 20), off));
   }
   return { ok: false, status: 404, error: `No fixture for ${p}` };
+}
+
+
+// --- M2.5 Activity log -----------------------------------------------------------------------------------
+type ActRow = import("@/lib/activity-types").ActivityItem;
+const ACT_NOW = Date.parse("2026-11-21T16:30:00Z");
+const ACT: ActRow[] = (() => {
+  const rows: Omit<ActRow, "id" | "at">[] = [
+    { kind: "chat", label: "Why is the sky blue?", private: false, thread_id: "6f1c2a10-0000-4000-8000-000000000001", job_id: null, provider: "groq", model: "groq/openai/gpt-oss-120b", rule: "default", status: "ok", latency_ms: 747, cost_usd: 0, value_usd: 0.000066, priced: true, fallbacks: 0 },
+    { kind: "aux", label: "Title · Why is the sky blue?", private: false, thread_id: "6f1c2a10-0000-4000-8000-000000000001", job_id: null, provider: "ollama", model: "ollama/llama3.2:3b", rule: null, status: "ok", latency_ms: 610, cost_usd: 0, value_usd: 0, priced: false, fallbacks: 0 },
+    { kind: "chat", label: "Private chat", private: true, thread_id: null, job_id: null, provider: "ollama", model: "ollama_chat/qwen3:4b-instruct-2507-q4_K_M", rule: "private", status: "ok", latency_ms: 900, cost_usd: 0, value_usd: 0, priced: false, fallbacks: 0 },
+    { kind: "job", label: "Fix the failing tests in api/", private: false, thread_id: null, job_id: 14, provider: "anthropic", model: "claude-code", rule: "code-heavy", status: "running", latency_ms: null, cost_usd: 0, value_usd: 0.412, priced: true, fallbacks: 0 },
+    { kind: "chat", label: "What does this chart show?", private: false, thread_id: "6f1c2a10-0000-4000-8000-000000000002", job_id: null, provider: "gemini", model: "gemini/gemini-3.1-flash-lite", rule: "vision", status: "ok", latency_ms: 1840, cost_usd: 0, value_usd: 0.00041, priced: true, fallbacks: 0 },
+    { kind: "chat", label: "=HYPERLINK(\"x\") budget plan", private: false, thread_id: "6f1c2a10-0000-4000-8000-000000000003", job_id: null, provider: "gemini", model: "gemini/gemini-3.1-flash-lite", rule: "default", status: "ok", latency_ms: 2210, cost_usd: 0, value_usd: 0.00012, priced: true, fallbacks: 1 },
+    { kind: "test", label: "Model test: groq/openai/gpt-oss-20b", private: false, thread_id: null, job_id: null, provider: "groq", model: "groq/openai/gpt-oss-20b", rule: null, status: "ok", latency_ms: 338, cost_usd: 0, value_usd: 0.000002, priced: true, fallbacks: 0 },
+    { kind: "chat", label: "Summarize the Q3 report", private: false, thread_id: "6f1c2a10-0000-4000-8000-000000000004", job_id: null, provider: "gemini", model: "gemini/gemini-3.1-flash-lite", rule: "long-document", status: "error", latency_ms: 30000, cost_usd: 0, value_usd: 0, priced: false, fallbacks: 2 },
+  ];
+  const out: ActRow[] = [];
+  for (let i = 0; i < 60; i++) {
+    const r = rows[i % rows.length];
+    out.push({ ...r, id: 1000 - i, at: new Date(ACT_NOW - i * 47 * 60_000).toISOString() });
+  }
+  return out;
+})();
+
+function activity<T>(p: string, q: URLSearchParams): Result<T> {
+  const ok = (data: unknown): Result<T> => ({ ok: true, data: data as T });
+  if (p === "/activity/options") {
+    const uniq = (k: "model" | "provider" | "rule") => [...new Set(ACT.map((r) => r[k]).filter((v): v is string => !!v))].sort();
+    return ok({ model: uniq("model"), provider: uniq("provider"), rule: uniq("rule"), kinds: ["chat", "media", "job", "aux", "test"] });
+  }
+  const m = p.match(/^\/activity\/(\d+)$/);
+  if (m) {
+    const r = ACT.find((x) => x.id === Number(m[1]));
+    if (!r) return { ok: false, status: 404, error: "request not found" };
+    if (r.kind === "job") return ok({ id: r.id, kind: "job", job_id: r.job_id });
+    return ok({
+      id: r.id,
+      kind: r.kind,
+      status: r.status,
+      rule: r.rule,
+      model: r.model,
+      latency_ms: r.latency_ms,
+      error: r.status === "error" ? "No answer within 30 s" : null,
+      route: r.kind === "chat"
+        ? {
+            label: r.provider === "gemini" ? "Google AI Studio · gemini-3.1-flash-lite" : "Groq · gpt-oss-120b",
+            reasons: r.rule === "vision" ? ["Needs vision: this message has an image", "Best for “vision”: score 0.81", "Free tier (may train on your data)"] : ["General chat → default rule", "First choice of rule “default”", "Free tier · Groq does not train on API data"],
+            runner_up: null,
+            skipped: r.fallbacks ? [{ target: "model:fast", label: "Groq · gpt-oss-120b", code: "rate_limited", reason: "Rate limited (429)" }] : [],
+            tokens_in: 117,
+            tokens_out: 81,
+            cost_usd: 0,
+            list_price_usd: r.value_usd,
+          }
+        : null,
+    });
+  }
+  const range = q.get("range") ?? "7d";
+  const days = range === "today" ? 1 : range === "30d" ? 30 : 7;
+  let rows = ACT.filter((r) => ACT_NOW - Date.parse(r.at) < days * 86_400_000);
+  for (const k of ["kind", "status", "model", "provider", "rule"] as const) {
+    const v = q.get(k);
+    if (v) rows = rows.filter((r) => r[k] === v);
+  }
+  const term = (q.get("q") ?? "").toLowerCase();
+  if (term) rows = rows.filter((r) => !r.private && r.label.toLowerCase().includes(term));
+  const after = q.get("cursor") ? JSON.parse(Buffer.from(q.get("cursor")!, "base64url").toString()).id : Infinity;
+  rows = rows.filter((r) => r.id < after);
+  const limit = Number(q.get("limit") ?? 50);
+  const page = rows.slice(0, limit);
+  const next = rows.length > limit ? Buffer.from(JSON.stringify({ id: page.at(-1)!.id })).toString("base64url") : null;
+  return ok({ range: { key: range, tz: q.get("tz") ?? "UTC", first: "2026-11-15", last: "2026-11-21" }, items: page, next });
+}
+
+/** The Activity CSV in fixture mode: the same formula guard as the router's. */
+export function activityCsvFixture(): string {
+  const risky = /^[=+\-@\t\r]/;
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    const g = typeof v === "number" ? s : risky.test(s) ? `'${s}` : s;
+    return /[",\r\n]/.test(g) ? `"${g.replace(/"/g, '""')}"` : g;
+  };
+  const cols = ["at", "kind", "label", "provider", "model", "rule", "status", "latency_ms", "cost_usd", "value_usd", "fallbacks", "job_id"] as const;
+  return "\ufeff" + [cols.join(","), ...ACT.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\r\n") + "\r\n";
 }

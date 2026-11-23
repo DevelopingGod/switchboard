@@ -45,7 +45,26 @@ async def health(request: Request, session: AsyncSession = Depends(get_session))
         "limit_test": get_settings().router_limit_test or None,
         "overflow_allow_free": get_settings().router_overflow_allow_free,
         "rollups": await _rollups(session) if db == "ok" else None,
+        "attachments": _attachments(),
     }
+
+
+def _attachments() -> str:
+    """M2.5: can the router write to the data folder (the bind mount)? Plain words for doctor.sh."""
+    import os
+    import uuid
+
+    d = get_settings().data_dir / "attachments"
+    try:
+        d.mkdir(mode=0o700, parents=True, exist_ok=True)
+        probe = d / f".probe-{uuid.uuid4().hex}"
+        probe.write_bytes(b"ok")
+        probe.unlink()
+    except OSError as e:
+        why = type(e).__name__
+        return f"not writable ({why}): check SWITCHBOARD_DATA_DIR and SWITCHBOARD_UID/GID in deploy/.env"
+    mode = os.stat(get_settings().data_dir).st_mode & 0o777
+    return "ok" if mode & 0o077 == 0 else f"ok, but the folder is mode {mode:o} (should be 700)"
 
 
 async def _rollups(session: AsyncSession) -> dict[str, Any] | None:

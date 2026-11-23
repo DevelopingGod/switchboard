@@ -472,17 +472,28 @@ async def redetect(session: AsyncSession = Depends(get_session)) -> dict[str, An
     return await _profile_view(session)
 
 
+class PullIn(BaseModel):
+    # M2.5: also (or only) the profile's vision model, which setup never pulls on its own
+    vision: bool = False
+
+
 @router.post("/system/models/pull", dependencies=[Depends(require_admin)])
-async def pull_models(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
-    """Pull the active profile's missing models in the background (progress in GET local-profile)."""
+async def pull_models(
+    body: PullIn | None = None, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
+    """Pull the active profile's missing models in the background (progress in GET local-profile). With
+    `vision`, the profile's vision model too (for images in private chats)."""
     v = await _profile_view(session)
     if v["ollama"] != "ok":
         raise problem(503, "ollama_down", "Ollama isn't reachable. Start Ollama, then try again.", None)
-    if v["missing"] and ollama.pull_state.get("status") != "running":
-        task = asyncio.get_running_loop().create_task(ollama.pull(v["missing"]))
+    want = list(v["missing"])
+    if body and body.vision and v.get("vision") and v.get("vision_installed") is False:
+        want.append(v["vision"])
+    if want and ollama.pull_state.get("status") != "running":
+        task = asyncio.get_running_loop().create_task(ollama.pull(want))
         _pulls.add(task)
         task.add_done_callback(_pulls.discard)
-    return {"started": bool(v["missing"]), "missing": v["missing"], "pull": dict(ollama.pull_state)}
+    return {"started": bool(want), "missing": want, "pull": dict(ollama.pull_state)}
 
 
 _pulls: set[asyncio.Task] = set()

@@ -13,12 +13,16 @@ import { readSse } from "@/lib/sse";
 import { THREAD_UPDATED, notifyThreadsChanged } from "@/lib/thread-events";
 import { PENDING_KEY, type PendingMessage } from "@/lib/pending";
 import { useMedia } from "@/lib/use-media";
-import type { ChatStreamBody, ChatThread, RouteInfo, TargetsResponse, ThreadResponse } from "@/lib/router-types";
+import type { AttachmentInfo, ChatStreamBody, ChatThread, RouteInfo, TargetsResponse, ThreadResponse } from "@/lib/router-types";
+import { useAttachments } from "@/lib/attachments";
 import { t } from "@/i18n/strings";
 import { tChat } from "@/i18n/chat";
 import { MessageItem, type Live, type UiMessage } from "./MessageItem";
 import { TargetPicker } from "./TargetPicker";
 import { StaticHeader, ThreadHeader } from "./ThreadHeader";
+
+// M2.5: the composer's chips appear only once a file is added: their own chunk.
+const ComposerAttachments = dynamic(() => import("./ComposerAttachments").then((m) => m.ComposerAttachments), { ssr: false });
 
 // M3a: shown only in long threads; its own chunk with its strings.
 const SummaryNote = dynamic(() => import("./PrivacyNotes").then((m) => m.SummaryNote), { ssr: false });
@@ -75,6 +79,7 @@ export function ChatScreen({
   const requestId = React.useRef<number | null>(null);
   const threadRef = React.useRef<ChatThread | null>(current?.thread ?? null);
   const tempTouched = React.useRef(false);
+  const att = useAttachments({ estimateFor: { text, target, private: privateOn || !!thread?.private } });
 
   React.useEffect(() => {
     threadRef.current = thread;
@@ -93,7 +98,8 @@ export function ChatScreen({
     setSendError(null);
     setStreaming(false);
     setPrivateOn(privateDefault);
-  }, [openedId, privateDefault]);
+    att.clear();
+  }, [openedId, privateDefault, att.clear]); // eslint-disable-line react-hooks/exhaustive-deps -- att.clear is stable
   React.useEffect(() => () => abort.current?.abort(), []);
   // The sidebar renamed or pinned the open chat: keep the header in step.
   React.useEffect(() => {
@@ -209,6 +215,7 @@ export function ChatScreen({
               };
               // A pasted secret (M3a): show the stored, masked text instead of what was typed.
               const masked = typeof d.user_text === "string" ? { content: d.user_text, secret: d.secret as UiMessage["secret"] } : {};
+              if (Array.isArray(d.user_attachments)) Object.assign(masked, { attachments: d.user_attachments as AttachmentInfo[] });
               const userId = d.user_message_id as number;
               setMessages((ms) => [
                 ...ms.map((m) => (m.id === tempUserId || (tempUserId === null && m.id === userId) ? { ...m, id: userId, ...masked } : m)),
@@ -299,19 +306,35 @@ export function ChatScreen({
   );
 
   const send = React.useCallback(
-    (msg: ComposerSend) => {
+    (msg: ComposerSend, files: AttachmentInfo[] = []) => {
       const tempId = -Date.now();
       setMessages((ms) => [
         ...ms,
-        { id: tempId, role: "user", content: msg.text, status: "done", private: msg.private, feedback: null, route: null, created_at: new Date().toISOString() },
+        { id: tempId, role: "user", content: msg.text, status: "done", private: msg.private, feedback: null, route: null, attachments: files, created_at: new Date().toISOString() },
       ]);
       setText("");
+      const ids = files.map((f) => f.id);
       void run(
-        { mode: "send", thread_id: threadRef.current?.id ?? null, text: msg.text, ...options(msg.private, msg.autonomy, msg.temperature), ...(msg.think ? { think: true } : {}) },
+        {
+          mode: "send",
+          thread_id: threadRef.current?.id ?? null,
+          text: msg.text,
+          ...options(msg.private, msg.autonomy, msg.temperature),
+          ...(msg.think ? { think: true } : {}),
+          ...(ids.length ? { attachment_ids: ids } : {}),
+        },
         tempId,
       );
     },
     [run, options],
+  );
+  const sendWithFiles = React.useCallback(
+    (msg: ComposerSend) => {
+      const files = att.ready.map((f) => f.info!);
+      att.clear();
+      send(msg, files);
+    },
+    [att, send],
   );
 
   // A message handed over from Home (composer or quick-start chip) is sent once, on arrival.
@@ -329,11 +352,11 @@ export function ChatScreen({
       } catch {
         msg = null;
       }
-      if (!msg?.text) return;
+      if (!msg?.text && !msg?.attachments?.length) return;
       sentPending.current = true;
       setPrivateOn(msg.private);
       setAutonomy(msg.autonomy);
-      send({ text: msg.text, private: msg.private, autonomy: msg.autonomy, temperature: msg.temperature, think: msg.think });
+      send({ text: msg.text, private: msg.private, autonomy: msg.autonomy, temperature: msg.temperature, think: msg.think }, msg.attachments ?? []);
     }, 0);
     return () => clearTimeout(timer);
   }, [current, send]);
@@ -434,6 +457,7 @@ export function ChatScreen({
                     busy={streaming}
                     actions={{ onRegenerate: regenerate, onEdit: edit, onFeedback: feedback, onCloudOverride: cloudOverride }}
                     prompt={m.role === "assistant" && i > 0 && messages[i - 1].role === "user" ? messages[i - 1].content : undefined}
+                    promptFiles={m.role === "assistant" && i > 0 && messages[i - 1].role === "user" ? messages[i - 1].attachments : undefined}
                   />
                 </li>
                 {thread?.summary && thread.summary.upto_message_id === m.id && (
@@ -465,9 +489,13 @@ export function ChatScreen({
           errorMessage={sendError ?? undefined}
           value={text}
           onValueChange={setText}
-          onSend={send}
+          onSend={sendWithFiles}
           streaming={streaming}
           onStop={stop}
+          onFiles={phone ? undefined : att.add}
+          attachSlot={att.files.length || att.notice ? <ComposerAttachments att={att} /> : null}
+          hasFiles={att.ready.length > 0}
+          filesBusy={att.uploading}
           privateOn={privateOn || threadPrivate}
           onPrivateChange={(on) => !threadPrivate && setPrivateOn(on)}
           autonomy={autonomy}

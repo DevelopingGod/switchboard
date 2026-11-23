@@ -26,6 +26,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import credits, db, litellm_calls, local_profile, model_test, quota, secrets
+from app.attachments import config as att_config
+from app.attachments import service as attachments
 from app.chat import aux_llm, summary
 from app.chat.dispatch import (
     Delta,
@@ -49,6 +51,7 @@ from app.registry import Registry
 from app.routing import classifier, secrets_detect
 from app.routing.context import build_context
 from app.routing.engine import (
+    NO_LOCAL_VISION,
     Candidate,
     CatalogEntry,
     Context,
@@ -89,7 +92,7 @@ class Prep:
     thread_id: uuid.UUID
     user_message_id: int
     user_text: str  # as stored: secrets masked
-    history: list[dict[str, str]]
+    history: list[dict[str, Any]]  # user entries carry `_mid` (their message id) for their attachments
     private: bool
     title: str
     title_pending: bool  # first turn: try a local summary title after the reply
@@ -99,6 +102,9 @@ class Prep:
     secret_kinds: tuple[str, ...] = ()
     raw_text: str | None = field(default=None, repr=False)
     no_auto_private: bool = False
+    # M2.5: this message's attachments, and every attachment of the messages in `history` (by message id)
+    files: attachments.TurnFiles = field(default_factory=attachments.TurnFiles)
+    by_msg: dict[int, list[Any]] = field(default_factory=dict)
 
 
 def sse(event: str, data: dict[str, Any]) -> str:
@@ -124,7 +130,7 @@ def clean_title(raw: str) -> str | None:
     return line
 
 
-def history_for(messages: list[Message]) -> list[dict[str, str]]:
+def history_for(messages: list[Message]) -> list[dict[str, Any]]:
     out = []
     for m in messages:
         if m.role == "user" or (m.role == "assistant" and m.status in ("done", "stopped") and m.content):
@@ -132,15 +138,20 @@ def history_for(messages: list[Message]) -> list[dict[str, str]]:
     return out
 
 
-def trim_history(history: list[dict[str, str]], max_tokens: int) -> list[dict[str, str]]:
+def msg_tokens(m: dict[str, Any]) -> int:
+    """A history message's tokens: its text plus what its attachments add (`_extra`, M2.5)."""
+    return tokens(len(m["content"])) + int(m.get("_extra") or 0)
+
+
+def trim_history(history: list[dict[str, Any]], max_tokens: int) -> list[dict[str, Any]]:
     """Newest first until the budget is used (SPEC §8c: send only what the task needs). A leading
     summary note (M3a) is always kept and counts toward the budget."""
     head = [history[0]] if history and history[0]["role"] == "system" else []
     rest = history[len(head) :]
-    kept: list[dict[str, str]] = []
-    used = sum(tokens(len(m["content"])) for m in head)
+    kept: list[dict[str, Any]] = []
+    used = sum(msg_tokens(m) for m in head)
     for m in reversed(rest):
-        t = tokens(len(m["content"]))
+        t = msg_tokens(m)
         if used + t > max_tokens:
             break
         kept.append(m)
@@ -184,12 +195,19 @@ def _now_iso() -> str:
 
 
 async def prepare_turn(
-    session: AsyncSession, mode: str, thread_id: uuid.UUID | None, text: str | None, opts: TurnOptions
+    session: AsyncSession,
+    mode: str,
+    thread_id: uuid.UUID | None,
+    text: str | None,
+    opts: TurnOptions,
+    attachment_ids: list[uuid.UUID] | None = None,
 ) -> Prep:
     new_thread = False
     raw_text: str | None = None
     kinds: list[str] = []
+    files: list[Any] = []
     if mode == "send":
+        files = await attachments.staged(session, attachment_ids or [])  # 409/422 before anything is written
         if thread_id is None:
             thread = Thread(private=opts.private)
             session.add(thread)
@@ -210,6 +228,9 @@ async def prepare_turn(
             meta_json={"secret": {"kinds": kinds}} if kinds else {},
         )
         session.add(user)
+        if files:
+            await session.flush()  # the message id links the files
+            attachments.bind(files, thread.id, user.id)
     else:
         thread = await _thread(session, thread_id)  # type: ignore[arg-type]
         if active_in(thread.id):
@@ -235,10 +256,15 @@ async def prepare_turn(
             user.meta_json = {"secret": {"kinds": kinds}} if kinds else {}
         else:
             kinds = list(((user.meta_json or {}).get("secret") or {}).get("kinds") or [])
+        files = (await attachments.for_messages(session, [user.id])).get(user.id, [])
         later = [m.id for m in msgs if m.id > user.id]
         if later:
             await session.execute(delete(Message).where(Message.id.in_(later)))
         history = summary.build_history(thread, [m for m in msgs if m.id < user.id], before_id=user.id)
+    # M2.5: a secret found in an attached file keeps the turn local too (same rule as a pasted one).
+    for k in attachments.TurnFiles(files).secret_kinds if files else []:
+        if k not in kinds:
+            kinds.append(k)
     if opts.private:
         if not thread.private:
             thread.private_source = "user"
@@ -248,9 +274,14 @@ async def prepare_turn(
         user.private = True
     title_pending = thread.title_source == "none"
     if title_pending:
-        thread.title, thread.title_source = words_title(user.content), "words"
+        thread.title, thread.title_source = (
+            words_title(user.content or (files[0].name if files else "")),
+            "words",
+        )
     thread.updated_at = datetime.now(UTC)
     await session.commit()
+    by_msg = await attachments.for_messages(session, [m["_mid"] for m in history if m.get("_mid")])
+    _annotate(history, by_msg, current_images=any(a.kind == "image" for a in files))
     return Prep(
         thread_id=thread.id,
         user_message_id=user.id,
@@ -263,7 +294,24 @@ async def prepare_turn(
         secret_kinds=tuple(kinds),
         raw_text=raw_text,
         no_auto_private=opts.cloud_override,
+        files=attachments.TurnFiles(list(files)),
+        by_msg=by_msg,
     )
+
+
+def _annotate(history: list[dict[str, Any]], by_msg: dict[int, list[Any]], current_images: bool) -> None:
+    """Add each history message's attachment tokens (`_extra`) so trimming counts them (M2.5). Only the
+    newest image-bearing turns keep their images (attachments.yaml `history_images`; the message being
+    answered counts first)."""
+    keep_n = max(0, att_config.load().history_images - (1 if current_images else 0))
+    image_turns = [
+        m["_mid"] for m in history if any(a.kind == "image" for a in by_msg.get(m.get("_mid"), []))
+    ]
+    keep = set(image_turns[-keep_n:]) if keep_n else set()
+    for m in history:
+        atts = by_msg.get(m.get("_mid"), [])
+        if atts:
+            m["_extra"] = attachments.extra_tokens(atts, with_images=m["_mid"] in keep)
 
 
 def active_in(thread_id: uuid.UUID) -> bool:
@@ -337,7 +385,13 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
     async with db.sessionmaker()() as s:
         ctx = await build_context(s)
         hist_chars = sum(len(m["content"]) for m in prep.history)
-        intent, cinfo = await classify_for(prep.user_text, ctx, prep.private, bool(prep.secret_kinds))
+        hist_extra = sum(int(m.get("_extra") or 0) for m in prep.history)
+        files = prep.files
+        file_tokens = files.tokens()[0] if files.items else 0
+        classify_text = prep.user_text
+        if files.docs:  # the sensitive check (and intent) also reads the start of attached documents
+            classify_text = f"{prep.user_text}\n\n{files.sample()}".strip()
+        intent, cinfo = await classify_for(classify_text, ctx, prep.private, bool(prep.secret_kinds))
         dec = decide(
             RouteRequest(
                 text=prep.user_text,
@@ -351,11 +405,19 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
                 secret_kinds=prep.secret_kinds,
                 no_auto_private=prep.no_auto_private,
                 think=opts.think,
+                needs_vision=files.needs_vision,
+                long_document=bool(files.docs) and files.long_document(),
+                code_files=files.code,
+                attachment_tokens=file_tokens + hist_extra,
             ),
             ctx,
         )
         history = trim_history(prep.history, ctx.rules.defaults.max_context_tokens)
-        dec.context_tokens = tokens(sum(len(m["content"]) for m in history)) if history else 0
+        dec.context_tokens = (
+            (tokens(sum(len(m["content"]) for m in history)) if history else 0)
+            + sum(int(m.get("_extra") or 0) for m in history)
+            + file_tokens
+        )
         thread = await s.get(Thread, prep.thread_id)
         assert thread is not None
         if dec.private and (not thread.private or thread.private_source in (None, "auto")):
@@ -400,6 +462,8 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
             "rule": dec.rule_id,
             "job_suggested": dec.job_suggested,
         }
+        if prep.files.items:
+            start["user_attachments"] = [attachments.as_json(a) for a in prep.files.items]
         if prep.secret_kinds:  # the portal swaps its optimistic copy (with the raw key) for this
             start["user_text"] = prep.user_text
             start["secret"] = {"kinds": list(prep.secret_kinds)}
@@ -419,10 +483,14 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
         if prep.raw_text is not None and all(c.local for c in dec.candidates):
             # The unmasked text only ever goes to the local model, for this turn.
             prompt = parse_slash(prep.raw_text.strip(), ctx.rules)[1]
+        by_msg = dict(prep.by_msg)
+        current: dict[str, Any] = {"role": "user", "content": prompt}
+        if files.items:
+            current["_mid"] = prep.user_message_id
+            by_msg[prep.user_message_id] = files.items
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            *history,
-            {"role": "user", "content": prompt},
+            *attachments.to_wire([*history, current], by_msg, att_config.load().history_images),
         ]
         try:
             async for ev in dispatch(client, dec, messages, cancel, ctx.cooldowns, opts.fault):
@@ -467,7 +535,9 @@ async def run_turn(client: httpx.AsyncClient, prep: Prep, opts: TurnOptions) -> 
         )
 
         if prep.title_pending and asst.status == "done":
-            title = await local_title(client, ctx, prep.user_text, asst.content, private=thread.private)
+            title = await local_title(
+                client, ctx, prep.user_text, asst.content, private=thread.private, thread_id=thread.id
+            )
             if title:
                 thread.title, thread.title_source = title, "local"
                 await s.commit()
@@ -628,13 +698,22 @@ async def _no_dispatch(s, ctx: Context, dec: Decision, req: Request, asst: Messa
         event = sse("blocked", {**block, "message_id": asst.id})
     else:
         req.status, asst.status = "failed", "error"
+        code = "no_model"
         req.error = "No model is available for this request"
-        asst.meta_json = {"error": req.error, "error_code": "no_model", **_chip(ctx, dec, None, None)}
+        if dec.needs_vision and dec.private:
+            code, req.error = "no_local_vision", NO_LOCAL_VISION
+        elif dec.needs_vision:
+            code = "no_vision"
+            req.error = (
+                "No connected model can read images. Connect one (for example Google AI Studio) "
+                "or remove the image."
+            )
+        asst.meta_json = {"error": req.error, "error_code": code, **_chip(ctx, dec, None, None)}
         event = sse(
             "error",
             {
                 "message": req.error,
-                "code": "no_model",
+                "code": code,
                 "message_id": asst.id,
                 "skipped": [k.as_dict() for k in dec.skipped],
             },
@@ -678,6 +757,7 @@ def _chip(ctx: Context, dec: Decision, chosen: Candidate | None, st: _TurnState 
         "sensitive": dec.sensitive,
         "classifier": dec.classifier,
         "score": chosen.scored.score if chosen and chosen.scored is not None else None,
+        "attachments": dec.attachments,
     }
 
 
@@ -777,7 +857,12 @@ async def _finalize(
 
 
 async def local_title(
-    client: httpx.AsyncClient, ctx: Context, user_text: str, answer: str, private: bool = True
+    client: httpx.AsyncClient,
+    ctx: Context,
+    user_text: str,
+    answer: str,
+    private: bool = True,
+    thread_id: uuid.UUID | None = None,
 ) -> str | None:
     """A short title from the local profile's tasks model; a free cloud model only when the profile
     has none (CPU only) and the thread isn't private. None -> keep the words title. `user_text` is the
@@ -794,5 +879,7 @@ async def local_title(
         cloud_ok=not private and local_profile.active().tasks is None,
         connected=ctx.connected,
         private=private,
+        purpose="title",
+        thread_id=thread_id,
     )
     return clean_title(text) if text else None

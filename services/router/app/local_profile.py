@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("app.local_profile")
 
 KEY = "local_profile"
-LOCAL_ALIASES = ("local", "private", "local-code", "local-think")
+LOCAL_ALIASES = ("local", "private", "local-code", "local-think", "local-vision")
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,9 @@ class Profile:
     classifier_options: dict[str, Any] = field(default_factory=dict, compare=False)
     tasks_options: dict[str, Any] = field(default_factory=dict, compare=False)
     tasks_keep_alive: str | int = "10m"
+    # M2.5: a local model that can read images (private images never leave the machine). Not in `models`:
+    # setup and doctor don't pull it on their own; it is pulled from Settings → Local models when wanted.
+    vision: str | None = None
 
     @property
     def tasks_on_gpu(self) -> bool:
@@ -81,6 +84,7 @@ class Profile:
             "classifier_cpu": self.classifier_options.get("num_gpu") == 0,
             "tasks_cpu": not self.tasks_on_gpu,
             "models": self.models,
+            "vision": self.vision,
         }
 
 
@@ -108,6 +112,7 @@ def load_profiles(config_dir: Path | None = None) -> tuple[dict[str, Profile], s
             classifier_options=dict(p.get("classifier_options") or {}),
             tasks_options=dict(p.get("tasks_options") or {}),
             tasks_keep_alive=p.get("tasks_keep_alive", "10m"),
+            vision=p.get("vision"),
         )
     fallback = str(data.get("fallback") or "small")
     if fallback not in out:
@@ -138,7 +143,8 @@ def recommend(vram_gb: float | None) -> str:
 
 
 def apply(aliases: list[AliasDeployment]) -> list[AliasDeployment]:
-    """Point local / private / local-code at the active profile's models."""
+    """Point local / private / local-code / local-think / local-vision at the active profile's models. A
+    profile without a vision model drops `local-vision` (a private image then gets a clear message)."""
     try:
         prof = active()
     except (OSError, ValueError):  # no local-models.yaml (old config dir): keep providers.yaml
@@ -148,9 +154,12 @@ def apply(aliases: list[AliasDeployment]) -> list[AliasDeployment]:
         "private": prof.general,
         "local-code": prof.coder or prof.general,
         "local-think": prof.thinker or prof.general,
+        "local-vision": prof.vision,
     }
     return [
-        replace(a, model=want[a.alias]) if a.alias in want and a.provider == "ollama" else a for a in aliases
+        replace(a, model=want[a.alias]) if a.alias in want and a.provider == "ollama" else a
+        for a in aliases
+        if not (a.alias in want and a.provider == "ollama" and want[a.alias] is None)
     ]
 
 
@@ -236,6 +245,11 @@ def view(state: dict[str, Any], installed: list[str] | None = None) -> dict[str,
         "profiles": [p.as_dict() for p in profiles.values()],
         "installed": installed,
         "missing": missing,
+        # M2.5: the model for images in private chats; pulled only when asked (Settings → Local models)
+        "vision": act.vision,
+        "vision_installed": None
+        if installed is None or not act.vision
+        else _installed(act.vision, installed),
     }
 
 

@@ -26,8 +26,11 @@
 | M5 Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M5.5 Content Studio | ⏳ | — | Sonnet 5.5, medium | |
 | M6 Metrics | ✅ Merged | m6 / #14 | Opus 5.5 | One costs table deduped by LiteLLM call id, 15-minute rollups via triggers, `/metrics` Simple + Pro, honest net savings with Subscriptions, SVG charts (ADR 0011), CSV export, Agents No cap; see M6 outcome |
-| M6.5 Subscription windows | ✅ Done (PR in review) | m65 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
-| M2.5 Attachments | ⏳ Next, before M7 | — | — | Files and images in chat; moved ahead of M7 (order M6.5 → M2.5 → M7) |
+| M6.5 Subscription windows | ✅ Merged | m65 / #15 | Opus 5.5 | Usage windows per subscription CLI (reported or labelled estimate), jobs that wait for resets and resume, named accounts (never rotated; ADR 0013), opt-in paid overflow through per-run LiteLLM keys (ADR 0015), custom Metrics range, rollup health; see M6.5 outcome |
+| M2.5 Attachments + Activity log | ✅ Done (PR in review) | m25 | Opus 5.5 | Files and images in chat (attach, drag, paste), safe storage and extraction, vision/long-document routing, private stays local, attachments in jobs, Metrics → Activity; see the pre-launch roadmap |
+| M6.7 Local compute optimizer | ⏳ | — | — | Multi-GPU (NVIDIA + AMD iGPU), GPU/RAM split, fit advisor, tuning |
+| M6.8 Providers: custom providers + presets | ⏳ | — | — | Connections → Add custom provider (OpenAI-compatible, local servers), presets, YAML export/import |
+| M6.9 Quiet beta | ⏳ | — | — | 5–10 users before launch |
 | M7 Packaging | ⏳ | — | Sonnet 5.5, low–medium | |
 
 **MVP target:** M0 + M0.5 + M1 + M2 + basic cost view. Use daily, publish early. M4.5 and M5.5 are cuttable.
@@ -705,3 +708,99 @@ Ideas and later milestones, not scheduled. Additions only.
 - **M5.5 Content Studio** (SPEC §8d).
 - **M7 launch:** one-command cross-platform install (Docker for Mac, Linux and Windows), **portal user auth before any remote access**, tag `v1.0.0`. (The README and the demo GIF were done in README v1.)
 - **GitHub Pages landing site with real interactivity (M7):** a live routing demo and a real video player, which a GitHub README can't run (it strips JS and CSS). Reuses the hero and routing SVGs and `docs/media`.
+
+## Pre-launch roadmap (set 2026-11-22)
+
+This is the order to launch. There is no "post-launch" bucket: a new idea goes to the **v1.1 list** below. The status
+table above and the README roadmap follow this order.
+
+1. **M6.5 Subscription windows** ✅
+2. **M2.5 Attachments + Activity log:** attach files and images in chat (button, drag-and-drop, paste); safe
+   storage outside the repo; PDF/text extraction with the secret scan; vision and long-document routing; private
+   attachments never leave the machine (local vision model per hardware profile, or a clear message); attachments in
+   jobs (git-ignored, never committed); Metrics → Activity, a searchable list of every request with CSV export.
+3. **M4.5 Workflow packs** (SPEC §8a), with **graphify as the first auto pack** (see Future).
+4. **M5.5 Content Studio** (SPEC §8d).
+5. **M5 Studio:** local Stable Diffusion for small GPUs, Grok Imagine as a paid opt-in, honest labels (what is local,
+   free or paid, before you press generate).
+6. **M6.7 Local compute optimizer:** multi-GPU including NVIDIA + AMD iGPU, the GPU/RAM split of each loaded model,
+   a fit advisor, tuning (see Future).
+7. **M6.8 Providers: custom providers + presets.** Connections → **Add custom provider**: OpenAI-compatible
+   (including local servers), advanced LiteLLM provider types; privacy is *declared, not verified* and labelled so;
+   **Test** before saving; YAML preset export/import; stored as a DB overlay over `providers.yaml`.
+   Safety: https, or http only for local addresses; cloud metadata IPs blocked; LAN addresses only when the provider
+   is marked local; a provider is never treated as private unless it is local. Cloudflare Workers AI, NVIDIA NIM,
+   Ollama Cloud and Antigravity ship as presets (see Future providers for their terms).
+8. **M6.9 Quiet beta:** 5–10 users, real installs, feedback fixed before launch.
+9. **M7 Launch:** re-verify every provider, CLI and free limit; Mac/Linux install; portal login; Docker level-3
+   sandbox (ADR 0010); `v1.0.0`; landing page; a < 60 s Motion Canvas promo video (the switchboard-in-your-house
+   analogy); demo re-record.
+
+## v1.1 list
+
+Ideas that arrive after this roadmap was set. Additions only; nothing here is scheduled before launch.
+
+- (empty)
+
+## M2.5 outcome
+
+Branch `m25`. Guide: [docs/m25.md](m25.md) (what you can do, how it works, the local-vision measurements, live
+check, decisions taken without asking). ADRs: [0016](adr/0016-attachments-storage-and-handling.md) attachments
+(host data folder, bytes decide the type, safe serving, job copies never committed),
+[0017](adr/0017-activity-log-from-requests.md) the Activity log reads `requests`. Commits: (0) router image build
+resilience; (1) efficiency rules and the pre-launch roadmap; router; job attachments and Activity; portal; checks,
+docs, media and version 0.9.0.
+
+- **Commit 0:** the router image installs dependencies in their own layer and keeps pip's downloads in a BuildKit
+  cache mount: a code change rebuilds in 7 s with no downloads, a `pyproject.toml` change in 21 s from the cache
+  (78 cached, 0 downloaded). The M6.5 carry-over "rebuild the router image" is done (the override file is gone).
+- **Attachments:** paperclip, drag-and-drop and paste on `/chat` and Home; images, PDFs, text and code (10 MB, 5 per
+  message, limits in `config/attachments.yaml`); type from the bytes, refusals in plain words; images re-encoded
+  without metadata under a pixel cap; PDF text (pypdf) with "scanned PDF" note; secrets in files masked and the
+  turn kept local; per-thread storage in `~/.switchboard/data` (700, router runs as your uid), deleted with the
+  chat; export with files only when asked (.zip); only raster images ever render inline.
+- **Routing:** `vision` checked on every target, rules `vision` and `long-document`, code files → code rule, the
+  quota guard counts attachment tokens, a token estimate before sending (Gemini and xAI image accounting
+  documented, else labelled). Gemini Flash-Lite tagged `vision` (checked live); Ollama models tagged from
+  `/api/show`.
+- **Private images:** `local-vision` alias from the profile's new `vision` slot; small = `qwen3-vl:2b` (5/5 on the
+  image checks, 82% on a 4 GB GPU, ~2 s per image loaded), medium/large `gemma3:4b` (not measured there). Without
+  one, a clear message; never a cloud call. Settings → Local models has **Pull vision model**.
+- **Jobs:** Run as job / New job carry and add files; hostprobe copies them to `.switchboard/attachments/` with a
+  `*` gitignore, and commit/diff exclude `.switchboard`; the job page lists them.
+- **Activity:** `/metrics/activity` (Overview | Activity tabs): every request incl. titles, summaries and model
+  tests (new `aux`/`test` request rows; Metrics totals unchanged), keyset paging, filters, title search that never
+  matches private chats, "Why this?" per row, job rows link to the job, formula-safe CSV from the router.
+- **Checks:** router 529 pytest (+ 4 live, deselected), ruff clean; hostprobe 91 unittest; portal tsc, eslint,
+  vitest 117, Playwright 489 (axe both themes incl. attachments and Activity; new baselines `chat-attach-composer`,
+  `chat-attach-sent`, `metrics-activity`, repeat-each 3; Metrics and Settings baselines regenerated for the new tabs,
+  export switch and vision row); JS ≤ 193.2 KB per route (`/chat` 183.5, `/metrics/activity` 169.8); Lighthouse 3
+  runs each: `/chat` 93–96, `/metrics`, `/metrics/activity`, `/settings` 96–100, a11y and best practices 100, CLS ≤
+  0.005; `test:bundle`, `docs:check`, doctor green. Also fixed an order-dependent Metrics test (it relied on another
+  test filling a cache).
+- **Live:** an image answered by Gemini ("Bar B is taller than bar A.", 258 documented tokens); a private image
+  answered by `qwen3-vl:2b`; job 18 in the playground read its attached file, which stayed git-ignored; Activity
+  showed the chat, titles, the private chat, the job and a model test.
+- **Also:** `VERSION` 0.9.0; README tour (two new shots, Metrics shots refreshed), roadmap ✅ M2.5, FAQ "Where does my
+  data go?"; SPEC §7.1, §8, §9; TROUBLESHOOTING (router image cache, data folder); `npm run lighthouse -- <routes>`
+  with `LH_RUNS`. No demo re-record (efficiency rules).
+- **Deviations:** image token rules live in `attachments.yaml`, not `providers.yaml`; Activity has Today / 7 days /
+  30 days but no custom range yet; the local model gets masked document text; `qwen2.5vl:3b` was not tried (the
+  6 GB pull limit).
+- **Changes on your machine (outside the repo):** `deploy/.env` gained `SWITCHBOARD_DATA_DIR/UID/GID`;
+  `~/.switchboard/data` (700); router image rebuilt, migration 0011 applied, router now runs as your uid;
+  hostprobe restarted; Ollama `qwen3-vl:2b` pulled (kept), `gemma3:4b` pulled and removed; job 18 and its branch in
+  `~/switchboard-playground`; a few test chats and uploads.
+
+## Carry-over from M2.5
+
+- **OCR** for scanned PDFs and images of text (the note says "comes later"); Office documents (docx, xlsx) and
+  audio/video files are refused for now.
+- **Activity custom range** (the API takes `range=custom`; the page offers Today / 7 / 30 days).
+- **Vision on medium/large GPUs** is `gemma3:4b` unmeasured there; measure on such a machine (M6.7 Local compute
+  optimizer).
+- **Retention** of attachments and `aux`/`test` request rows follows chat deletion only; a data-retention setting is
+  still open (SPEC §8 Settings).
+- **A job's files** are removed with its worktree; the job page then lists names without downloads.
+- Still open from earlier: see "Carry-over to M2.5 and later (from M6.5)" (second account, real limit hit, real
+  paid model, CLI session resume) and "Carry-over to M7 and later (from M6)".

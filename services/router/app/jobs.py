@@ -331,6 +331,7 @@ async def create(
     title: str | None = None,
     rule_id: str | None = None,
     paid_budget_usd: float | None = None,
+    files: list[Any] | None = None,
 ) -> Job:
     """`paid_budget_usd` set = a paid-overflow job you confirmed ("Paid — up to $X"): it runs on the paid
     agent only, within that budget and this month's overflow budget (ADR 0015)."""
@@ -384,6 +385,13 @@ async def create(
         accounts={k: accounts.key(v) for k, v in bound.items()},
         **({"paid_budget": paid_budget_usd} if paid else {}),
     )
+    if files:  # M2.5: the job's own copy of each file, named in the task (in the same commit as the job)
+        from app.attachments import service as att_service
+
+        rows = att_service.attach_to_job(files, job.id)
+        session.add_all(rows)
+        job.prompt = job.prompt + att_service.job_prompt_note(rows)
+        await event(session, job, "attachments", files=[a.name for a in rows])
     await session.commit()
     return job
 
@@ -743,7 +751,34 @@ async def _maybe_start(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         job.worktree_path, job.branch, job.base_sha = wt["path"], wt["branch"], wt["base_sha"]
         await event(session, job, "worktree", path=wt["path"], branch=wt["branch"], base=wt["base_sha"])
         await session.commit()
+        if not await _copy_attachments(session, pc, job, project):
+            return
     await _start_run(session, pc, job, company)
+
+
+async def _copy_attachments(session: AsyncSession, pc: Paperclip, job: Job, project: Project) -> bool:
+    """M2.5: put the job's files into its worktree (hostprobe; git-ignored, never committed)."""
+    from app.models import Attachment
+
+    files = list((await session.execute(select(Attachment).where(Attachment.job_id == job.id))).scalars())
+    if not files:
+        return True
+    status, res = await hostprobe_client.call(
+        "POST",
+        "/git/worktrees/attachments",
+        {
+            "project": project.path,
+            "slug": project.slug,
+            "job_id": job.id,
+            "files": [{"sha256": a.sha256, "name": a.name} for a in files],
+        },
+    )
+    if status != 200:
+        await _finish(session, pc, job, "failed", f"Couldn't copy the attached files: {res.get('error')}")
+        return False
+    await event(session, job, "attachments_copied", folder=res.get("folder"), files=len(files))
+    await session.commit()
+    return True
 
 
 CUT_OFF_NOTE = (
@@ -1317,6 +1352,9 @@ async def remove_worktree(session: AsyncSession, job: Job) -> None:
         job.worktree_removed = True
         await event(session, job, "worktree_removed", branch=job.branch)
         await session.commit()
+        from app.attachments import store as att_store
+
+        att_store.remove_dir(att_store.job_dir(job.id))  # the job's copies of its files (M2.5)
     else:
         log.warning("job %s: worktree not removed: %s", job.id, res.get("error"))
 

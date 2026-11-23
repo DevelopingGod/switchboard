@@ -47,6 +47,20 @@ rules:
     target: media:tts-default
     max_cost_usd: 0.20
 
+  # M2.5 attachments (SPEC §7.1 step 2): an image needs a model tagged `vision` (every target is checked: a
+  # model that can't read images is skipped with "Can't read images"); a long document (over
+  # attachments.yaml `long_document_tokens`) prefers a long context. A code file makes it a code question.
+  # A private image only ever goes to the profile's local vision model (`local-vision`).
+  - id: vision
+    when: { attachment: image }
+    target: best:vision
+    fallbacks: [model:smart-free, model:explore]
+
+  - id: long-document
+    when: { attachment: long }
+    target: best:long-context
+    fallbacks: [model:smart-free, model:explore, model:fast, model:local]
+
   - id: code-heavy
     when: { intent: code, size: large }
     target: agent:claude-code

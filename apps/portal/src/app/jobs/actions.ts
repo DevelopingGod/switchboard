@@ -52,6 +52,9 @@ function jobBody(input: JobInput): Record<string, unknown> | string {
   }
   if (input.title) out.title = String(input.title).slice(0, 200);
   if (input.from_request_id !== undefined && Number.isInteger(input.from_request_id)) out.from_request_id = input.from_request_id;
+  const ids = input.attachment_ids ?? [];
+  if (ids.length > 5 || !ids.every((i) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(i))) return "At most 5 files per job.";
+  if (ids.length) out.attachment_ids = ids;
   return out;
 }
 

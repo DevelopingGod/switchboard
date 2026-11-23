@@ -216,6 +216,9 @@ function localProfile(active: string): LocalProfileView {
     missing: prof.models.filter((x) => !INSTALLED.includes(x)),
     ollama: "ok",
     pull: { status: "idle", model: null, percent: null, error: null },
+    // M2.5: the small profile's vision model, not pulled in the fixture (shows the Pull button)
+    vision: prof.name === "none" ? null : prof.name === "small" ? "qwen3-vl:2b" : "gemma3:4b",
+    vision_installed: prof.name === "none" ? null : false,
   };
 }
 
@@ -460,7 +463,7 @@ export function handle<T>(method: string, path: string, body: unknown): Result<T
         providers: [{ provider: "groq", name: "Groq", model: "openai/gpt-oss-120b", fraction: 0.31, window: "day", kind: "requests", used: 310, limit: 1000, resets_at: null, source: "counter", estimate: false }],
         top: null,
       },
-      version: "0.8.0", // PROJECT_VERSION: scripts/check-docs.mjs keeps this equal to the root VERSION file
+      version: "0.9.0", // PROJECT_VERSION: scripts/check-docs.mjs keeps this equal to the root VERSION file
     });
   m = p.match(/^\/connections\/([\w-]+)\/credits$/);
   if (m && method === "PUT") {

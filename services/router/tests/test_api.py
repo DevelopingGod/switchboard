@@ -72,6 +72,7 @@ async def test_add_test_remove_key(client, litellm, providers_ok, hostprobe_up, 
         "private",
         "local-code",
         "local-think",  # M4a: "Think harder" (the profile's thinking model)
+        "local-vision",  # M2.5: images in private chats (the profile's vision model)
         "groq/*",  # M2: any catalog model by name (model:groq/<id>)
         "ollama/*",
     }
@@ -205,12 +206,13 @@ async def test_router_healthy_when_hostprobe_down(client, hostprobe_down):
         "db": "ok",
         "litellm": "ok",
         "hostprobe": "down",
-        "rules": "ok (11 rules, 11 classifier routes)",
+        "rules": "ok (13 rules, 11 classifier routes)",
         "fault_injection": False,
         "quota_test_limits": None,
         "limit_test": None,
         "overflow_allow_free": False,
         "rollups": {"state": "ok", "pending_buckets": 0, "last_run_at": None},
+        "attachments": "ok",
     }
     r = await client.get("/connections")
     assert r.status_code == 200 and r.json()["hostprobe"] == "down"

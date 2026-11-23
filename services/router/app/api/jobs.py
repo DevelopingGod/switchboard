@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -34,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import db, fleet, hostprobe_client, jobs
 from app.agents import load_agents
+from app.attachments import service as att_service
 from app.config import get_settings
 from app.db import get_session
 from app.deps import require_admin
@@ -64,6 +66,9 @@ class JobIn(BaseModel):
     from_request_id: int | None = None
     # M6.5 paid overflow: set only after you confirmed "Paid — up to $X" (ADR 0015).
     paid_budget_usd: float | None = Field(default=None, gt=0, le=1000)
+    # M2.5: files for the agent (fresh uploads, or the chat message's files for "Run as job"). They are copied
+    # into the job's worktree under a git-ignored .switchboard/attachments/ and never committed.
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class RerouteIn(BaseModel):
@@ -238,6 +243,7 @@ async def preview_job(body: JobIn, session: AsyncSession = Depends(get_session))
 async def create_job(body: JobIn, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     await fleet.refresh(session)
     project, masked, chain, autonomy, dec = await _resolve(body, session)
+    files = await att_service.for_job_request(session, body.attachment_ids)
     req = RequestRow(
         kind="job",
         prompt_hash=hashlib.sha256(masked.encode()).hexdigest(),
@@ -266,6 +272,7 @@ async def create_job(body: JobIn, session: AsyncSession = Depends(get_session)) 
             title=body.title,
             rule_id=await _rule_of(body, session, dec),
             paid_budget_usd=body.paid_budget_usd,
+            files=files,
         )
     except jobs.JobError as e:
         await session.rollback()
@@ -370,6 +377,16 @@ async def get_job(job_id: int, session: AsyncSession = Depends(get_session)) -> 
     out["approval_expires_at"] = (
         (since + timedelta(hours=hours)).isoformat() if since is not None and hours else None
     )
+    from app.models import Attachment
+
+    out["attachments"] = [
+        att_service.as_json(a)
+        for a in (
+            await session.scalars(
+                select(Attachment).where(Attachment.job_id == j.id).order_by(Attachment.created_at)
+            )
+        ).all()
+    ]
     return out
 
 

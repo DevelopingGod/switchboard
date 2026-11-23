@@ -17,6 +17,8 @@ export const errorStrings = {
     not_connected: "That model isn’t set up yet. Switchboard is syncing it now.",
     no_model: "No model is available for this request right now.",
     all_failed: "Every model that could answer this failed or was unavailable.",
+    no_vision: "No connected model can read images. Connect one (for example Google AI Studio) or remove the image.",
+    no_local_vision: "No model on this machine can read images, and a private image never goes to the cloud. Remove the image, or pull a vision model in Settings → Local models.",
     router_down: "Switchboard’s background service isn’t running.",
     router_slow: "Switchboard’s background service took too long to answer.",
     error: "Something went wrong with this request.",

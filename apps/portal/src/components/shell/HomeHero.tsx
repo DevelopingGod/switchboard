@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ImagePlus, PenLine, Search, Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Composer } from "@/components/kit/Composer";
@@ -10,6 +11,10 @@ import { handOff, type PendingMessage } from "@/lib/pending";
 import { usePrefs } from "@/lib/prefs";
 import { useMedia } from "@/lib/use-media";
 import { t, type StringKey } from "@/i18n/strings";
+import type { AttachmentInfo } from "@/lib/router-types";
+
+// M2.5: attachment code loads only once a file is added on Home.
+const HomeAttachments = dynamic(() => import("./HomeAttachments").then((m) => m.HomeAttachments), { ssr: false });
 
 type ChipId = "linkedin" | "tests" | "image" | "research";
 const chips: { id: ChipId; icon: LucideIcon }[] = [
@@ -35,6 +40,10 @@ export function HomeHero({
   const { push } = useToast();
   const router = useRouter();
   const [text, setText] = React.useState("");
+  const [queued, setQueued] = React.useState<File[]>([]);
+  const [files, setFiles] = React.useState<{ ready: AttachmentInfo[]; uploading: boolean }>({ ready: [], uploading: false });
+  const [attaching, setAttaching] = React.useState(false);
+  const taken = React.useCallback(() => setQueued([]), []);
 
   // Home hands the message to /chat, which sends it on arrival (routing, chip and cost show there).
   const go = (msg: PendingMessage) => {
@@ -59,7 +68,11 @@ export function HomeHero({
           onValueChange={setText}
           privateOn={priv}
           onPrivateChange={setPriv}
-          onSend={(m) => go(m)}
+          onSend={(m) => go({ ...m, attachments: files.ready })}
+          onFiles={phone ? undefined : (f) => (setAttaching(true), setQueued((q) => [...q, ...f]))}
+          attachSlot={attaching ? <HomeAttachments queued={queued} onTaken={taken} onState={setFiles} /> : null}
+          hasFiles={files.ready.length > 0}
+          filesBusy={files.uploading}
         />
         <ul aria-label={t("home.chips.label")} className="flex flex-wrap gap-2.5">
           {chips.map(({ id, icon: Icon }) => (

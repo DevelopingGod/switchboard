@@ -134,7 +134,18 @@ fill_secret LITELLM_SALT_KEY "sk-$(openssl rand -hex 24)"
 fill_secret SWITCHBOARD_SECRET_KEY "$(openssl rand -base64 32 | tr '+/' '-_')"
 fill_secret ROUTER_ADMIN_TOKEN "$(openssl rand -hex 32)"
 fill_secret HOSTPROBE_TOKEN "$(openssl rand -hex 32)"
+# M2.5: the data folder (attachments). Outside the repo, 0700, owned by you; the router container runs as your
+# uid/gid so it and hostprobe can both use it (ADR 0016).
+fill_secret SWITCHBOARD_DATA_DIR "$HOME/.switchboard/data"
+fill_secret SWITCHBOARD_UID "$(id -u)"
+fill_secret SWITCHBOARD_GID "$(id -g)"
 set -a; . "$ENV_FILE"; set +a
+DATA_DIR="${SWITCHBOARD_DATA_DIR/#\~/$HOME}"
+case "$(realpath -m "$DATA_DIR")/" in
+  "$(realpath "$ROOT")/"*) warn "SWITCHBOARD_DATA_DIR ($DATA_DIR) is inside the repository; pick a folder outside it."; exit 1 ;;
+esac
+mkdir -p -m 700 "$DATA_DIR" && chmod 700 "$DATA_DIR"
+say "Data folder: $DATA_DIR (mode 700)"
 # One port setting (M4a): older .env files set PAPERCLIP_URL instead, which still wins.
 PAPERCLIP_URL=${PAPERCLIP_URL:-http://127.0.0.1:${PAPERCLIP_PORT:-3100}}
 say "Back up SWITCHBOARD_SECRET_KEY and LITELLM_SALT_KEY (docs/m1a.md, Backups): stored keys can't be decrypted without them."

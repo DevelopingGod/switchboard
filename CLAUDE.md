@@ -32,3 +32,14 @@ At the end of every milestone, update docs/PROGRESS.md (status table, outcomes, 
 - `npm run docs:check` (from `apps/portal`) passes: links and images resolve, every image has alt text, media size
   limits hold, the version in VERSION matches everywhere, and the README roadmap matches PROGRESS.md.
 - The one project version lives in the root `VERSION` file. Bump it there; never edit the copies by hand.
+
+### Efficiency rules (part of the definition of done)
+- **Demo video:** re-record only at M7, or when the owner asks. **README screenshots:** regenerate only for pages that
+  changed.
+- **Tests:** while working, run only the affected tests; run the full suite **once** before the PR (in the
+  background, with a generous timeout).
+- **Lighthouse:** 3 runs per changed route (10+ only when a change targets performance). **Visual repeat-each:** only
+  for new or changed baselines.
+- **Live checks:** only what the milestone changes; reuse existing fixtures and the playground.
+- **Time box:** if any single step runs > 20 minutes, stop, commit WIP, and report what is slow.
+- **Small milestones:** split anything with more than ~8 scope items.

@@ -49,14 +49,22 @@ const targets = [
   "/jobs/31?theme=dark",
   "/metrics?range=custom&first=2026-11-10&last=2026-11-20",
   "/metrics?range=custom&first=2026-11-10&last=2026-11-20&theme=dark",
+  // M2.5
+  "/metrics/activity",
+  "/metrics/activity?theme=dark",
 ];
+// M2.5 efficiency rules: `npm run lighthouse -- /chat /metrics/activity` runs only the targets that start with one
+// of those paths; LH_RUNS=3 repeats each (3 runs per changed route; 10+ only for performance work).
+const only = process.argv.slice(2);
+const runs = Math.max(1, Number(process.env.LH_RUNS ?? 1));
+const selected = (only.length ? targets.filter((t) => only.some((o) => t.split("?")[0] === o)) : targets).flatMap((t) => Array(runs).fill(t) as string[]);
 const chrome =
   process.env.CHROME_PATH ?? join(homedir(), ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome");
 
 const dir = mkdtempSync(join(tmpdir(), "lh-"));
 let failed = false;
 
-for (const [i, path] of targets.entries()) {
+for (const [i, path] of selected.entries()) {
   const out = join(dir, `${i}.json`);
   execFileSync(
     "npx",

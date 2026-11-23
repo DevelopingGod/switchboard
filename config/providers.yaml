@@ -255,6 +255,10 @@ aliases:
     - { provider: ollama, model: "qwen3:4b" }
   local-think:
     - { provider: ollama, model: "qwen3:4b" }
+  # local-vision (M2.5): the profile's `vision` model, used only for images in a private chat. Removed when the
+  # profile has none.
+  local-vision:
+    - { provider: ollama, model: "qwen3:4b" }
 
 # Stand-ins (M3a quota guard): when an alias's model is near its free limit, automatic routing uses
 # the listed model with the most headroom instead (each must be connected and in the catalog).

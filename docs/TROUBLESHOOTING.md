@@ -123,3 +123,35 @@ docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:
 ## A saved rule edit "no longer fits rules.yaml"
 
 After you edit `config/rules.yaml` (removing or renaming a rule your saved changes touch), Routing rules shows a red notice and routing uses the plain file until you fix it. Reset your changes there, or roll back to a version that still fits.
+
+## Router image rebuild is slow or times out on PyPI
+
+The router image installs its Python packages in their own layer, before the code is copied
+(`services/router/Dockerfile`). A code-only change reuses that layer and rebuilds in seconds with no downloads; only
+a change to `services/router/pyproject.toml` reinstalls packages.
+
+- **Retries reuse downloads.** pip's cache is a BuildKit cache mount (`/root/.cache/pip`), kept between builds but
+  never put in the image. If PyPI times out halfway, run the build again: wheels already downloaded come from the
+  cache (`Using cached …` in `--progress=plain` output).
+- **Slow network:** `PIP_DEFAULT_TIMEOUT=120` and `PIP_RETRIES=10` are set in the Dockerfile.
+- **Start clean:** `docker builder prune` removes the build cache, including the pip cache mount; the next build
+  downloads everything again.
+- **Check:** `docker compose -f deploy/docker-compose.yml build --progress=plain router`; after a code-only change
+  the dependency step says `CACHED`.
+
+## Data folder (attachments)
+
+Attachments (files and images in chat and jobs) live in the data folder, `~/.switchboard/data` by default
+(`SWITCHBOARD_DATA_DIR` in `deploy/.env`). It is outside the repository, mode 700, and owned by you: the router
+container runs as your user (`SWITCHBOARD_UID`/`SWITCHBOARD_GID`, filled by `scripts/setup-wsl.sh`) so the router
+and hostprobe can both read and write it.
+
+- **doctor says the folder is missing:** run `scripts/setup-wsl.sh` (it creates the folder before the router
+  starts). If the router started first, Docker created the folder itself, owned by root.
+- **Owned by root or another user:** Switchboard never uses `sudo`. Stop the router, then fix the owner once
+  yourself (for example `sudo chown -R "$(id -u):$(id -g)" ~/.switchboard/data`), `chmod 700` it, and start the
+  router again.
+- **"not writable" in doctor:** `SWITCHBOARD_UID`/`SWITCHBOARD_GID` in `deploy/.env` must be your `id -u`/`id -g`,
+  then `docker compose -f deploy/docker-compose.yml up -d router`.
+- **Backups:** back the folder up with `deploy/.env`. Deleting a chat deletes its files; Settings → Data → Export
+  includes the files only when you tick "Include attachments".

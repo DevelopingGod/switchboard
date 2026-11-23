@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="License: MIT"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.8.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-0.9.0-8b8fe8?style=flat-square" alt="Version 0.4.0"></a>
   <a href="https://github.com/DevelopingGod/switchboard/stargazers"><img src="https://img.shields.io/github/stars/DevelopingGod/switchboard?style=flat-square&color=8b8fe8" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs_on-Windows_%2B_WSL2-8b8fe8?style=flat-square" alt="Runs on Windows with WSL2 today; macOS and Linux planned">
 </p>
@@ -149,7 +149,10 @@ jobs.
 Leave **Target** on *Auto* and ask something. Click the route chip (**Why this?**) to see which model answered and
 why. Type `/code`, `/research`, `/bulk` or `/private` to steer a single message, or flip the **Private** switch
 to keep a whole chat on your machine. Private replies come from a local model that answers at once; press
-**Think harder** for one message when it needs a slower model that reasons first. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> anywhere to search.
+**Think harder** for one message when it needs a slower model that reasons first. Attach images, PDFs, text or code
+with the paperclip, by dropping them on the box, or by pasting a screenshot: the box shows roughly how many tokens
+they will cost, a message with an image goes to a model that can read images, and a private image is read only by a
+local model (or you are told none is set up). Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> anywhere to search.
 
 <p align="center">
   <picture>
@@ -246,6 +249,22 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
         <img src="docs/media/shot-wizard-goals-day.webp" alt="The first-run wizard asking what you want to do, so it only asks for the providers you need.">
       </picture>
       <br><sub><b>A guided first run.</b> Skippable, resumable, and it only asks for the providers your goals need.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-chat-attach-dusk.webp">
+        <img src="docs/media/shot-chat-attach-day.webp" alt="A chat message with an attached bar chart shown as a thumbnail and a PDF as a download chip; the reply, from a Google AI Studio model that can read images, describes the chart.">
+      </picture>
+      <br><sub><b>Files and images.</b> Attach, drop or paste. Images go to a model that can read them; private images stay on your computer; files never run.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-activity-dusk.webp">
+        <img src="docs/media/shot-activity-day.webp" alt="Metrics, Activity: a searchable list of every request with its title (private chats show Private chat), kind, provider and model, value, latency and status, with filters and a Download CSV button.">
+      </picture>
+      <br><sub><b>Activity.</b> Every request in one list: chats, jobs, titles and model tests. Search titles, filter, open "Why this?", export CSV.</sub>
     </td>
   </tr>
 </table>
@@ -379,17 +398,20 @@ through a gateway (see [Privacy](#privacy-and-security)); that is a decision abo
 | ✅ | **M3b** Rules UI and sidebar | Rules editor with history, dry-run tester, left sidebar, small-GPU profile |
 | ✅ | **M4a** Agents and jobs backend | Agent registry, jobs through Paperclip with approvals, worktrees and budgets; fast private chat |
 | ✅ | **M4b** Jobs page and agent fleet | Job board, live log, plan and diff review, Run as job from chat, hire and manage agents, Projects |
-| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand. First auto pack: graphify, used only for agent jobs on projects above a size threshold, installed in the job's copy only, local AST pass by default (AI pass opt-in), pinned and hashed, graph files never committed, turned off per project if Metrics shows no token savings |
-| 🔜 | **M5** Studio | Image and video generation with cost confirmation |
-| 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
 | ✅ | **M6** Metrics | One dashboard for spend, honest savings, quotas, budgets, errors and latency, with CSV export |
 | ✅ | **M6.5** Subscription windows | See each subscription's usage window, jobs that wait for a reset and continue, separate accounts for separate purposes, opt-in paid overflow |
-| 🔜 | **M2.5** Attachments | Files and images in chat (next, before M7) |
-| 🔜 | **M7** Packaging | One-command install, macOS and Linux, portal login, CI, a GitHub Pages site |
+| ✅ | **M2.5** Attachments and Activity log | Attach files and images in chat (button, drag-and-drop, paste); private attachments stay on your machine; attachments in jobs; a searchable list of every request |
+| 🔜 | **M4.5** Workflow packs | Installable spec and review workflows, on demand. First auto pack: graphify, used only for agent jobs on projects above a size threshold, installed in the job's copy only, local AST pass by default (AI pass opt-in), pinned and hashed, graph files never committed, turned off per project if Metrics shows no token savings |
+| 🔜 | **M5.5** Content Studio | Drafts, voice profiles, media pairing, export |
+| 🔜 | **M5** Studio | Image and video generation with cost confirmation: local Stable Diffusion for small GPUs, Grok Imagine as a paid opt-in, honest labels |
+| 🔜 | **M6.7** Local compute optimizer | Use every GPU (NVIDIA and AMD iGPU), see how each local model splits between GPU and RAM, a fit advisor and tuning |
+| 🔜 | **M6.8** Custom providers and presets | Add any OpenAI-compatible provider, including local servers, with safety checks; presets for Cloudflare, NVIDIA, Ollama Cloud and Antigravity; YAML export and import |
+| 🔜 | **M6.9** Quiet beta | 5–10 users try real installs before launch |
+| 🔜 | **M7** Launch | One-command install on macOS and Linux, portal login, sandboxed full-auto jobs, CI, v1.0.0, a GitHub Pages site and a short promo video |
 <!-- roadmap:end -->
 
-💡 Ideas, unscheduled: more free providers as YAML (for example Cloudflare Workers AI);
-a local-compute optimizer for multi-GPU machines. Details in [PROGRESS.md](docs/PROGRESS.md#future).
+This is the full road to launch; there is no "later" bucket. 💡 Ideas that come up now go to the
+[v1.1 list](docs/PROGRESS.md#v11-list).
 
 ## FAQ
 
@@ -420,8 +442,10 @@ No — it falls back to other providers, resumes after resets, and can use paid 
 <details>
 <summary>Where does my data go?</summary>
 
-Chats, rules and settings live in a Postgres database on your machine. A message goes to the provider it is routed
-to (the chip tells you which), unless the chat is private or looks sensitive, in which case it stays on your machine.
+Chats, rules and settings live in a Postgres database on your machine; attached files in a folder next to it
+(`~/.switchboard/data`, readable only by you). A message goes to the provider it is routed to (the chip tells you
+which), unless the chat is private or looks sensitive, in which case it stays on your machine. That includes its
+attachments: a private image is read only by a local model, and a file with a secret in it keeps the chat local.
 
 </details>
 

@@ -1,6 +1,7 @@
 import "server-only";
+import * as attachmentFixtures from "./attachments-fixtures";
 import type { Result } from "./router";
-import type { ChatMessage, ChatThread, RouteInfo, TargetsResponse, TargetModel } from "../router-types";
+import type { AttachmentInfo, ChatMessage, ChatThread, RouteInfo, TargetsResponse, TargetModel } from "../router-types";
 
 /**
  * PORTAL_DATA=fixture: an in-memory fake of the router's chat API with deterministic streaming
@@ -507,9 +508,45 @@ function scenario(
   return { route, content, status: "done", events };
 }
 
+/** M2.5: attachments change the route like the router does (vision rule; a private image never leaves). */
+function withFiles(
+  sc: ReturnType<typeof scenario>,
+  files: AttachmentInfo[],
+  priv: boolean,
+): ReturnType<typeof scenario> {
+  const images = files.some((f) => f.kind === "image");
+  const tokens = files.reduce((n, f) => n + f.tokens, 0);
+  if (!files.length) return sc;
+  if (images && priv) {
+    const error = "This private chat has an image, and no model on this machine can read images. Remove the image, or pull a vision model in Settings → Local models. Private images are never sent to the cloud.";
+    const route = base({ rule: "private", matched_by: "private", private: true, target: null, label: null, reasons: [], skipped: [{ target: "model:local-vision", label: "Ollama · qwen3-vl:2b", code: "not_configured", reason: "qwen3-vl:2b isn't downloaded yet (Settings → Local models)" }], error, error_code: "no_local_vision", model: undefined, tokens_in: undefined, tokens_out: undefined, cost_usd: undefined, latency_ms: undefined, attachments: { vision: true, long_document: false, code: false, tokens } });
+    return { route, content: "", status: "error", events: [["error", { message: error, code: "no_local_vision" }]] };
+  }
+  if (images) {
+    const route = base({
+      rule: "vision",
+      matched_by: "attachment",
+      target: "model:gemini/gemini-3.1-flash-lite",
+      label: "Google AI Studio · gemini-3.1-flash-lite",
+      model: "gemini/gemini-3.1-flash-lite",
+      provider: "gemini",
+      provider_name: "Google AI Studio",
+      reasons: ["Needs vision: this message has an image", "Best for “vision”: score 0.81", "Free tier (may train on your data)"],
+      skipped: [{ target: "model:fast", label: "Groq · gpt-oss-120b", code: "needs_vision", reason: "Can't read images (this message has an image)" }],
+      context_tokens: tokens,
+      tokens_in: tokens + 40,
+      attachments: { vision: true, long_document: false, code: false, tokens },
+    });
+    const content = "The chart shows monthly requests rising from about **1,200 in June** to **3,400 in October**, with the steepest jump between August and September. Free-tier models handled roughly three quarters of them.";
+    return { route, content, status: "done", events: [["route", { target: route.target, label: route.label, local: false, free_tier: true }]] };
+  }
+  return { ...sc, route: { ...sc.route, context_tokens: (sc.route.context_tokens ?? 0) + tokens, attachments: { vision: false, long_document: tokens > 12_000, code: files.some((f) => f.code), tokens } } };
+}
+
 export function stream(path: string, body: unknown, signal: AbortSignal): Response {
   const s = store();
-  const b = (body ?? {}) as { thread_id?: string | null; text?: string; target?: string; private?: boolean; cloud_override?: boolean; think?: boolean };
+  const b = (body ?? {}) as { thread_id?: string | null; text?: string; target?: string; private?: boolean; cloud_override?: boolean; think?: boolean; attachment_ids?: string[] };
+  const files = attachmentFixtures.bind(b.attachment_ids ?? []);
   const enc = new TextEncoder();
   let thread: FxThread | undefined;
   let text = String(b.text ?? "");
@@ -531,7 +568,7 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
       };
       s.threads.push(thread);
     }
-    const secret = SECRET.test(text);
+    const secret = SECRET.test(text) || files.some((f) => f.secret);
     SECRET.lastIndex = 0;
     const stored = secret ? text.replace(SECRET, "[secret masked: API key]") : text;
     thread.messages.push({
@@ -543,6 +580,7 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
       feedback: null,
       route: null,
       secret: secret ? { kinds: ["api_key"] } : null,
+      attachments: files,
       created_at: new Date().toISOString(),
     });
     if (secret) Object.assign(thread, { private: true, private_source: "secret" });
@@ -567,7 +605,7 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
   const lastUser = thread.messages.filter((x) => x.role === "user").at(-1);
   const secret = !!lastUser?.secret;
   const priv = !!b.private || thread.private || text.toLowerCase().startsWith("/private");
-  const sc = scenario(text, priv && !secret, b.target ?? "auto", { secret, noAuto: !!b.cloud_override, think: !!b.think });
+  const sc = withFiles(scenario(text, priv && !secret, b.target ?? "auto", { secret, noAuto: !!b.cloud_override, think: !!b.think }), lastUser?.attachments ?? [], priv || secret);
   const privNow = priv || secret || sc.route.private;
   if (privNow && !thread.private) Object.assign(thread, { private: true, private_source: sc.route.matched_by === "auto_private" ? "auto" : "user" });
   const requestId = s.nextReq++;
@@ -590,7 +628,8 @@ export function stream(path: string, body: unknown, signal: AbortSignal): Respon
       const stopped = () => signal.aborted || s.stops.has(requestId);
       const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const masked = secret && lastUser ? { user_text: lastUser.content, secret: lastUser.secret } : {};
-      send("start", { thread_id: t.id, user_message_id: reply.id - 1, message_id: reply.id, request_id: requestId, private: privNow, title: t.title, rule: sc.route.rule, job_suggested: sc.route.job_suggested, ...masked });
+      const userFiles = files.length ? { user_attachments: files } : {};
+      send("start", { thread_id: t.id, user_message_id: reply.id - 1, message_id: reply.id, request_id: requestId, private: privNow, title: t.title, rule: sc.route.rule, job_suggested: sc.route.job_suggested, ...masked, ...userFiles });
       for (const ev of sc.events) {
         const [name, arg] = ev;
         if (typeof arg === "number") await wait(arg);

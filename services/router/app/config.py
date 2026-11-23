@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     paperclip_api_key: SecretStr | None = None
     hostprobe_token: SecretStr | None = None
     config_dir: Path = Path("/srv/config")
+    # M2.5 (ADR 0016): attachments live here, a host folder (~/.switchboard/data by default, mode 700, never
+    # inside the repo) bind-mounted into the container, so hostprobe can copy files into job worktrees.
+    data_dir: Path = Path("/srv/data")
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     catalog_interval_s: int = 24 * 3600
     # Skip the startup catalog/reconcile/import tasks (tests drive them directly).

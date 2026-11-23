@@ -1,4 +1,4 @@
-import { routerGetRaw } from "@/lib/server/router";
+import { routerGetBinary, routerGetRaw } from "@/lib/server/router";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +18,22 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const format = url.searchParams.get("format") === "md" ? "md" : "json";
   const includePrivate = url.searchParams.get("private") === "1";
+  const date = new Date().toISOString().slice(0, 10);
+  if (url.searchParams.get("files") === "1") {
+    // M2.5: with attachments, the router answers with a .zip (export + files), passed through as bytes.
+    const res = await routerGetBinary(`/chat/export?format=${format}&include_private=${includePrivate}&include_attachments=true`);
+    if (!res) return Response.json({ error: "Couldn’t export right now. Is Switchboard running?" }, { status: 502 });
+    return new Response(res, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="switchboard-chats-${date}.zip"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
   const r = await routerGetRaw(`/chat/export?format=${format}&include_private=${includePrivate}`);
   if (!r) return Response.json({ error: "Couldn’t export right now. Is Switchboard running?" }, { status: 502 });
-  const date = new Date().toISOString().slice(0, 10);
   return new Response(r.body, {
     headers: {
       "Content-Type": format === "md" ? "text/markdown; charset=utf-8" : "application/json; charset=utf-8",
