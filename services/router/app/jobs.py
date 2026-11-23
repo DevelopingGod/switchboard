@@ -19,6 +19,12 @@ rest wait in the queue. The job loop (`loop()`) advances active jobs; everything
 picks up where it was. Every change is appended to `job_events` (traceability, SPEC §13.5).
 
 Worktrees come from hostprobe (ADR 0008): `switchboard/job-<id>` from the project's HEAD, outside the repo.
+
+M4.5a (ADRs 0018/0019): before the first run, the job's packs are set up in its worktree by hostprobe (a
+background task the loop polls; the job stays `queued` meanwhile). A pack workflow (`flow`, e.g. OpenSpec's
+propose → apply → archive) replaces the level's runs with one edit run per step and a review (`step` gate)
+after each; the last step ends at the usual diff review. graphify is used, or held out as a control, per
+app/packs/service.py.
 A job that is rejected, fails or is stopped loses its worktree (the branch stays); done jobs keep theirs
 until the branch is merged or more than `keep_per_project` are kept.
 """
@@ -43,6 +49,7 @@ from app.agents import AgentDef, AgentRegistry, Level, build_run, load_agents
 from app.config import get_settings
 from app.job_output import TurnCounter, outcome
 from app.models import Cost, Job, JobEvent, Project, SystemMeta
+from app.packs import service as packs
 from app.paperclip import TERMINAL_RUN, Paperclip, PaperclipError
 
 log = logging.getLogger("app.jobs")
@@ -332,6 +339,7 @@ async def create(
     rule_id: str | None = None,
     paid_budget_usd: float | None = None,
     files: list[Any] | None = None,
+    flow: str | None = None,
 ) -> Job:
     """`paid_budget_usd` set = a paid-overflow job you confirmed ("Paid — up to $X"): it runs on the paid
     agent only, within that budget and this month's overflow budget (ADR 0015)."""
@@ -352,6 +360,13 @@ async def create(
     if not known:
         raise JobError(400, "none of these agents is in config/agents.yaml")
     bound = chain_accounts(reg, known, project)  # raises if one CLI would use two accounts
+    if flow:  # M4.5a: every agent that may take the job must be able to run the workflow
+        if paid:
+            raise JobError(400, "Paid overflow jobs don't run pack workflows")
+        for aid in known:
+            why = packs.check_flow(flow, project, reg.agents[aid], autonomy)
+            if why:
+                raise JobError(400, why)
     budget = budget_list_usd if budget_list_usd is not None else reg.defaults.per_job_list_usd
     if budget <= 0:
         raise JobError(400, "the budget must be more than $0")
@@ -371,6 +386,7 @@ async def create(
         rule_id=rule_id,
         paid=paid,
         paid_budget_usd=paid_budget_usd,
+        flow=flow or None,
     )
     session.add(job)
     await session.flush()
@@ -384,6 +400,7 @@ async def create(
         budget=budget,
         accounts={k: accounts.key(v) for k, v in bound.items()},
         **({"paid_budget": paid_budget_usd} if paid else {}),
+        **({"flow": flow} if flow else {}),
     )
     if files:  # M2.5: the job's own copy of each file, named in the task (in the same commit as the job)
         from app.attachments import service as att_service
@@ -438,6 +455,7 @@ async def preview(
     budget_list_usd: float | None,
     rule_id: str | None = None,
     paid_budget_usd: float | None = None,
+    flow: str | None = None,
 ) -> dict[str, Any]:
     """What `create` + the job loop would do with these choices, without writing anything. The agent check
     is the one the loop uses before the first run (`agent_check`), so the preview can't promise an agent
@@ -502,6 +520,16 @@ async def preview(
             await overflow.check(session, float(paid_budget_usd or 0))
         except overflow.OverflowError as e:
             problem = e.message
+    if not problem and flow:
+        if paid:
+            problem = "Paid overflow jobs don't run pack workflows"
+        else:
+            for aid in chain:
+                agent = reg.agents.get(aid)
+                why = packs.check_flow(flow, project, agent, autonomy) if agent else None
+                if why:
+                    problem = why
+                    break
     if problem:
         pass
     elif level.needs_budget and budget_list_usd is None:
@@ -520,15 +548,26 @@ async def preview(
             "switchboard/job-<number>. Your own folder and branch aren't touched."
         )
         cmds = ", ".join(reg.defaults.allowed_commands[:4])
-        if "read_only" in level.runs:
+        ref = packs.flow_ref(flow)
+        if ref is not None:
+            fpack, fflow = ref
+            steps.append(
+                f"{fpack.name} is set up inside that copy only (its files are never committed). Then {who} works "
+                f"through {fflow.label}, one step at a time, and you review each step before the next: "
+                + ", ".join(st.label for st in fflow.steps)
+                + "."
+            )
+        if ref is not None:
+            pass
+        elif "read_only" in level.runs:
             steps.append(
                 f"{who} reads the project and writes "
                 + ("a plan" if level.approve_plan else "a report")
                 + ". It can't change files or run commands."
             )
-        if level.approve_plan:
+        if level.approve_plan and ref is None:
             steps.append("Nothing more happens until you approve the plan (or reject it with a note).")
-        if "edit" in level.runs:
+        if "edit" in level.runs or ref is not None:
             steps.append(
                 f"{who} edits files in the copy and may only run test commands (such as {cmds}). "
                 "No internet, no installs, no push."
@@ -598,6 +637,7 @@ async def preview(
         "paid": paid,
         "paid_budget_usd": paid_budget_usd,
         "overflow": {"ready": ov["ready"], "left_usd": ov["left_usd"], "model": ov["model"]},
+        "flow": flow or None,
     }
 
 
@@ -753,7 +793,100 @@ async def _maybe_start(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         await session.commit()
         if not await _copy_attachments(session, pc, job, project):
             return
+    if job.run_index == 0 and not job.started_at and not await _setup_packs(session, pc, job, project):
+        return  # set up in the background; the loop checks again
     await _start_run(session, pc, job, company)
+
+
+async def _setup_packs(session: AsyncSession, pc: Paperclip, job: Job, project: Project) -> bool:
+    """M4.5a: set the job's packs up in its worktree (hostprobe, a background task). True when done."""
+    state = (job.packs or {}).get("state")
+    if state == "ready":
+        return True
+    reg = load_agents()
+    agent = reg.agents[job.agent]
+    body = {"project": project.path, "slug": project.slug, "job_id": job.id}
+    if state is None:
+        if job.paid:
+            job.packs = {"state": "ready", "requested": []}
+            await session.commit()
+            return True
+        reqs, info = await packs.job_requests(session, project, job, agent, body)
+        if not reqs:  # nothing to set up (why graphify wasn't used is kept in jobs.packs for the job page)
+            job.packs = {**info, "state": "ready"}
+            await session.commit()
+            return True
+        job.packs = {**info, "state": "setting_up", "reqs": reqs, "since": now().isoformat()}
+        await event(session, job, "packs_setup", packs=[r["id"] for r in reqs], graphify=info.get("graphify"))
+        await session.commit()
+    rec = dict(job.packs or {})
+    task = rec.get("task")
+    if task:
+        status, res = await hostprobe_client.call("GET", f"/packs/tasks/{task}", timeout=20)
+        if status == 404:
+            task = None  # hostprobe restarted: ask again (a finished setup answers from its record)
+    if not task:
+        status, res = await hostprobe_client.call(
+            "POST", "/git/worktrees/packs", {**body, "packs": rec.get("reqs") or []}, timeout=60
+        )
+        if status != 200:
+            return await _packs_failed(session, pc, job, rec, str(res.get("error") or f"hostprobe {status}"))
+        rec["task"] = res.get("id")
+        job.packs = rec
+        await session.commit()
+    if res.get("state") == "running":
+        since = datetime.fromisoformat(rec["since"]) if rec.get("since") else now()
+        if now() - since > timedelta(seconds=packs.config().setup_timeout_s):
+            return await _packs_failed(session, pc, job, rec, "setting the packs up took too long")
+        return False
+    if res.get("state") != "ok":
+        return await _packs_failed(session, pc, job, rec, str(res.get("error") or "pack setup failed"))
+    summary = packs.setup_summary(res.get("result") or {})
+    rec.update(state="ready", setup=summary)
+    rec.pop("reqs", None)
+    g = dict(rec.get("graphify") or {})
+    if g.get("used") and g.get("pack") not in summary["packs"]:
+        why = next((r["reason"] for r in summary["refused"] if r.get("id") == g.get("pack")), "it wasn't set up")
+        g.update(used=False, eligible=False, reason=f"graph not used: {why}")
+    elif g.get("used"):
+        gp = summary["packs"][g["pack"]]
+        g.update(build_ms=sum(st.get("ms") or 0 for st in gp.get("steps") or []), nodes=(gp.get("graph_stats") or {}).get("nodes"))
+    rec["graphify"] = g
+    job.packs = rec
+    ref = packs.flow_ref(job.flow)
+    await event(
+        session,
+        job,
+        "packs_ready",
+        packs={k: {"version": v["version"], "owned": len(v["owned"]), "artifacts": len(v["artifacts"]),
+                   "edits": [e["path"] for e in v["edits"]], "verify_ms": v.get("verify_ms")}
+               for k, v in summary["packs"].items()},
+        refused=summary["refused"],
+        graphify=g,
+    )
+    await session.commit()
+    if ref is not None and ref[0].id not in summary["packs"]:
+        why = next((r["reason"] for r in summary["refused"] if r.get("id") == ref[0].id), "it wasn't set up")
+        await _finish(session, pc, job, "failed", f"{ref[0].name} couldn't be set up: {why}")
+        return False
+    return True
+
+
+async def _packs_failed(session: AsyncSession, pc: Paperclip, job: Job, rec: dict[str, Any], why: str) -> bool:
+    """A job without a workflow goes on without its packs (graphify off); a workflow job can't."""
+    rec = {**rec, "state": "ready", "error": why}
+    rec.pop("reqs", None)
+    g = dict(rec.get("graphify") or {})
+    if g.get("used"):
+        g.update(used=False, eligible=False, reason=f"graph not used: {why}")
+    rec["graphify"] = g
+    job.packs = rec
+    await event(session, job, "packs_failed", error=why)
+    await session.commit()
+    if job.flow:
+        await _finish(session, pc, job, "failed", f"The job's packs couldn't be set up: {why}")
+        return False
+    return True
 
 
 async def _copy_attachments(session: AsyncSession, pc: Paperclip, job: Job, project: Project) -> bool:
@@ -787,8 +920,23 @@ CUT_OFF_NOTE = (
 )
 
 
-def _task(job: Job, kind: str) -> str:
-    return _task_text(job, kind) + (CUT_OFF_NOTE if job.attempt else "")
+def _task(job: Job, kind: str, agent: AgentDef | None = None) -> str:
+    if job.flow and agent is not None:
+        ft = packs.flow_task(job, agent)
+        if ft is not None:
+            return ft[1] + packs.agent_note(job) + (CUT_OFF_NOTE if job.attempt else "")
+    return _task_text(job, kind) + packs.agent_note(job) + (CUT_OFF_NOTE if job.attempt else "")
+
+
+def run_kind(job: Job, reg: AgentRegistry) -> str:
+    """The kind of the job's current run: the level's, or `edit` for every step of a pack workflow."""
+    if job.flow:
+        return "edit"
+    return reg.levels[job.autonomy].runs[job.run_index]
+
+
+def run_count(job: Job, reg: AgentRegistry) -> int:
+    return packs.flow_steps(job) if job.flow else len(reg.levels[job.autonomy].runs)
 
 
 def _task_text(job: Job, kind: str) -> str:
@@ -808,8 +956,7 @@ def _task_text(job: Job, kind: str) -> str:
 
 async def _start_run(session: AsyncSession, pc: Paperclip, job: Job, company: str) -> None:
     reg = load_agents()
-    level = reg.levels[job.autonomy]
-    kind = level.runs[job.run_index]
+    kind = run_kind(job, reg)
     agent = reg.agents[job.agent]
     left = float(job.budget_list_usd) - float(job.list_price_usd or 0)
     if left <= 0:
@@ -832,15 +979,23 @@ async def _start_run(session: AsyncSession, pc: Paperclip, job: Job, company: st
             return
         ov = {"key_file": key_file, "model": model}
         await event(session, job, "paid_key", model=model, run_index=job.run_index, attempt=job.attempt)
+    extra_env: dict[str, str] = {}
+    bins = ((job.packs or {}).get("setup") or {}).get("bins") or []
+    if bins:  # the pack wrappers first, then the PATH Paperclip runs agents with (ADR 0018)
+        base = (await packs.installed()).get("service_path")
+        if base:
+            extra_env["PATH"] = ":".join([*bins, base])
     spec = build_run(
         reg,
         agent,
         kind,
         worktree=job.worktree_path or "",
-        task=_task(job, kind),
+        task=_task(job, kind, agent),
         budget_left_usd=left,
         account_home=account_home,
         overflow=ov,
+        extra_env=extra_env,
+        extra_allowed=packs.allowed_commands(job),
     )
     try:
         pid = await ensure_agent(
@@ -1018,7 +1173,14 @@ async def _follow_run(session: AsyncSession, pc: Paperclip, job: Job) -> None:
         await _finish(session, pc, job, what, msg[:500])
         return
     level = reg.levels[job.autonomy]
-    kind = level.runs[job.run_index]
+    kind = run_kind(job, reg)
+    if job.flow:  # a pack workflow: a review after every step but the last (that one is the diff review)
+        job.result_text = out.text
+        if job.run_index + 1 < run_count(job, reg):
+            await _gate(session, pc, job, "step", out.text)
+            return
+        await _gate(session, pc, job, "diff", out.text)
+        return
     if kind == "read_only" and level.approve_plan:
         job.plan_text = out.text
         await _gate(session, pc, job, "plan", out.text)
@@ -1096,6 +1258,7 @@ async def _record(
                 model=out.model,
                 tokens_in=out.tokens_in,
                 tokens_out=out.tokens_out,
+                tokens_cached=out.tokens_cached,
                 cost_usd=out.cost_usd,
                 list_price_usd=out.list_price_usd,
                 external_id=ext,
@@ -1120,6 +1283,7 @@ async def _record(
             turns=out.turns,
             tokens_in=out.tokens_in,
             tokens_out=out.tokens_out,
+            tokens_cached=out.tokens_cached,
             list_price_usd=out.list_price_usd,
             cost_usd=out.cost_usd,
             denied=list(out.denied),
@@ -1134,6 +1298,7 @@ async def _gate(session: AsyncSession, pc: Paperclip, job: Job, gate: str, text:
     company = (await meta(session)).get("company_id")
     title = {
         "plan": "Approve the plan",
+        "step": "Review this step",
         "diff": "Review the changes",
         "result": "Review the result",
         "limit": "Wait for the usage limit to reset?",
@@ -1216,6 +1381,7 @@ async def decide(
     *,
     by: str,
     mirror: bool = True,
+    include_setup_edits: list[str] | None = None,
 ) -> None:
     if job.status != "needs_approval" or not job.gate:
         raise JobError(409, f"Job {job.id} isn't waiting for approval (it is {job.status})")
@@ -1240,10 +1406,10 @@ async def decide(
         return
     reg = load_agents()
     level = reg.levels[job.autonomy]
-    if gate == "plan":
+    if gate in ("plan", "step"):
         job.run_index += 1
         job.gate = None
-        job.status = "queued"  # the edit run starts when the agent is free
+        job.status = "queued"  # the next run starts when the agent is free
         await session.commit()
         return
     if gate == "diff":
@@ -1257,6 +1423,7 @@ async def decide(
                 "slug": project.slug,
                 "job_id": job.id,
                 "message": _commit_message(job),
+                "include_setup_edits": include_setup_edits or [],
             },
         )
         if status != 200:
@@ -1271,6 +1438,8 @@ async def decide(
             sha=res.get("sha"),
             branch=res.get("branch"),
             committed=res.get("committed"),
+            left_out=res.get("left_out") or [],
+            included=include_setup_edits or [],
         )
     await _finish(session, pc, job, "done", None, keep_worktree=gate == "diff" and level.review == "diff")
 
@@ -1329,6 +1498,8 @@ async def _finish(
         job.gate = None
     await event(session, job, status, error=error)
     await session.commit()
+    if status == "done":
+        await _graph_outcome(session, job)
     if not keep_worktree:
         await remove_worktree(session, job)
     await _issue(pc, session, job)
@@ -1337,6 +1508,24 @@ async def _finish(
             await pc.comment(job.paperclip_issue_id, f"Job {status}: {error}")
         except PaperclipError:
             pass
+
+
+async def _graph_outcome(session: AsyncSession, job: Job) -> None:
+    """ADR 0019: a finished job of a measuring group may complete the round and decide."""
+    g = (job.packs or {}).get("graphify") or {}
+    if not g.get("eligible") or not g.get("group"):
+        return
+    project = await session.get(Project, job.project_id)
+    if project is None:
+        return
+    try:
+        decided = await packs.reconsider(session, project, g["group"])
+    except Exception:  # noqa: BLE001 - measuring never breaks a job's finish
+        log.exception("job %s: graphify measuring failed", job.id)
+        return
+    if decided:
+        await event(session, job, "graphify_decided", **decided)
+    await session.commit()
 
 
 async def remove_worktree(session: AsyncSession, job: Job) -> None:

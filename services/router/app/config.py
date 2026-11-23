@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # M2.5 (ADR 0016): attachments live here, a host folder (~/.switchboard/data by default, mode 700, never
     # inside the repo) bind-mounted into the container, so hostprobe can copy files into job worktrees.
     data_dir: Path = Path("/srv/data")
+    # M4.5a (ADR 0018): the repo's packs/ folder (manifests and their locks), mounted read-only.
+    packs_dir: Path = Path("/srv/packs")
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     catalog_interval_s: int = 24 * 3600
     # Skip the startup catalog/reconcile/import tasks (tests drive them directly).

@@ -1841,7 +1841,9 @@ def make_handler(probe: Probe):
                     if m.group(2):
                         start = (query.get("from") or ["0"])[0]
                         return self._events(job, int(start) if start.isdigit() else 0)
-                    return self._send(200, job.snapshot())
+                    with job.cond:
+                        tail = [x["t"] for x in job.lines[-30:]]
+                    return self._send(200, {**job.snapshot(), "tail": tail})
             except (InstallError, packs.PackError) as e:
                 return self._send(e.status, {"error": e.message})
             m = re.fullmatch(r"/install/jobs/([\w-]+)(/events)?", url.path)

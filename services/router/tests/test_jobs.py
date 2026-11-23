@@ -310,6 +310,7 @@ class FakeHost:
         self.key_files: dict[str, str] = {}
         self.codex: dict = {"found": False}
         self.codex_calls: list[dict] = []
+        self.packs: list[dict] = []  # M4.5a: hostprobe's pack store listing
 
     def install(self, m):
         m.get(f"{HP}/cli").mock(
@@ -362,6 +363,12 @@ class FakeHost:
         m.post(f"{HP}/git/worktrees/commit").mock(side_effect=self._commit)
         m.post(f"{HP}/git/worktrees/remove").mock(side_effect=self._remove)
         m.post(f"{HP}/git/worktrees/attachments").mock(side_effect=self._attachments)
+        # M4.5a: no packs installed unless a test says so (tests/test_packs.py)
+        m.get(url__regex=rf"{HP}/packs(\?.*)?$").mock(
+            side_effect=lambda r: httpx.Response(
+                200, json={"packs": self.packs, "service_path": "/usr/bin:/bin", "store": "~/.switchboard/packs"}
+            )
+        )
         m.get(url__regex=rf"{HP}/git/worktrees\?").mock(
             side_effect=lambda r: httpx.Response(
                 200,

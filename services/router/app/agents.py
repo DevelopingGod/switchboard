@@ -512,6 +512,8 @@ def build_run(
     budget_left_usd: float | None,
     account_home: str | None = None,
     overflow: dict[str, str] | None = None,
+    extra_env: dict[str, str] | None = None,
+    extra_allowed: list[str] | None = None,
 ) -> RunSpec:
     """The complete Paperclip adapter config for one run. Always complete: Paperclip's reads are redacted,
     so the router never edits what it read back (docs/m4a.md).
@@ -519,7 +521,8 @@ def build_run(
     `account_home` (M6.5) is a named account's folder on the host: the CLI's `home_env` points at it, so the
     vendor CLI uses that login (nothing in it is read or copied). `overflow` = {key_file, model} for the paid
     agent: OpenCode reads the LiteLLM key from that file (`{file:...}`), so the key never enters Paperclip's
-    config (ADR 0015)."""
+    config (ADR 0015). `extra_env` / `extra_allowed` (M4.5a, ADR 0018): the run's PATH with the job's pack
+    wrappers first, and the pack commands the agent may run (prefixes, like `allowed_commands`)."""
     if kind not in agent.profiles:
         raise KeyError(f"{agent.label} has no {kind} profile")
     if agent.paid and not overflow:
@@ -535,16 +538,18 @@ def build_run(
         f"## Task\n\n{_neutralise_braces(task)}\n"
     )
     env = dict(CLEAN_ENV)
+    env.update({k: v for k, v in (extra_env or {}).items() if k == "PATH"})
+    commands = [*d.allowed_commands, *(c for c in extra_allowed or [] if c not in d.allowed_commands)]
     allowed: list[str] = []
     if agent.permissions == "claude":
-        allowed = [f"Bash({c}:*)" for c in d.allowed_commands]
+        allowed = [f"Bash({c}:*)" for c in commands]
     elif agent.permissions == "opencode":
         env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
         if kind == "read_only":
             perm: dict[str, Any] = {"edit": "deny", "bash": "deny", "webfetch": "deny", "websearch": "deny"}
         else:
             bash: dict[str, str] = {"*": "deny"}
-            bash.update({f"{c}*": "allow" for c in d.allowed_commands})
+            bash.update({f"{c}*": "allow" for c in commands})
             perm = {"edit": "allow", "bash": bash, "webfetch": "deny", "websearch": "deny"}
         content: dict[str, Any] = {"permission": perm}
         if agent.paid and overflow:

@@ -46,7 +46,25 @@ async def health(request: Request, session: AsyncSession = Depends(get_session))
         "overflow_allow_free": get_settings().router_overflow_allow_free,
         "rollups": await _rollups(session) if db == "ok" else None,
         "attachments": _attachments(),
+        "packs": _packs(),
     }
+
+
+def _packs() -> str:
+    """M4.5a: the pack manifests and their locks (packs/). Plain words for doctor.sh."""
+    from app.packs import registry
+
+    try:
+        reg = registry.load()
+    except Exception as e:  # noqa: BLE001 - the mount may be missing
+        return f"error: {str(e)[:160]}"
+    if reg.errors:
+        name, why = next(iter(reg.errors.items()))
+        return f"error: {name}: {why[:160]}"
+    stale = [p.id for p in reg.packs.values() if p.lock_problem]
+    if stale:
+        return f"error: {', '.join(stale)}: lock out of date (python3 scripts/pack-lock.py <id>)"
+    return f"ok ({len(reg.packs)} packs)"
 
 
 def _attachments() -> str:

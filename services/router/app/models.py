@@ -209,6 +209,9 @@ class Cost(Base):
     # M6: chat | media | job | aux (titles, summaries) | test (model tests) | external (other LiteLLM clients)
     kind: Mapped[str | None] = mapped_column(String(16))
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    # M4.5a (ADR 0019): cached input tokens (cache reads + writes), when the source reports them. Tokens of a
+    # job = tokens_in + tokens_cached + tokens_out (one definition for Metrics and graphify's measuring).
+    tokens_cached: Mapped[int | None] = mapped_column(Integer)
 
 
 class QuotaUsage(Base):
@@ -282,6 +285,8 @@ class Project(Base):
         DateTime(timezone=True)
     )  # off the allowlist; jobs kept
     accounts: Mapped[dict[str, str] | None] = mapped_column(JSONB)  # M6.5: {cli: account} for this project
+    # M4.5a (ADRs 0018/0019): per-project pack settings and graphify's measuring state (app/packs/service.py)
+    packs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class Job(Base):
@@ -331,6 +336,10 @@ class Job(Base):
     waits: Mapped[int] = mapped_column(SmallInteger, default=0)
     paid: Mapped[bool] = mapped_column(Boolean, default=False)
     paid_budget_usd: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    # M4.5a: a pack workflow ("openspec.change": one run per step, a review after each) and what the job's
+    # packs did (set up, graph used or a control, setup edits); see app/packs/service.py.
+    flow: Mapped[str | None] = mapped_column(String(64))
+    packs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -477,3 +486,20 @@ class Attachment(Base):
     secret_kinds: Mapped[list[Any]] = mapped_column(default=list)
     note: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PackInstall(Base):
+    """Every pack store action (M4.5a, ADR 0018): install, rollback, uninstall, with the plan the owner read."""
+
+    __tablename__ = "pack_installs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    pack: Mapped[str] = mapped_column(String(64), index=True)
+    version: Mapped[str | None] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(16))  # install | rollback | uninstall
+    status: Mapped[str] = mapped_column(String(16))  # running | ok | failed
+    summary_json: Mapped[dict[str, Any]] = mapped_column(default=dict)  # source, hash, deps, commands, writes
+    log_tail: Mapped[str | None] = mapped_column(Text)
+    hostprobe_job: Mapped[str | None] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -14,6 +14,7 @@ from app.api import agents, catalog, chat, connections, health, onboarding, proj
 from app.api import attachments as attachments_api
 from app.api import jobs as jobs_api
 from app.api import metrics as metrics_api
+from app.api import packs as packs_api
 from app.api import subscriptions as subscriptions_api
 from app.catalog.job import run_forever
 from app.config import get_settings
@@ -96,3 +97,4 @@ app.include_router(agents.router)
 app.include_router(jobs_api.router)
 app.include_router(metrics_api.router)
 app.include_router(subscriptions_api.router)
+app.include_router(packs_api.router)

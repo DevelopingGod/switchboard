@@ -1,0 +1,21 @@
+# Workflow packs (M4.5a, SPEC §8a, ADRs 0018-0019). Read by the Router API, re-read when the file changes.
+# The packs themselves are in packs/<id>/pack.yaml (with a committed lock); this file holds the knobs.
+
+# graphify, the first automatic pack (ADR 0019). A project's mode is Auto (default), Always or Off
+# (Settings → Projects). Auto uses the graph only for agent jobs on projects at least this big.
+graphify:
+  auto:
+    min_files: 1500            # tracked files (git ls-files) ...
+    min_bytes: 20000000        # ... or tracked bytes (20 MB), whichever is reached first
+  # Whether the graph saves tokens, per project + agent + flow: every `holdout_every`-th eligible job runs
+  # without the graph (a control) until both arms have `min_samples` finished jobs. With the graph, the median
+  # tokens per job (input + cached input + output) must be at least `min_gain` lower, or graphify turns off
+  # for that group. After a decision, no more holdouts until `recheck_every` eligible jobs later.
+  measure:
+    holdout_every: 5
+    min_samples: 5
+    min_gain: 0.10
+    recheck_every: 20
+
+# How long a job waits for its packs to be set up in the worktree (graph builds on big projects take a while).
+setup_timeout_s: 1800

@@ -96,6 +96,8 @@ services:
     user: "${SWITCHBOARD_UID:-10001}:${SWITCHBOARD_GID:-10001}"
     volumes:
       - ../config:/srv/config:ro
+      # M4.5a: workflow pack manifests and their locks (ADR 0018). hostprobe reads the same folder on the host.
+      - ../packs:/srv/packs:ro
       # Attachments (files and images in chat and jobs). Outside the repo; back it up with your other data.
       - ${SWITCHBOARD_DATA_DIR:-${HOME}/.switchboard/data}:/srv/data
     ports:
