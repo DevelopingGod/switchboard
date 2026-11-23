@@ -196,7 +196,7 @@ projects. Packs are pinned and hashed, set up only in the job's copy, and never 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-diff-dusk.webp">
-    <img src="docs/media/shot-job-diff-day.webp" alt="A job waiting for review: Approve and commit or Reject with a note, the changes per file with added lines highlighted, and a side panel with the agent, autonomy, branch name with a copy button and the budget used." width="720">
+    <img src="docs/media/shot-job-diff-day.webp" alt="A job waiting for review: Approve and commit or Reject with a note, a line saying changes made by a pack's setup are left out unless you tick them, the changes per file with added lines highlighted, and a side panel with the agent, autonomy, branch name with a copy button and the budget used." width="720">
   </picture>
 </p>
 
@@ -301,7 +301,7 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-job-diff-dusk.webp">
-        <img src="docs/media/shot-job-diff-day.webp" alt="The changes of a job, per file, with added lines highlighted and an Approve and commit button.">
+        <img src="docs/media/shot-job-diff-day.webp" alt="The changes of a job, per file, with added lines highlighted, an Approve and commit button, and a note that changes made by a pack's setup stay out of the commit unless ticked.">
       </picture>
       <br><sub><b>Review every change.</b> Per-file diffs, the live log, cost (or "cost not reported"), and the branch with plain merge instructions.</sub>
     </td>
@@ -320,6 +320,15 @@ Everything below ships today. Screenshots use fixture data (no real keys, chats 
         <img src="docs/media/shot-accounts-day.webp" alt="Settings, Accounts: the default Claude login and a second account named work for a company Team seat, each with its folder and login state, and a form to add another.">
       </picture>
       <br><sub><b>Separate accounts, never rotated.</b> Keep a personal plan and a company seat apart, per project or agent. Each usage window is shown, reported by the CLI or labelled as an estimate.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/media/shot-packs-dusk.webp">
+        <img src="docs/media/shot-packs-day.webp" alt="Connections, Workflow packs: graphify (verified, installed, an update available, automatic for large projects), gstack (unverified, can't be installed because it only installs into your home folder) and OpenSpec (verified, installed, workflow Propose, Apply, Archive), each with Check files and Remove.">
+      </picture>
+      <br><sub><b>Workflow packs.</b> OpenSpec's propose → apply → archive as one job, and graphify's code graph. Pinned and hashed, set up only in the job's copy, never committed unless you tick it.</sub>
     </td>
   </tr>
 </table>
