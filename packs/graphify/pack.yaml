@@ -1,0 +1,41 @@
+# graphify (SPEC §8a, ADRs 0018-0019). Verified 2026-11-23 against 0.9.115: the PyPI package is `graphifyy`
+# (double y); `graphify` does not exist on PyPI. `extract --code-only` with GRAPHIFY_BACKEND=none is a local
+# tree-sitter pass. `install --project` writes the skill and hook files below **and appends a section to the
+# tracked AGENTS.md**: that edit is shown to you as an unticked item in the diff review, never committed silently.
+# Regenerate the lock after any change: python3 scripts/pack-lock.py graphify
+id: graphify
+name: graphify
+summary: A local map of the code that agents query instead of reading every file.
+trust: verified
+homepage: https://graphify.com
+repository: https://github.com/Graphify-Labs/graphify
+license: MIT
+source: pypi:graphifyy==0.9.115
+lookalikes: [graphify]            # not on PyPI: anything published under it later is not this project
+requires: [python>=3.11.5,<3.15]
+scope: [project]
+hosts: { claude-code: claude, codex: codex, opencode: opencode }
+bins: { graphify: venv/bin/graphify }
+env: { GRAPHIFY_BACKEND: none }   # M4.5a: AST pass only, no AI backend (the semantic pass is M4.5a-2)
+detect: [graphify, --version]
+auto: graph                       # an automatic pack: config/packs.yaml decides when (ADR 0019)
+cache: graphify-out               # copied in before the build and back after, per project
+project:
+  prepare:                        # builds or refreshes the graph (only when the job uses the graph)
+    - [graphify, extract, ., --code-only]
+    - [graphify, cluster-only, ., --no-label, --no-viz]
+  setup:
+    - [graphify, install, --project, --platform, "{tool_id}"]
+owned:
+  - "graphify-out/**"
+  - ".claude/skills/graphify/**"
+  - ".claude/settings.json"
+  - ".codex/skills/graphify/**"
+  - ".codex/hooks.json"
+  - ".agents/skills/graphify/**"
+  - ".opencode/skills/graphify/**"
+artifacts: []
+allow: [graphify query, graphify path, graphify explain, graphify section, graphify update]
+note: >-
+  This project has a code graph in graphify-out/. Before reading or searching files, ask it: `graphify query
+  "<question>"`, `graphify path "<A>" "<B>"`, `graphify explain "<name>"`. Read files only for the lines it points to.
