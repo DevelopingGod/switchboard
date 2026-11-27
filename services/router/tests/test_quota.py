@@ -9,7 +9,7 @@ from app import quota
 from app.config import get_settings
 from app.models import QuotaUsage
 from app.registry import load_registry
-from app.routing.engine import RouteRequest, decide
+from app.routing.engine import RouteRequest, decide, reasons
 from app.routing.health import Cooldowns
 from tests.conftest import ADMIN
 from tests.test_chat import first, stack, turn  # noqa: F401  (fixtures)
@@ -239,3 +239,123 @@ async def test_status_shows_specific_reasons(client, stack, session, test_limits
     comps = (await client.get("/system/components", headers=ADMIN)).json()["components"]
     row = next(c for c in comps if c["id"] == "provider:groq")
     assert row["code"] == "quota_high" and row["quota"]["fraction"] >= 0.8 and row["until"]
+
+
+# --- one number per limit: provider headers replace our counter for display -----------------------
+def _minute_view(counter_tokens=6800, remaining=6400, reset_s=30.0, seen_ago=5, now=NOW):
+    """Groq with both numbers for per-minute tokens (limit 8000): our counter and the header."""
+    data = {"limit_tokens": 8000, "remaining_tokens": remaining}
+    if reset_s is not None:
+        data["reset_tokens_s"] = reset_s
+    return view(
+        {("groq", "openai/gpt-oss-120b", "m", quota.minute_start(now)): (1, counter_tokens)},
+        {("groq", "openai/gpt-oss-120b"): (data, now - timedelta(seconds=seen_ago))},
+        now,
+    )
+
+
+def _shown_tokens(v):
+    ws = v.shown("groq", "openai/gpt-oss-120b")
+    assert len({(w.window, w.kind) for w in ws}) == len(ws)  # never two numbers for one limit
+    return next(w for w in ws if (w.window, w.kind) == ("minute", "tokens"))
+
+
+def test_a_fresh_header_replaces_the_counter_for_display_but_routing_takes_the_max():
+    v = _minute_view()
+    shown = _shown_tokens(v)
+    assert shown.source == "headers" and shown.fraction == pytest.approx(0.2)
+    u = v.usage("groq", "openai/gpt-oss-120b")
+    assert u.source == "counter" and u.fraction == pytest.approx(0.85)
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"reset_s": 2.0, "seen_ago": 5},  # its window is over
+        {"reset_s": None, "seen_ago": 45},  # no reset time, seen in the previous minute
+    ],
+)
+def test_an_expired_or_stale_header_falls_back_to_the_counter(kw):
+    shown = _shown_tokens(_minute_view(**kw))
+    assert shown.source == "counter" and shown.fraction == pytest.approx(0.85)
+
+
+def test_a_header_without_reset_counts_within_the_current_window():
+    assert _shown_tokens(_minute_view(reset_s=None, seen_ago=20)).source == "headers"
+    data = {"limit_requests": 1000, "remaining_requests": 900}
+    for ago, kept in ((timedelta(hours=2), True), (timedelta(days=1), False)):
+        v = view(headers={("groq", "openai/gpt-oss-120b"): (data, NOW - ago)})
+        day = [w for w in v.shown("groq", "openai/gpt-oss-120b") if (w.window, w.kind) == ("day", "requests")]
+        assert [w.source for w in day] == ["headers" if kept else "counter"]
+
+
+@pytest.mark.parametrize("target", [None, "model:fast"])
+def test_why_this_says_when_our_estimate_moved_the_request(target):
+    now = datetime.now(UTC).replace(second=1, microsecond=0)
+    c = ctx()
+    c.quota = _minute_view(now=now, seen_ago=0)
+    c.catalog = [*CATALOG]
+    dec = decide(RouteRequest("hi", target=target) if target else RouteRequest("hi"), c)
+    note = "Groq: our estimate 85% of per-minute tokens; Groq reports 20%"
+    why = reasons(dec, dec.candidates[0], c.registry, c.catalog)
+    assert note in why
+    if target is None:  # rerouted away from `fast`
+        skip = next(s for s in dec.skipped if s.target == "model:fast")
+        assert skip.reason.startswith(note)
+
+
+def test_why_this_uses_plain_wording_when_the_provider_agrees():
+    now = datetime.now(UTC).replace(second=1, microsecond=0)
+    c = ctx()
+    c.quota = _minute_view(remaining=800, now=now, seen_ago=0)  # header says 90%
+    c.catalog = [*CATALOG]
+    dec = decide(RouteRequest("hi"), c)
+    skip = next(s for s in dec.skipped if s.target == "model:fast")
+    assert "our estimate" not in skip.reason and "90% of its per-minute token limit" in skip.reason
+
+
+async def test_every_surface_shows_the_providers_number(
+    client, stack, session, test_limits, probes, hostprobe_up, mock_http
+):
+    """A provider that sends rate-limit headers: Metrics, the footer and Status agree on one number."""
+    mock_http.get(url__regex=r"http://hostprobe\.test/accounts/status\?.*").respond(
+        200, json={"installed": True, "logged_in": True, "plan": None}
+    )
+    test_limits("groq:openai/gpt-oss-120b=rpm:10")
+    reg = load_registry()
+    now = datetime.now(UTC)
+    await quota.record(session, reg, "groq", "openai/gpt-oss-120b", requests=9, now=now)
+    await quota.record_headers(
+        session,
+        reg,
+        "groq",
+        "openai/gpt-oss-120b",
+        {
+            "x-ratelimit-limit-requests": "1000",
+            "x-ratelimit-remaining-requests": "150",
+            "x-ratelimit-reset-requests": "1h",
+            "x-ratelimit-limit-tokens": "8000",
+            "x-ratelimit-remaining-tokens": "6400",
+            "x-ratelimit-reset-tokens": "59s",
+        },
+    )
+    await session.commit()
+    providers = (await client.get("/metrics/quotas", headers=ADMIN)).json()["providers"]
+    groq = next(p for p in providers if p["provider"] == "groq")
+    keys = [(w["window"], w["kind"]) for w in groq["windows"]]
+    assert len(keys) == len(set(keys))
+    by = {(w["window"], w["kind"]): w for w in groq["windows"]}
+    assert by[("day", "requests")]["source"] == "headers" and by[("day", "requests")]["used"] == 850
+    assert by[("minute", "tokens")]["source"] == "headers" and by[("minute", "tokens")]["used"] == 1600
+    assert by[("minute", "requests")]["source"] == "counter"  # no header for this one
+    footer = (await client.get("/system/summary")).json()["quota"]["top"]
+    row = next(
+        c
+        for c in (await client.get("/system/components", headers=ADMIN)).json()["components"]
+        if c["id"] == "provider:groq"
+    )
+    for shown in (footer, row["quota"]):
+        assert {k: shown[k] for k in groq["windows"][0]} == groq["windows"][0]
+    # routing still takes the higher of the two (our 90% counter)
+    v = await quota.load_view(session, reg, now=now)
+    assert v.usage("groq", "openai/gpt-oss-120b").fraction == pytest.approx(0.9, abs=0.01)

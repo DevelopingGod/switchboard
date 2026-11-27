@@ -38,6 +38,7 @@ docker compose -f deploy/docker-compose.yml run --rm --no-deps -v "$PWD/scripts:
 3. **Quota guard.**
    - `providers.yaml` → `limits:` per provider (with per-model overrides and `day_reset_tz`).
    - Counted per minute (sliding) and per day in `quota_usage`, so a restart doesn't reset anything. `x-ratelimit-*` headers from LiteLLM override the counters when they say less is left.
+   - **What you see vs what routing uses:** the footer, Status and Metrics show one number per limit: the provider's header where it is fresh (until its reset time, or within the current minute or day when it sends none), otherwise our counter. Routing still takes the higher of the two, and "Why this?" says so when our estimate moved a request while the provider reported less.
    - At 80% of any window, automatic routing moves elsewhere before a 429 can happen. The last 20% is kept for manual picks.
    - An alias near its limit is replaced by its stand-in with the most headroom (`equivalent:` in `providers.yaml`).
    - Cooldowns (429, timeout, credit, 404) are now persisted too.

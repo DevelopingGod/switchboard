@@ -19,7 +19,7 @@ from app.routing.recommend import Scored, Stat
 from app.routing.rules import Rule, RuleSet
 
 if TYPE_CHECKING:
-    from app.quota import QuotaView
+    from app.quota import QuotaView, Usage
 
 SLASH = re.compile(r"^/([a-z][\w-]{0,20})(?:\s+|$)", re.I)
 MODEL_TARGET = re.compile(r"^model:[\w.:/@-]{1,200}$")
@@ -177,6 +177,9 @@ class Decision:
     job_agents: list[dict[str, Any]] = field(default_factory=list)
     # M2.5: what the attachments asked for ({vision, long_document, code, tokens}); None without attachments
     attachments: dict[str, Any] | None = None
+    # Reroutes decided by our own counter while the provider reported a lower number, as (how many
+    # candidates came before, sentence), for "Why this?".
+    quota_estimates: list[tuple[int, str]] = field(default_factory=list)
 
     @property
     def needs_vision(self) -> bool:
@@ -516,12 +519,27 @@ class _Resolver:
         limit = cfg.block_at if manual_pick else cfg.reroute_at
         if u.fraction >= limit:
             why = "at its limit" if u.fraction >= cfg.block_at else "keeping headroom for manual picks"
-            self.skip(c.target, c.label, "quota", f"{u.describe()}; {why}")
+            # If a limit people can see is over too, describe that one; only our counter may be.
+            shown = next((w for w in q.shown(c.provider, c.model_id) if w.fraction >= limit), None)
+            note = None if shown else self._estimate_note(c, u)
+            if note:
+                self.dec.quota_estimates.append((len(self.dec.candidates), note))
+            self.skip(c.target, c.label, "quota", f"{note or (shown or u).describe()}; {why}")
             self.over_quota.add(c.target)
             return False
         if manual_pick and u.fraction >= cfg.reroute_at:
-            c.quota_note = f"{c.label} {u.describe()}"
+            c.quota_note = self._estimate_note(c, u) or f"{c.label} {u.describe()}"
         return self._fits_tokens(c, limit)
+
+    def _estimate_note(self, c: Candidate, u: Usage) -> str | None:
+        """Says so when the number routing acted on is our counter and the provider reports a lower one."""
+        q = self.ctx.quota
+        real = q.overruled(c.provider, c.model_id, u) if q else None
+        if real is None:
+            return None
+        name = self.reg.providers[c.provider].name.split(" (")[0]
+        unit = f"per-minute {u.kind}" if u.window == "minute" else f"today's {u.kind}"
+        return f"{name}: our estimate {u.fraction:.0%} of {unit}; {name} reports {real.fraction:.0%}"
 
     def _fits_tokens(self, c: Candidate, limit: float) -> bool:
         """M2.5: a message with large attachments may not fit what is left of a token window, even when the
@@ -536,13 +554,14 @@ class _Resolver:
                 and w.limit
                 and w.used + need + tokens(len(self.dec.prompt)) > w.limit * limit
             ):
-                self.skip(
-                    c.target,
-                    c.label,
-                    "quota",
+                reason = (
                     f"This message (≈{need:,} tokens with attachments) would go over the {w.window} "
-                    f"token limit ({w.used:,} of {w.limit:,} used)",
+                    f"token limit ({w.used:,} of {w.limit:,} used)"
                 )
+                if note := self._estimate_note(c, w):
+                    self.dec.quota_estimates.append((len(self.dec.candidates), note))
+                    reason = f"{reason}; {note}"
+                self.skip(c.target, c.label, "quota", reason)
                 self.over_quota.add(c.target)
                 return False
         return True
@@ -767,6 +786,12 @@ def reasons(dec: Decision, chosen: Candidate, registry: Registry, catalog: list[
     else:
         out.append("General chat → default rule")
 
+    # Our counter moved this request while the provider reported less: say so before anything else.
+    at = dec.candidates.index(chosen) if chosen in dec.candidates else len(dec.candidates)
+    estimate = next((note for before, note in dec.quota_estimates if before <= at), None)
+    if estimate and estimate != chosen.quota_note:
+        out.append(estimate)
+
     runtime = [s for s in dec.skipped if s.code in ("rate_limited", "timeout", "error", "cooldown")]
     if chosen.scored is not None:
         sc = chosen.scored
@@ -789,14 +814,18 @@ def reasons(dec: Decision, chosen: Candidate, registry: Registry, catalog: list[
     elif chosen.note and chosen.note.startswith("spread:"):
         alias = chosen.note.split(":", 1)[1]
         q = next((s for s in dec.skipped if s.code == "quota"), None)
-        out.append(f"Spread load: {q.label if q else alias} {q.reason.split(';')[0] if q else 'is busy'}")
+        if estimate:
+            out.append(f"Spread load: used instead of {q.label if q else alias}")
+        else:
+            out.append(f"Spread load: {q.label if q else alias} {q.reason.split(';')[0] if q else 'is busy'}")
     elif chosen.note:
         out.append(f"Best connected match for “{chosen.note.split(':', 1)[1]}”")
     elif chosen.position == 0 and not runtime:
         out.append(f"First choice of rule “{dec.rule_id}”")
     elif dec.skipped:
         s = dec.skipped[-1] if runtime else dec.skipped[0]
-        out.append(f"Fallback: {s.label} skipped ({s.reason[:60]})")
+        why = "near its limit" if estimate and s.code == "quota" else s.reason[:60]
+        out.append(f"Fallback: {s.label} skipped ({why})")
     else:
         out.append(f"Fallback #{chosen.position} of rule “{dec.rule_id}”")
 

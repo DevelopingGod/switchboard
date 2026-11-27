@@ -30,7 +30,7 @@ Run the ones that cover what you changed. CI is planned for M7, so please run th
 |---|---|
 | Router (Python) | `docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm router pytest` (and `ruff check`) |
 | hostprobe | `python3 -m unittest discover -s services/hostprobe/tests` |
-| Portal | from `apps/portal`: `npm run typecheck && npm run lint && npm test`, then `npm run build` and `npx playwright test` |
+| Portal | from `apps/portal`: `npm run typecheck && npm run lint && npm test`, then `npm run build`, `npx playwright test` and `npm run test:console` (no console errors, on a `next dev` server) |
 | Performance budget | `npm run budget` (every route ≤ 200 KB first-load JS; we keep ≥ 8 KB headroom) |
 | README / docs | `npm run docs:check` |
 

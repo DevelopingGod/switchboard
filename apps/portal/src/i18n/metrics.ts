@@ -75,7 +75,7 @@ export const metricsStrings = {
       kind: "Kind",
     },
     quotas: "Free quotas",
-    quotasLead: "Today against each provider’s limit, from the same counters routing uses.",
+    quotasLead: "Each provider’s limit: its own number where it sends one, otherwise our count.",
     quotasNone: "No connected provider has known limits.",
     resets: "resets {when}",
     estimate: "estimated",

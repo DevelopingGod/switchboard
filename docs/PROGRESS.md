@@ -891,3 +891,32 @@ semantic pass are **M4.5a-2**; phase routing, chips, artifacts view, presets, gs
   only on change (mtime + size) with a periodic full check (needs your decision, per your note).
 - Still open from earlier: see "Carry-over from M2.5".
 
+
+## Fix: one number per quota limit, and the collapsed rail (branch `fix-quotas-rail`, 2026-11-27)
+
+- **Quotas:** Metrics showed two numbers (our counter and the provider's rate-limit header) for one limit, with
+  duplicate React keys. One function (`QuotaView.display_windows`) now gives the footer, Status and Metrics one number
+  per window and kind: a fresh header replaces the counter; a header without a reset time counts only within the
+  current minute or day. Routing still takes the higher of the two, and "Why this?" says when our estimate moved a
+  request while the provider reported less. Connections shows no live quota number (only the static limits text).
+- **Console guard:** `npm run test:console` fails on any console or page error on the main pages, in Simple and Pro.
+  It runs `next dev` (React reports key warnings only there) with its own build folder (`PORTAL_DIST_DIR`,
+  `.next-console`, `tsconfig.console.json`), so it runs beside another `next dev`.
+- **Collapsed rail:** no scrollbar; scrolls by wheel, touch and keyboard; a soft fade while there is more below.
+  Found by the touch test: the read-only budget dial swallowed swipes (`touch-action: none` on every Dial); only the
+  slider captures touch now.
+- No version bump, no demo re-record.
+
+## Carry-over from fix-quotas-rail
+
+- **Decide whether routing should trust fresh provider headers over our counter.** Today routing takes the higher of
+  the two, so it can leave a model that the footer, Status and Metrics show well below its limit (and Status then
+  shows no quota warning for it).
+- **`jobs-board` visual baselines fail on `main` since the calendar moved** (found 2026-11-27, same pixel counts on a
+  clean `main`): the page clock is fixed in the past, but the fixture's recent chats are dated from the real clock, so
+  their groups drift. Date the chat fixtures from the test clock, then regenerate the affected baselines (the
+  `metrics-pro` baselines updated here carry the same sidebar and can drift again).
+- Checks: router 560 pytest (+ 4 live, deselected), ruff clean; hostprobe 114; portal typecheck, eslint, vitest 117,
+  Playwright 503 passed and the 2 `jobs-board` failures above; console guard 16; JS ≤ 186.8 KB per product route;
+  Lighthouse 3 runs on `/metrics` and `/jobs`: performance 99–100, a11y and best practices 100, CLS 0; `docs:check`,
+  `test:bundle` green. Not checked live against real providers.

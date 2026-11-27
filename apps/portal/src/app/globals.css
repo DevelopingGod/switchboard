@@ -208,6 +208,12 @@ button, [role="button"], a, summary { -webkit-tap-highlight-color: transparent; 
 /* Mobile is read-only: composer-style inputs are visually muted by the components themselves. */
 .scroll-fade { scrollbar-width: none; }
 .scroll-fade::-webkit-scrollbar { display: none; }
+/* The collapsed rail shows no scrollbar (its fade says there is more). Here, not in components.css:
+   the themed scrollbar rules above are unlayered and would win over a layered rule. */
+@media (min-width: 768px) {
+  :root[data-sidebar="collapsed"] .app-sidebar .sb-inner { scrollbar-width: none; }
+  :root[data-sidebar="collapsed"] .app-sidebar .sb-inner::-webkit-scrollbar { display: none; }
+}
 
 /* ---------- Overlays ---------- */
 @keyframes pop {

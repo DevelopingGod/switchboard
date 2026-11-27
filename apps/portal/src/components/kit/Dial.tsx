@@ -169,7 +169,8 @@ export function Dial({
         onPointerMove={(e) => dragging.current && fromPointer(e)}
         onPointerUp={() => (dragging.current = false)}
         onPointerCancel={() => (dragging.current = false)}
-        className={cn("overflow-visible touch-none", interactive && "cursor-grab active:cursor-grabbing rounded-full")}
+        // Only the slider captures touch (drag to set); a meter must let a swipe scroll the page or rail.
+        className={cn("overflow-visible", interactive && "touch-none cursor-grab active:cursor-grabbing rounded-full")}
       >
         <path d={arc} fill="none" stroke="var(--track)" strokeWidth={stroke} strokeLinecap="round" />
         {stops &&
