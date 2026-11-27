@@ -195,8 +195,10 @@ const QUOTAS: QuotaProvider[] = [
     model: "openai/gpt-oss-120b",
     limits_note: "1,000 requests/day, 30/min",
     windows: [
-      { fraction: 0.62, window: "day", kind: "requests", used: 620, limit: 1000, resets_at: `${DAY}T18:30:00Z`, source: "counter" },
-      { fraction: 0.2, window: "minute", kind: "requests", used: 6, limit: 30, resets_at: `${DAY}T12:01:00Z`, source: "headers" },
+      // Groq sends rate-limit headers: requests per day and tokens per minute are its own numbers.
+      { fraction: 0.62, window: "day", kind: "requests", used: 620, limit: 1000, resets_at: `${DAY}T18:30:00Z`, source: "headers" },
+      { fraction: 0.2, window: "minute", kind: "requests", used: 6, limit: 30, resets_at: `${DAY}T12:01:00Z`, source: "counter" },
+      { fraction: 0.15, window: "minute", kind: "tokens", used: 1200, limit: 8000, resets_at: `${DAY}T12:01:00Z`, source: "headers" },
     ],
   },
   {

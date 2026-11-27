@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { getPrefs, setPrefs, usePrefs, type Mode } from "@/lib/prefs";
 import { useSummary } from "@/lib/use-summary";
 import { useHydrated } from "@/lib/use-hydrated";
+import { useMoreBelow } from "@/lib/use-more-below";
 import { useNeedsYou } from "@/lib/job-attention";
 import { t } from "@/i18n/strings";
 import { tShell } from "@/i18n/shell";
@@ -100,6 +101,8 @@ export function Sidebar({
   const rail = prefs.sidebarCollapsed && !open; // icon rail: tooltips stand in for the labels
   const ref = React.useRef<HTMLElement>(null);
   const closeRef = React.useRef<HTMLButtonElement>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  useMoreBelow(scrollRef);
   const toggle = () => setPrefs({ sidebarCollapsed: !getPrefs().sidebarCollapsed });
   const name = prefs.name.trim();
 
@@ -149,7 +152,7 @@ export function Sidebar({
       data-jobs-checked={needsYou !== null || undefined}
       aria-label={tShell("sidebar.label")}
     >
-      <div className="sb-inner surface-strong">
+      <div ref={scrollRef} className="sb-inner surface-strong">
         <div className="sb-top">
           <Link href="/" aria-label={t("logo.alt")} className="sb-logo" data-tip={rail ? t("nav.home") : undefined}>
             <LogoMark className="size-8 shrink-0" />

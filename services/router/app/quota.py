@@ -253,6 +253,63 @@ class QuotaView:
                 out.append(Usage(used / int(limit), window, kind, used, int(limit), resets, "headers"))
         return out
 
+    def display_windows(self, provider: str, pol: Policy, key: str, lim: Limit) -> list[Usage]:
+        """What people see (footer, Status, Metrics): one window per (window, kind). A fresh provider
+        header is the provider's real number and replaces our counter. Routing does not use this: it
+        takes the higher of the two (`usage`)."""
+        ws = self.windows_for(provider, pol, key, lim)
+        reported = {
+            (u.window, u.kind): u for u in ws if u.source == "headers" and self._fresh(provider, pol, key, u)
+        }
+        counted = [u for u in ws if u.source == "counter" and (u.window, u.kind) not in reported]
+        return counted + list(reported.values())
+
+    def _fresh(self, provider: str, pol: Policy, key: str, u: Usage) -> bool:
+        """A header snapshot with a reset time is dropped by `windows_for` once that passes. One without
+        a reset time never expires there, so it only counts within the current minute or day."""
+        if u.resets_at is not None:
+            return True
+        _, seen = self.headers[(provider, key)]
+        start = minute_start(self.now) if u.window == "minute" else day_start(self.now, pol.tz)
+        return seen >= start
+
+    def busiest(self, provider: str, pol: Policy) -> tuple[str, list[Usage]] | None:
+        """The provider's most-used model as people see it: its displayed windows, closest to a limit
+        first. None when nothing was counted or reported yet."""
+        keys = {k[1] for k in self.counters if k[0] == provider}
+        keys |= {k[1] for k in self.headers if k[0] == provider}
+        best: tuple[str, list[Usage]] | None = None
+        for key in sorted(keys):
+            ws = self.display_windows(provider, pol, key, limit_of(pol, key))
+            ws.sort(key=lambda u: -u.fraction)
+            if ws and (best is None or ws[0].fraction > best[1][0].fraction):
+                best = (key, ws)
+        return best
+
+    def shown(self, provider: str, model_id: str) -> list[Usage]:
+        """`display_windows` for one model."""
+        p = self.registry.providers.get(provider)
+        pol = policy(p) if p else None
+        key = scope_of(p, pol, model_id) if p and pol else None
+        if pol is None or key is None:
+            return []
+        return self.display_windows(provider, pol, key, limit_of(pol, model_id))
+
+    def overruled(self, provider: str, model_id: str, u: Usage) -> Usage | None:
+        """The fresh, lower provider number for the same limit as our counter window `u`, if any."""
+        if u.source != "counter":
+            return None
+        return next(
+            (
+                d
+                for d in self.shown(provider, model_id)
+                if d.source == "headers"
+                and (d.window, d.kind) == (u.window, u.kind)
+                and d.fraction < u.fraction
+            ),
+            None,
+        )
+
     def usage(self, provider: str, model_id: str) -> Usage | None:
         """The window closest to its limit (what decides rerouting)."""
         ws = self.windows(provider, model_id)
@@ -374,20 +431,15 @@ def provider_summary(view: QuotaView, connected: set[str]) -> list[dict[str, Any
         pol = policy(p) if p else None
         if p is None or pol is None:
             continue
-        keys = {k[1] for k in view.counters if k[0] == pid} | {k[1] for k in view.headers if k[0] == pid}
-        best: tuple[str, Usage] | None = None
-        for key in keys:
-            ws = view.windows_for(pid, pol, key, limit_of(pol, key))
-            u = max(ws, key=lambda w: w.fraction) if ws else None
-            if u and (best is None or u.fraction > best[1].fraction):
-                best = (key, u)
+        best = view.busiest(pid, pol)
         if best:
+            key, ws = best
             out.append(
                 {
                     "provider": pid,
                     "name": p.name.split(" (")[0],
-                    "model": None if best[0] == "*" else best[0],
-                    **best[1].as_dict(),
+                    "model": None if key == "*" else key,
+                    **ws[0].as_dict(),
                 }
             )
     return sorted(out, key=lambda r: -r["fraction"])

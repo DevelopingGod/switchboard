@@ -280,7 +280,8 @@ async def free_share(session: AsyncSession, r: Range, include_demo: bool) -> lis
 # --- quotas and budgets ---------------------------------------------------------------------------
 async def quotas(session: AsyncSession, now: datetime | None = None) -> list[dict[str, Any]]:
     """Per connected provider with known limits: every window of its busiest model (today vs limit, when it
-    resets). Reads the quota guard's own counters and headers (app.quota), so it matches routing."""
+    resets). One number per limit: the provider's own where it sends a fresh one, else our counter
+    (app.quota `display_windows`)."""
     registry = load_registry()
     view = await quota.load_view(session, registry, now)
     out = []
@@ -289,21 +290,20 @@ async def quotas(session: AsyncSession, now: datetime | None = None) -> list[dic
         pol = quota.policy(p) if p else None
         if p is None or pol is None:
             continue
-        keys = {k[1] for k in view.counters if k[0] == pid} | {k[1] for k in view.headers if k[0] == pid}
-        best: tuple[str, list[quota.Usage]] | None = None
-        for key in keys or {"*"}:
-            ws = view.windows_for(pid, pol, key, quota.limit_of(pol, key))
-            top = max((w.fraction for w in ws), default=0)
-            if ws and (best is None or top > max(w.fraction for w in best[1])):
-                best = (key, ws)
-        if not best:
-            continue
+        # Same numbers as the footer and Status (`busiest`); a provider with no use yet shows its limits.
+        best = view.busiest(pid, pol)
+        if best is None:
+            ws = view.display_windows(pid, pol, "*", quota.limit_of(pol, "*"))
+            if not ws:
+                continue
+            best = ("*", sorted(ws, key=lambda w: -w.fraction))
+        key, ws = best
         out.append(
             {
                 "provider": pid,
                 "name": p.name.split(" (")[0],
-                "model": None if best[0] == "*" else best[0],
-                "windows": [w.as_dict() for w in sorted(best[1], key=lambda w: -w.fraction)],
+                "model": None if key == "*" else key,
+                "windows": [w.as_dict() for w in ws],
                 "limits_note": p.free_limits,
             }
         )

@@ -255,7 +255,7 @@ function Quotas({ tz }: { tz: string }) {
                 <div className="min-w-0 text-[0.8125rem]">
                   <p className="font-semibold">{p.name}</p>
                   {p.windows.map((x) => (
-                    <p key={`${x.window}-${x.kind}`} className="text-ink-muted tabular-nums">
+                    <p key={`${x.window}-${x.kind}-${x.source}`} className="text-ink-muted tabular-nums">
                       {count(x.used)} / {count(x.limit)} {x.kind} {tMet(`pro.window.${x.window === "day" ? "day" : "minute"}`)}
                       {x.estimate ? ` (${tMet("pro.estimate")})` : ""}
                       {x.resets_at ? ` · ${tMet("pro.resets", { when: when(x.resets_at, tz) })}` : ""}

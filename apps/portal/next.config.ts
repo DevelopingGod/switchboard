@@ -8,7 +8,13 @@ import type { NextConfig } from "next";
 // preserves palette/popover state. Lighthouse is already 99 on every screen, so it isn't worth it yet;
 // revisit if a screen gets slow or the router moves off-box. Data loaders call `connection()` so the
 // pages are never prerendered with build-time data.
+// PORTAL_DIST_DIR: a separate build folder (and so a separate dev lock) for the console guard's dev server,
+// which can then run beside another `next dev` on this checkout. Its own tsconfig keeps Next from
+// rewriting the tracked one.
+const distDir = process.env.PORTAL_DIST_DIR;
+
 const nextConfig: NextConfig = {
+  ...(distDir ? { distDir, typescript: { tsconfigPath: "tsconfig.console.json" } } : {}),
   cacheComponents: false,
   partialPrefetching: false,
   turbopack: {

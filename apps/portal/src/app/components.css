@@ -281,6 +281,16 @@
   :root[data-sidebar="collapsed"] .sb-status, :root[data-sidebar="collapsed"] .sb-foot { flex-direction: column; }
   :root[data-sidebar="collapsed"] .sb-foot > :last-child { margin-left: 0; }
   :root[data-sidebar="collapsed"] .sb-recents { display: none; }
+  /* A short window makes the rail scroll (wheel, touch, keyboard) without a scrollbar; a soft fade at the
+     bottom says there is more, and goes at the end. Focused items scroll clear of it. */
+  :root[data-sidebar="collapsed"] .sb-inner { scroll-padding-block: 2.75rem; } /* scrollbar: globals.css */
+  :root[data-sidebar="collapsed"] .app-sidebar::after {
+    content: ""; position: absolute; left: calc(0.75rem + 1px); right: 1px; bottom: calc(0.75rem + 1px); height: 2.75rem;
+    border-radius: 0 0 var(--radius-panel, 1.5rem) var(--radius-panel, 1.5rem); pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--surface-solid) 90%);
+    opacity: 0; transition: opacity var(--d-base) var(--ease-out);
+  }
+  :root[data-sidebar="collapsed"] .app-sidebar[data-more]::after { opacity: 1; }
 }
 
 /* Phones: a drawer. Hidden (and out of the tab order) until opened. */
